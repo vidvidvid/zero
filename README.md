@@ -126,8 +126,9 @@ reordering by drag, `⌘`/`⌘-` zoom.
 
 ## Install
 
-Requires macOS on Apple Silicon. `git` for the worktree panel, `ripgrep` for
-search — both optional in the sense that the rest still works without them.
+Requires macOS on Apple Silicon and `git`, which the worktree panel and search
+both use. `ripgrep` is picked up if you have it and makes search faster on a
+large repo, but nothing needs installing for search to work.
 
 ```sh
 npm install

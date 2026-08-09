@@ -329,24 +329,72 @@ pub struct SearchHit {
     pub text: String,
 }
 
+/// ripgrep, if it's installed somewhere a GUI app can see. launchd's minimal
+/// PATH won't include homebrew, so the usual prefixes are tried by name.
+///
+/// Note this looks for an *executable*. A shell function named `rg` — Claude
+/// Code installs one, and it's easy to mistake for the real thing since `which`
+/// reports it — is invisible here, because nothing spawned from Rust goes
+/// through a shell.
+fn ripgrep(root: &str, query: &str) -> Option<String> {
+    ["rg", "/opt/homebrew/bin/rg", "/usr/local/bin/rg"]
+        .iter()
+        .find_map(|rg| {
+            Command::new(rg)
+                .args([
+                    "--line-number", "--no-heading", "--color=never",
+                    // literal, and case-insensitive until you type a capital
+                    "--fixed-strings", "--smart-case",
+                    "--max-count", "50", "--", query,
+                ])
+                .current_dir(root)
+                .output()
+                .ok()
+        })
+        // rg exits 1 on "no matches", which isn't an error for us
+        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+/// The fallback, and the reason search needs nothing installed: every project
+/// zero opens is a git repository. `git grep` also skips ignored files without
+/// having to read .gitignore itself, and `--untracked` picks up new files that
+/// aren't committed yet — between them, the same set ripgrep would have looked
+/// at.
+fn git_grep(root: &str, query: &str) -> Result<String, String> {
+    let mut args = vec![
+        "grep", "--line-number", "--no-color",
+        "-I", // never a binary file
+        "--untracked",
+        "--fixed-strings",
+    ];
+    // git has no --smart-case, so it's done by hand
+    if !query.chars().any(char::is_uppercase) {
+        args.push("--ignore-case");
+    }
+    args.push("-e");
+    args.push(query);
+
+    let out = git_base(root)
+        .args(exec_key_overrides(root).iter())
+        .args(&args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    match out.status.code() {
+        // 1 is "nothing matched"
+        Some(0) | Some(1) => Ok(String::from_utf8_lossy(&out.stdout).to_string()),
+        _ => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+    }
+}
+
 #[tauri::command]
 pub async fn search_project(root: String, query: String) -> Result<Vec<SearchHit>, String> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
-    // launchd's minimal PATH won't include homebrew — try known locations
-    let out = ["rg", "/opt/homebrew/bin/rg", "/usr/local/bin/rg"]
-        .iter()
-        .find_map(|rg| {
-            Command::new(rg)
-                .args(["--line-number", "--no-heading", "--color=never", "-S", "--max-count", "50", "--", &query])
-                .current_dir(&root)
-                .output()
-                .ok()
-        })
-        .ok_or("ripgrep not found (looked on PATH, /opt/homebrew/bin, /usr/local/bin)")?;
-    // rg exits 1 on "no matches" — not an error for us
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stdout = match ripgrep(&root, &query) {
+        Some(out) => out,
+        None => git_grep(&root, &query)?,
+    };
     let mut hits = Vec::new();
     for line in stdout.lines().take(500) {
         let mut parts = line.splitn(3, ':');
@@ -386,6 +434,42 @@ mod tests {
         let touch = format!("touch {}", marker.display());
         git(&["config", "core.fsmonitor", &touch]);
         git(&["config", "filter.trap.clean", &format!("sh -c '{touch}; cat'")]);
+    }
+
+    /// Search silently did nothing on a machine without ripgrep — and `which
+    /// rg` reported one, because Claude Code defines a shell function by that
+    /// name. Nothing spawned from Rust goes through a shell, so it was never
+    /// there. This pins the fallback that makes the feature stand on its own.
+    #[test]
+    fn search_works_without_ripgrep() {
+        let dir = std::env::temp_dir().join("zero-search-fallback-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cwd = dir.to_string_lossy().to_string();
+        let git = |args: &[&str]| {
+            git_base(&cwd).args(args).output().unwrap();
+        };
+        git(&["init", "-q", "."]);
+        std::fs::write(dir.join(".gitignore"), "ignored/\n").unwrap();
+        std::fs::write(dir.join("tracked.txt"), "the needle is here\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+        // never committed, but not ignored either — ripgrep would find it
+        std::fs::write(dir.join("fresh.txt"), "another NEEDLE\n").unwrap();
+        std::fs::create_dir_all(dir.join("ignored")).unwrap();
+        std::fs::write(dir.join("ignored/skip.txt"), "needle in ignored\n").unwrap();
+
+        let out = git_grep(&cwd, "needle").unwrap();
+        assert!(out.contains("tracked.txt"), "missed a tracked file: {out:?}");
+        assert!(out.contains("fresh.txt"), "missed an untracked file: {out:?}");
+        assert!(!out.contains("ignored/"), "searched an ignored file: {out:?}");
+        // lower case query matched "NEEDLE": smart case, by hand
+        assert_eq!(out.lines().count(), 2, "{out:?}");
+
+        // no matches is an empty result, not an error
+        assert_eq!(git_grep(&cwd, "zzz-absent-zzz").unwrap(), "");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
