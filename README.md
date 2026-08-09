@@ -17,9 +17,57 @@ Never capitalised. It's `zero`, not Zero.
    243 MB with 4 projects open  Cursor: 1,803 MB
 ```
 
-Measured, not guessed — [BENCHMARKS.md](BENCHMARKS.md) has the method, the
-scripts to reproduce it, and the part where most of that gap is simply zero
-doing less.
+## Benchmarks
+
+Same machine, same project, both editors, three launches each, median
+reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
+
+| | zero | Cursor | |
+|---|---:|---:|---|
+| App bundle | **11 MB** | 860 MB | 78× |
+| Files in the bundle | **3** | 17,035 | |
+| Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
+| Warm: window / ready to use | **0.40 s** / 2.39 s | 1.14 s / 6.59 s | |
+| Memory, one project | **354 MB** | 687 MB | 1.9× |
+| Idle CPU | **1.10%** of a core | 2.66% | |
+
+Memory is `phys_footprint` — what Activity Monitor shows. Summed RSS would
+have said 256 MB against 2,057 MB, but it counts a shared framework page once
+per process and so punishes Cursor for having twelve of them. The 2× is the
+honest number.
+
+### It gets wider the more projects you open
+
+Cursor opens a **window** per folder — a renderer and an extension host each.
+zero opens a **tab**: one process set, one WebKit, every project a subtree of
+the same page.
+
+| Projects open | zero | procs | Cursor | procs |
+|---|---:|---:|---:|---:|
+| 1 | 143 MB | 5 | 807 MB | 8 |
+| 2 | 176 MB | 5 | 1,050 MB | 11 |
+| 3 | 420 MB | 5 | 1,453 MB | 14 |
+| **4** | **243 MB** | **5** | **1,803 MB** | **17** |
+
+Cursor costs about **360 MB and three processes per extra project**, linearly.
+zero's process count never moves off five, and its per-project cost is small
+enough to vanish into noise — note the 3-project reading coming in *higher*
+than the 4-project one. That's real: nearly all of zero's memory is WebKit's
+GPU process, which grows and is reclaimed on its own schedule (five samples at
+four projects: 243, 243, 243, 243, 506 MB). So the claim isn't "zero costs X
+per project", it's that at this scale the per-project cost is below zero's own
+noise floor.
+
+**~2× at one project, ~7× at four.**
+
+And the caveat that matters: **Cursor does enormously more** — language
+servers, extensions, debugging, an actual AI product. Most of the gap above is
+that difference priced in bytes and milliseconds, not better engineering. zero
+also carries a live shell in every one of those numbers, which Cursor doesn't
+open at all.
+
+[BENCHMARKS.md](BENCHMARKS.md) has the method, the full caveats, and the
+scripts in [`bench/`](bench/) to reproduce all of it.
 
 ## What's in it
 
