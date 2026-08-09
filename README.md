@@ -11,10 +11,15 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 4,970 lines of source   (3,556 code, 1,414 CSS)
-    11 MB app bundle
-   3.6 MB dmg
+ 4,988 lines of source   (3,562 code, 1,426 CSS)
+    11 MB app bundle          Cursor: 860 MB
+  0.4 s to a usable window    Cursor: 8.2 s from cold
+   354 MB memory, project open  Cursor: 687 MB
 ```
+
+Measured, not guessed — [BENCHMARKS.md](BENCHMARKS.md) has the method, the
+scripts to reproduce it, and the part where most of that gap is simply zero
+doing less.
 
 ## What's in it
 
