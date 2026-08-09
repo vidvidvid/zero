@@ -71,6 +71,45 @@ Worth noting for anyone reading zero's code: its single largest consumer isn't
 the app at all, it's `WebKit.GPU` at 216 MB — more than half the total, and
 more than seven times the 29 MB the zero process itself uses.
 
+## Multiple projects
+
+This is the one that actually matters if you keep several agents going at
+once, and it's where the two architectures diverge. Cursor opens a **window**
+per folder — a renderer and an extension host each. zero opens a **tab**: one
+process set, one WebKit, each project a subtree of the same page that stays
+laid out and painted so switching is a compositor swap.
+
+Opening four real repos one after another, measuring after each:
+
+| Projects open | zero | | Cursor | |
+|---|---:|---:|---:|---:|
+| | memory | procs | memory | procs |
+| 1 | 143 MB | 5 | 807 MB | 8 |
+| 2 | 176 MB | 5 | 1,050 MB | 11 |
+| 3 | 420 MB | 5 | 1,453 MB | 14 |
+| 4 | 242 MB | 5 | 1,900 MB | 17 |
+| **4, steady state** | **243 MB** | **5** | **1,803 MB** | **17** |
+
+**Cursor costs about 360 MB and three processes per extra project.** That's
+linear and it doesn't flatten out.
+
+**zero's process count never moves**, and its per-project cost is small enough
+that it disappears into measurement noise — note that the 3-project reading is
+*higher* than the 4-project one. That isn't a mistake: nearly all of zero's
+memory is WebKit's GPU process, which grows and gets reclaimed on its own
+schedule. Sampling five times at four projects gave 243, 243, 243, 243, 506 MB.
+So the honest statement is not "zero costs X per project" but "**at this scale
+the per-project cost is below zero's own noise floor**".
+
+The gap therefore widens with use: **~2× at one project, ~7× at four.** If you
+work the way this editor was built for — several repos open, an agent in each —
+that's the number to look at, not the single-project one.
+
+The trade zero makes for this is deliberate: every project stays painted, so
+none of them re-render when you switch. That's a bet that GPU layers are
+cheaper than re-rasterising, and at four projects it's clearly paying. I
+haven't measured twenty.
+
 ## Idle CPU
 
 CPU time consumed over 30 seconds of sitting there untouched, as a percentage
@@ -122,8 +161,10 @@ would otherwise cap the app at 60 fps. That's documented in the
 ## Reproducing
 
 ```sh
-python3 bench/drive.py [project-path]   # launch, memory, idle CPU, 3 reps
-python3 bench/mem.py   [project-path]   # phys_footprint per process
+python3 bench/drive.py [project-path]      # launch, memory, idle CPU, 3 reps
+python3 bench/mem.py   [project-path]      # phys_footprint per process
+python3 bench/multi.py [project ...]       # memory as projects are added
+python3 bench/multi_steady.py [project ...]  # steady state, sampled 5×
 ```
 
 Both diff the process table around launch, so an app's helpers are attributed

@@ -14,7 +14,7 @@ Never capitalised. It's `zero`, not Zero.
  4,988 lines of source   (3,562 code, 1,426 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
-   354 MB memory, project open  Cursor: 687 MB
+   243 MB with 4 projects open  Cursor: 1,803 MB
 ```
 
 Measured, not guessed — [BENCHMARKS.md](BENCHMARKS.md) has the method, the
