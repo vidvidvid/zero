@@ -1399,10 +1399,12 @@ body.dragging-row .term-divider.col::after {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  /* flat 6px, and it never recomputes. The sub-row remainder is not padding's
+  /* flat, and it never recomputes. The sub-row remainder is not padding's
      problem: the terminal hangs from the bottom edge and lets the remainder
-     open a gap above its first row instead (see applySize) */
-  padding: 6px;
+     open a gap above its first row instead (see applySize). Left is a little
+     wider than the rest to sit near the sidebar's row column (.wt-file, 14px)
+     without matching it exactly — they're separate panels, not one grid. */
+  padding: 6px 6px 6px 12px;
   display: flex;
 }
 
