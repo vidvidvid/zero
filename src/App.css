@@ -10,7 +10,10 @@
   --text: #cccccc;
   --text-dim: #9d9d9d;
   --text-faint: #656565;
-  --accent: #0078d4;
+  /* Not a hue. Everything that wants to stand out here — a drag handle under
+     the pointer, a focused field, the commit button — stands out by being
+     brighter than its surroundings, which is the only axis this theme has. */
+  --accent: #e6e6e6;
   --green: #73c991;
   --red: #f14c4c;
   --yellow: #e2c08d;
@@ -668,7 +671,8 @@ body.dragging-row {
 .wt-commit-btn {
   padding: 4px 0;
   font-size: 11.5px;
-  color: #fff;
+  /* the button is the light surface now, so the label is the dark half */
+  color: var(--bg);
   background: var(--accent);
   border-radius: 4px;
 }
@@ -1288,7 +1292,12 @@ body.dragging-row {
   bottom: 4px;
 }
 
-.term-divider:hover::after {
+/* Lit while the pointer is on it, and for as long as the drag lasts — the
+   divider slides out from under the pointer otherwise and goes dark mid-drag,
+   which reads as having lost hold of it. */
+.term-divider:hover::after,
+body.dragging-col .term-divider.row::after,
+body.dragging-row .term-divider.col::after {
   background: var(--accent);
 }
 

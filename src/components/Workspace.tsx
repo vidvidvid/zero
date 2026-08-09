@@ -17,6 +17,12 @@ function persisted(key: string, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
+/** the terminal's line height, so a drag can move in whole rows */
+function termCell(): number {
+  const row = document.querySelector<HTMLElement>(".xterm-rows > div");
+  return row?.getBoundingClientRect().height ?? 0;
+}
+
 function startDrag(
   e: React.MouseEvent,
   axis: "x" | "y",
@@ -24,13 +30,16 @@ function startDrag(
   start: number,
   min: number,
   max: number,
-  set: (v: number) => void
+  set: (v: number) => void,
+  /** move in multiples of this many pixels, if given */
+  step = 0
 ) {
   e.preventDefault();
   const startPos = axis === "x" ? e.clientX : e.clientY;
   document.body.classList.add(axis === "x" ? "dragging-col" : "dragging-row");
   const move = (ev: MouseEvent) => {
-    const delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
+    const moved = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
+    const delta = step > 1 ? Math.round(moved / step) * step : moved;
     set(clamp(start + dir * delta, min, max));
   };
   const up = () => {
@@ -199,7 +208,10 @@ export const Workspace = memo(function Workspace({
         <div
           className="resizer-row"
           onMouseDown={(e) =>
-            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight)
+            // in whole rows: a terminal holds a whole number of them and pads
+            // with what's left, so moving by anything else changes the padding
+            // on every side as you drag
+            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight, termCell())
           }
         />
       )}

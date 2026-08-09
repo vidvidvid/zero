@@ -242,8 +242,22 @@ export function Terminals({
       const min = Math.min(0.15, 60 / span);
       const start = d.dir === "row" ? e.clientX : e.clientY;
 
+      // A pane holds a whole number of rows, and whatever is left over is the
+      // padding. Drag a horizontal divider by an arbitrary number of pixels and
+      // that leftover changes continuously, which moved the padding on all four
+      // sides — the text crept right as it crept down, and the prompt dropped
+      // half a line every time the row count ticked over. Moving in whole rows
+      // instead leaves the remainder exactly as it was, so nothing to
+      // redistribute and nothing to jump. Side-by-side panes need none of this:
+      // their width doesn't decide the row count.
+      const cell =
+        d.dir === "col"
+          ? body.querySelector<HTMLElement>(".xterm-rows > div")?.getBoundingClientRect().height ?? 0
+          : 0;
+
       const move = (ev: MouseEvent) => {
-        const travelled = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
+        const moved = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
+        const travelled = cell > 1 ? Math.round(moved / cell) * cell : moved;
         const room = { back: base[d.index] - min, fwd: base[d.index + 1] - min };
         const delta = Math.max(-room.back, Math.min(room.fwd, travelled / span));
         const sizes = [...base];
@@ -356,6 +370,11 @@ export function Terminals({
 /** breathing room around a terminal, before the sub-row remainder is added */
 const PANE_PAD = 6;
 
+/// How long a pane has to hold still before the sub-row remainder is spread
+/// around it again. Long enough to sit out a drag, short enough that letting go
+/// feels like it settled rather than caught up.
+const SETTLE_MS = 120;
+
 // Dark Modern (VS Code / Cursor) — panel bg + default terminal ANSI palette
 const TERM_THEME = {
   background: "#181818",
@@ -433,30 +452,66 @@ function TerminalPane({
     // line never reaches the bottom of the pane. This moves the remainder above
     // the first row instead, where it reads as breathing room, and puts the
     // newest line flush with the bottom edge.
-    const align = () => {
+    const measure = () => {
       const clip = el.parentElement;
       // one row element, never the whole block divided by term.rows: fit()
       // updates term.rows synchronously but the renderer repaints on the next
       // frame, so mid-resize that division yields a cell height far too short
       // — which showed up as several rows' worth of gap above the prompt
       const row = el.querySelector<HTMLElement>(".xterm-rows > div");
-      if (!clip || !row || term.rows < 1) return;
+      if (!clip || !row || term.rows < 1) return null;
       const cell = row.getBoundingClientRect().height;
-      if (!(cell > 1)) return;
+      if (!(cell > 1)) return null;
       // measured against the clip, never against the host: the host's own
       // height is what this adjusts, and reading it back would oscillate
       const spare = clip.clientHeight - term.rows * cell;
       // Half above the first row, half below the last. A leftover is by
       // definition less than one row — anything bigger means a measurement
       // landed mid-layout, and flush-to-top is the safe answer.
-      const inset = spare > 1 && spare < cell ? spare / 2 : 0;
-      el.style.top = `${inset}px`;
-      // The sides then match whatever the top came out as, so the padding
-      // reads as even however the pane happens to divide into rows. Widening
-      // the sides only changes the column count, never the row count, so this
-      // can't feed back into `inset`.
-      const pane = clip.parentElement;
-      if (pane) pane.style.padding = `${PANE_PAD}px ${PANE_PAD + inset}px`;
+      return { clip, cell, inset: spare > 1 && spare < cell ? spare / 2 : 0 };
+    };
+
+    let settleTimer = 0;
+    let placed = false;
+
+    const apply = () => {
+      const m = measure();
+      if (!m) return;
+      el.style.top = `${m.inset}px`;
+      // The sides are deliberately NOT the current remainder, even though that
+      // would match the top exactly. The remainder is a pixel-level quantity —
+      // a percentage-sized pane rounds differently by a pixel here and there —
+      // and anything derived from it inherits that twitch. Vertically a pixel
+      // of twitch is invisible; horizontally it slides every line in the
+      // terminal sideways, which is maddening to watch.
+      //
+      // So the sides take the *average* of what the top can be. The remainder
+      // is under one row, split half above and half below, so the top gap runs
+      // from PANE_PAD to PANE_PAD + cell/2 and a quarter of a cell sits in the
+      // middle of that range. Off by at most a few pixels either way, and it
+      // only ever changes when the font size does.
+      const pane = m.clip.parentElement;
+      if (pane) pane.style.padding = `${PANE_PAD}px ${PANE_PAD + Math.round(m.cell / 4)}px`;
+      placed = true;
+    };
+
+    // The remainder sweeps a whole row as a pane is resized, so anything that
+    // follows it live moves on every frame of a drag: the sides slid each line
+    // from side to side, and the half below the last row walked the prompt up
+    // and down by half a cell every time the row count changed. So it is only
+    // redistributed once the pane has stopped changing size — mid-drag the
+    // terminal keeps the placement it already had, which holds the prompt still
+    // against whichever edge isn't moving.
+    //
+    // The first placement is immediate: nothing is on screen yet to jump, and
+    // waiting would show a frame of unpadded terminal.
+    const align = () => {
+      if (!placed) {
+        apply();
+        return;
+      }
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(apply, SETTLE_MS);
     };
     align();
     // once more after the first paint, for the case where the renderer hasn't
@@ -536,6 +591,7 @@ function TerminalPane({
       el.removeEventListener("focusin", onFocusIn);
       observer.disconnect();
       window.clearTimeout(resizeTimer);
+      window.clearTimeout(settleTimer);
       window.cancelAnimationFrame(resizeRaf);
       window.cancelAnimationFrame(alignRaf);
       smooth.dispose();
