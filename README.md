@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 5,146 lines of source   (3,720 code, 1,426 CSS)
+ 5,342 lines of source   (3,893 code, 1,449 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -108,8 +108,13 @@ close buttons appear only when the pointer is in the top fifth of a pane.
 changes, staging, and commit box — which is the shape of the work when several
 agents are going at once.
 
-Plus the ordinary things: file tree, ripgrep-backed search, diffs, tab
-reordering by drag, `⌘`/`⌘-` zoom.
+**⌘P goes to a file.** Fuzzy, over everything git will admit to — tracked files
+plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
+and `node_modules` never appears. There's no search-in-files panel: an agent in
+the terminal is better at that than a sidebar ever was.
+
+Plus the ordinary things: file tree, diffs, tab reordering by drag,
+`⌘`/`⌘-` zoom.
 
 ### Keys
 
@@ -119,16 +124,16 @@ reordering by drag, `⌘`/`⌘-` zoom.
 | `⌘\` / `⌘⇧\` | split terminal right / down |
 | `⌘J` / `⌃\`` | show or hide the terminal |
 | `⌘B` | sidebar |
-| `⌘⇧E` / `⌘⇧F` / `⌃⇧G` | files / search / worktrees |
+| `⌘P` | go to file |
+| `⌘⇧E` / `⌃⇧G` | files / worktrees |
 | `⌘N` / `⌘W` | new file / close file |
 | `⌘\`` | cycle projects |
 | `⌘⇧O` | open a project |
 
 ## Install
 
-Requires macOS on Apple Silicon and `git`, which the worktree panel and search
-both use. `ripgrep` is picked up if you have it and makes search faster on a
-large repo, but nothing needs installing for search to work.
+Requires macOS on Apple Silicon and `git`, which the worktree panel and ⌘P both
+use. Nothing else needs installing.
 
 ```sh
 npm install

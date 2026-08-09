@@ -29,12 +29,6 @@ export interface DirEntry {
   is_dir: boolean;
 }
 
-export interface SearchHit {
-  path: string;
-  line: number;
-  text: string;
-}
-
 export interface ClaudeStat {
   cwd: string;
   running: boolean;
@@ -59,9 +53,9 @@ export const api = {
   branchInfo: (worktree: string) => invoke<BranchInfo>("git_branch_info", { worktree }),
   headFile: (worktree: string, path: string) => invoke<string>("git_head_file", { worktree, path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
+  projectFiles: (root: string) => invoke<string[]>("list_project_files", { root }),
   readFile: (path: string) => invoke<string>("read_file", { path }),
   writeFile: (path: string, content: string) => invoke<void>("write_file", { path, content }),
-  search: (root: string, query: string) => invoke<SearchHit[]>("search_project", { root, query }),
   ptyKillAll: () => invoke<void>("pty_kill_all"),
   ptySpawn: (id: string, cwd: string, cols: number, rows: number) =>
     invoke<void>("pty_spawn", { id, cwd, cols, rows }),

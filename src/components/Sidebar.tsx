@@ -3,11 +3,10 @@ import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { WorktreePanel } from "./WorktreePanel";
 import { FileTree } from "./FileTree";
-import { SearchPanel } from "./SearchPanel";
 
-export type SidebarTab = "scm" | "files" | "search";
+export type SidebarTab = "scm" | "files";
 
-// VS Code / Cursor activity-bar codicons: source-control, files, search
+// activity-bar glyphs, drawn to the same 16px / 1.2-stroke grid
 const ICONS: Record<SidebarTab, ReactElement> = {
   scm: (
     <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -18,25 +17,22 @@ const ICONS: Record<SidebarTab, ReactElement> = {
       <path d="M11.5 7.7c0 2.4-2.3 3.2-4.6 3.6" strokeLinecap="round" />
     </svg>
   ),
+  // a folder, not VS Code's two stacked pages — at 16px that codicon reads as
+  // a copy/duplicate glyph, and it sat next to a branch icon that also has two
+  // of something
   files: (
     <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <path d="M9.2 1.8H4.3a.9.9 0 0 0-.9.9v8.6" strokeLinecap="round" />
-      <path d="M6.6 4.4h3.9l2.1 2.1v6.8a.9.9 0 0 1-.9.9H6.6a.9.9 0 0 1-.9-.9V5.3a.9.9 0 0 1 .9-.9Z" />
-      <path d="M10.4 4.5v2.2h2.1" />
-    </svg>
-  ),
-  search: (
-    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <circle cx="6.9" cy="6.9" r="4.4" />
-      <path d="m10.2 10.2 3.3 3.3" strokeLinecap="round" />
+      <path
+        d="M2.3 11.8V4.5a.9.9 0 0 1 .9-.9h2.5l1.5 1.7h5.6a.9.9 0 0 1 .9.9v5.6a.9.9 0 0 1-.9.9H3.2a.9.9 0 0 1-.9-.9Z"
+        strokeLinejoin="round"
+      />
     </svg>
   ),
 };
 
 const TABS: { id: SidebarTab; title: string }[] = [
-  { id: "scm", title: "changes (⌃⇧G)" },
   { id: "files", title: "files (⌘⇧E)" },
-  { id: "search", title: "search (⌘⇧F)" },
+  { id: "scm", title: "changes (⌃⇧G)" },
 ];
 
 export function Sidebar({
@@ -71,7 +67,6 @@ export function Sidebar({
       <div className="sidebar-body">
         {tab === "scm" && <WorktreePanel project={project} onOpenView={onOpenView} active={active} />}
         {tab === "files" && <FileTree root={project.root} onOpenView={onOpenView} />}
-        {tab === "search" && <SearchPanel root={project.root} onOpenView={onOpenView} />}
       </div>
     </div>
   );

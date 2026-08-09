@@ -445,10 +445,15 @@ body.dragging-tab .editor-tab * {
   border-bottom: 1px solid var(--border);
 }
 
+/* No fill on either state. A filled pill was doing the job of saying "this
+   one", but it was the loudest thing in a panel whose whole point is the
+   content below it — and since hover used the same fill, hovering an
+   unselected tab looked exactly like selecting it. The icon's own brightness
+   says which is which, and a hairline under the active one settles it. */
 .sidebar-tab {
+  position: relative;
   flex: 1;
   height: 24px;
-  border-radius: 5px;
   font-size: 14px;
   color: var(--text-faint);
   display: flex;
@@ -458,12 +463,24 @@ body.dragging-tab .editor-tab * {
 
 .sidebar-tab:hover {
   color: var(--text-dim);
-  background: var(--bg-raised);
 }
 
 .sidebar-tab.active {
   color: var(--text);
-  background: var(--bg-raised);
+}
+
+/* sits on the strip's bottom rule, so it reads as the tab owning the panel
+   underneath rather than as a mark floating below an icon */
+.sidebar-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 18px;
+  height: 1.5px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  border-radius: 1px;
 }
 
 .sidebar-tab svg {
@@ -920,83 +937,97 @@ body.dragging-row {
   margin-right: 4px;
 }
 
-/* search */
+/* ===== quick open (⌘P) ===== */
 
-.search-panel {
+.quick-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   display: flex;
-  flex-direction: column;
-  height: 100%;
+  justify-content: center;
+  /* high in the window rather than centred: the list grows downward, and a
+     box that stays put reads as calmer than one that recentres as you type */
+  padding-top: 68px;
+  background: rgba(0, 0, 0, 0.32);
 }
 
-.search-input {
-  margin: 8px;
-  padding: 6px 10px;
-  background: var(--bg);
+.quick-box {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 88vw);
+  max-height: 56vh;
+  background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 10px;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.quick-input {
+  flex: none;
+  padding: 11px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
   outline: none;
 }
 
-.search-input:focus {
-  border-color: var(--accent);
+.quick-input::placeholder {
+  color: var(--text-faint);
 }
 
-.search-results {
+.quick-list {
   flex: 1;
   overflow-y: auto;
+  padding: 4px 0;
 }
 
-.search-group {
-  margin-bottom: 6px;
-}
-
-.search-file {
-  padding: 3px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.search-hit {
+.quick-item {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  padding: 2px 10px 2px 16px;
+  padding: 4px 14px;
   text-align: left;
   overflow: hidden;
 }
 
-.search-hit:hover {
+.quick-item.on {
   background: var(--bg-raised);
 }
 
-.search-line {
+.quick-name {
   flex: none;
-  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.quick-dir {
+  flex: 1;
+  min-width: 0;
   font-size: 10.5px;
   color: var(--text-faint);
-  min-width: 24px;
-  text-align: right;
-}
-
-.search-text {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  /* the end of a path identifies a file; the start is usually the same for all */
+  direction: rtl;
+  text-align: left;
 }
 
-.search-empty {
-  padding: 12px;
+/* the letters you actually typed */
+.quick-hit {
+  color: #fff;
+  font-weight: 600;
+}
+
+.quick-empty {
+  padding: 14px;
   color: var(--text-faint);
+  font-size: 12px;
   text-align: center;
 }
 

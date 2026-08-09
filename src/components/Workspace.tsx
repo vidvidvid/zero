@@ -3,6 +3,7 @@ import type { Project } from "../App";
 import { Sidebar, SidebarTab } from "./Sidebar";
 import { EditorPane } from "./EditorPane";
 import { Terminals, useTerminalTree } from "./Terminals";
+import { QuickOpen } from "./QuickOpen";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 
 export type View =
@@ -64,6 +65,7 @@ export const Workspace = memo(function Workspace({
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => persisted("zero-sidebar-w", 260));
+  const [quickOpen, setQuickOpen] = useState(false);
   const [termHeight, setTermHeight] = useState(() => persisted("zero-term-h", 300));
   const [views, setViews] = useState<View[]>([]);
   const [activeView, setActiveView] = useState(0);
@@ -127,10 +129,6 @@ export const Workspace = memo(function Workspace({
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
         closeView(activeViewRefValue.current);
-      } else if (meta && e.shiftKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        setSidebarVisible(true);
-        setSidebarTab("search");
       } else if (meta && e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
         setSidebarVisible(true);
@@ -148,6 +146,9 @@ export const Workspace = memo(function Workspace({
         untitledRef.current += 1;
         const n = untitledRef.current;
         openView({ kind: "new", key: `new:${project.root}:${n}`, name: `untitled-${n}` });
+      } else if (meta && !e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setQuickOpen((v) => !v);
       } else if (meta && e.key === "\\") {
         e.preventDefault();
         setTerminalVisible(true);
@@ -216,6 +217,16 @@ export const Workspace = memo(function Workspace({
         />
       )}
       <Terminals tree={term} visible={terminalVisible} height={termHeight} active={active} />
+      {quickOpen && (
+        <QuickOpen
+          root={project.root}
+          onClose={() => setQuickOpen(false)}
+          onPick={(rel) => {
+            setQuickOpen(false);
+            openView({ kind: "file", key: `file:${project.root}/${rel}`, absPath: `${project.root}/${rel}` });
+          }}
+        />
+      )}
     </div>
   );
 });
