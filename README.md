@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 5,342 lines of source   (3,893 code, 1,449 CSS)
+ 5,428 lines of source   (3,941 code, 1,487 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -161,7 +161,7 @@ binary directly would start a second instance with its own set of shells.
 
 ## Things it does to your machine
 
-Two of these are the kind of thing you'd want told to you plainly rather than
+All three are the kind of thing you'd want told to you plainly rather than
 discovered:
 
 - **It writes `~/.local/bin/zero`** on every launch (overwriting it, if you've
@@ -172,6 +172,10 @@ discovered:
   source yours first and hand `ZDOTDIR` straight back, and the prompt is
   replaced *only* if it's still macOS's stock one — set `PROMPT` yourself and
   zero won't touch it. Same technique VS Code and Warp use.
+- **It names itself `TERM_PROGRAM=zero`** in those shells, and drops the
+  `TERM_SESSION_ID` it inherited from whatever launched it — otherwise macOS's
+  shell-session integration greets every new terminal with "Restored session:"
+  and saves history into `~/.zsh_sessions` on behalf of someone else's window.
 
 Nothing is sent anywhere. There is no network code in this app.
 

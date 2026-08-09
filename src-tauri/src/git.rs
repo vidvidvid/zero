@@ -292,11 +292,65 @@ pub async fn git_head_file(worktree: String, path: String) -> String {
 pub struct DirEntry {
     pub name: String,
     pub is_dir: bool,
+    /// the repository ignores this, so the tree can grey it out
+    pub ignored: bool,
+}
+
+/// Which of these names the repository ignores.
+///
+/// One `git check-ignore` for the whole directory rather than one per entry —
+/// the tree lists a directory at a time, so this costs one extra process per
+/// folder you open, not one per file in it.
+fn ignored_names(dir: &str, entries: &[(String, bool)]) -> HashSet<String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    if entries.is_empty() {
+        return HashSet::new();
+    }
+    let mut payload = Vec::new();
+    for (name, is_dir) in entries {
+        payload.extend_from_slice(name.as_bytes());
+        // the trailing slash tells git it's a directory, without which a
+        // directory-only pattern like `build/` wouldn't match
+        if *is_dir {
+            payload.push(b'/');
+        }
+        payload.push(0);
+    }
+
+    let Ok(mut child) = git_base(dir)
+        .args(exec_key_overrides(dir).iter())
+        .args(["check-ignore", "-z", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        // not a repository, or no git: nothing is ignored
+        return HashSet::new();
+    };
+    // written from its own thread: a large directory can fill the pipe before
+    // git has read any of it, and then both sides sit waiting for the other
+    if let Some(mut sink) = child.stdin.take() {
+        std::thread::spawn(move || {
+            let _ = sink.write_all(&payload);
+        });
+    }
+    let Ok(out) = child.wait_with_output() else {
+        return HashSet::new();
+    };
+    // check-ignore echoes back only the paths it matched, as we sent them
+    String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string())
+        .collect()
 }
 
 #[tauri::command]
 pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
-    let mut entries: Vec<DirEntry> = std::fs::read_dir(&path)
+    let mut entries: Vec<(String, bool)> = std::fs::read_dir(&path)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
         .filter_map(|e| {
@@ -305,11 +359,20 @@ pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
                 return None;
             }
             let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            Some(DirEntry { name, is_dir })
+            Some((name, is_dir))
         })
         .collect();
-    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    Ok(entries)
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+
+    let ignored = ignored_names(&path, &entries);
+    Ok(entries
+        .into_iter()
+        .map(|(name, is_dir)| DirEntry {
+            ignored: ignored.contains(&name),
+            name,
+            is_dir,
+        })
+        .collect())
 }
 
 /// Past this, the list is more than anyone scrolls and the filter starts to
@@ -369,6 +432,37 @@ mod tests {
         let touch = format!("touch {}", marker.display());
         git(&["config", "core.fsmonitor", &touch]);
         git(&["config", "filter.trap.clean", &format!("sh -c '{touch}; cat'")]);
+    }
+
+    /// Directories are the case that breaks: a `build/` pattern only matches a
+    /// path git believes is a directory, which it can only know from the
+    /// trailing slash we send.
+    #[test]
+    fn ignored_names_covers_files_and_directories() {
+        let dir = std::env::temp_dir().join("zero-ignore-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("build")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        let cwd = dir.to_string_lossy().to_string();
+        git_base(&cwd).args(["init", "-q", "."]).output().unwrap();
+        std::fs::write(dir.join(".gitignore"), "build/\n*.log\n").unwrap();
+        std::fs::write(dir.join("keep.txt"), "").unwrap();
+        std::fs::write(dir.join("noise.log"), "").unwrap();
+
+        let entries = vec![
+            ("build".to_string(), true),
+            ("src".to_string(), true),
+            ("keep.txt".to_string(), false),
+            ("noise.log".to_string(), false),
+        ];
+        let ignored = ignored_names(&cwd, &entries);
+
+        assert!(ignored.contains("build"), "directory-only pattern missed: {ignored:?}");
+        assert!(ignored.contains("noise.log"), "file pattern missed: {ignored:?}");
+        assert!(!ignored.contains("src"), "plain directory marked ignored: {ignored:?}");
+        assert!(!ignored.contains("keep.txt"), "plain file marked ignored: {ignored:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

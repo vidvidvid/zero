@@ -27,6 +27,8 @@ export interface BranchInfo {
 export interface DirEntry {
   name: string;
   is_dir: boolean;
+  /** the repository ignores it — shown greyed out */
+  ignored: boolean;
 }
 
 export interface ClaudeStat {

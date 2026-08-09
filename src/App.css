@@ -565,7 +565,9 @@ body.dragging-row {
   align-items: center;
   gap: 6px;
   padding: 4px 10px 4px 8px;
-  font-size: 11.5px;
+  /* the worktree name is a heading for the rows under it, so it sits at the
+     same size as they do and leans on weight to separate itself */
+  font-size: 13px;
   font-weight: 600;
   text-transform: none;
   color: var(--text);
@@ -827,7 +829,7 @@ body.dragging-row {
 .wt-file-base {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -850,7 +852,7 @@ body.dragging-row {
 .wt-file-dir {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -898,7 +900,9 @@ body.dragging-row {
   width: 100%;
   text-align: left;
   padding: 3px 8px;
-  font-size: 12.5px;
+  /* the terminal is SF Mono 12.5, which at the same nominal size reads
+     noticeably larger than the UI face — this is the size that matches it */
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -925,12 +929,28 @@ body.dragging-row {
   background: var(--bg-raised);
 }
 
-.tree-item.dir {
+/* Files and folders read at the same brightness. They used to differ, which
+   meant dimness said two things at once — "this is a file" and "git ignores
+   this" — and every ordinary file in a folder looked ignored. In this tree
+   dimness now means exactly one thing. */
+.tree-item.dir,
+.tree-item.file {
   color: var(--text);
 }
 
-.tree-item.file {
-  color: var(--text-dim);
+/* ...that thing. Two classes deep so it beats the pair above whatever order
+   they end up in — same-specificity rules are decided by position, which is
+   how this got missed the first time. */
+.tree-item.dir.ignored,
+.tree-item.file.ignored {
+  /* just under --text-dim: enough of a step down from --text to read as "not
+     part of the project", no more. --text-faint is for labels you aren't meant
+     to look at; these are still files you open. */
+  color: #8f8f8f;
+}
+
+.tree-item.ignored .file-icon {
+  opacity: 0.45;
 }
 
 .tree-arrow {
@@ -1379,8 +1399,9 @@ body.dragging-row .term-divider.col::after {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  /* even on every side; the sub-row remainder is split top and bottom in
-     align() so it doesn't land entirely on one edge */
+  /* flat 6px, and it never recomputes. The sub-row remainder is not padding's
+     problem: the terminal hangs from the bottom edge and lets the remainder
+     open a gap above its first row instead (see applySize) */
   padding: 6px;
   display: flex;
 }

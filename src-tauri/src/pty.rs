@@ -122,6 +122,17 @@ pub fn pty_spawn(
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+
+    // This shell belongs to zero, not to whatever launched zero. Started from a
+    // terminal, the parent's own identity comes along with it — and on macOS
+    // that means TERM_SESSION_ID, which switches on /etc/zshrc_Apple_Terminal:
+    // every new pty then opens with "Restored session: <date>" and starts
+    // saving history into ~/.zsh_sessions for a window that has nothing to do
+    // with us. Naming ourselves is also the hook a shell config needs to tell
+    // it's running in here, the same way VS Code sets TERM_PROGRAM=vscode.
+    cmd.env("TERM_PROGRAM", "zero");
+    cmd.env_remove("TERM_SESSION_ID");
+    cmd.env("SHELL_SESSIONS_DISABLE", "1");
     // Spotlight/Dock-launched apps get launchd's minimal environment, not the
     // user's shell env — ensure the usual tool locations are on PATH.
     let mut path = std::env::var("PATH").unwrap_or_default();

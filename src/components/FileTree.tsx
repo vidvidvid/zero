@@ -28,7 +28,7 @@ function Node({
   if (!entry.is_dir) {
     return (
       <button
-        className="tree-item file"
+        className={`tree-item file ${entry.ignored ? "ignored" : ""}`}
         style={{ paddingLeft: depth * 14 + 8 }}
         onClick={() => onOpenView({ kind: "file", key: `file:${full}`, absPath: full })}
       >
@@ -41,7 +41,7 @@ function Node({
   return (
     <>
       <button
-        className="tree-item dir"
+        className={`tree-item dir ${entry.ignored ? "ignored" : ""}`}
         style={{ paddingLeft: depth * 14 + 8 }}
         onClick={() => setOpen((v) => !v)}
       >
