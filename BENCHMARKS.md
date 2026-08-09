@@ -149,9 +149,9 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **4,988 lines** (2,649 TS/TSX · 913 Rust · 1,426 CSS) | closed, VS Code fork |
-| npm dependencies | **21** (51 packages installed) | — |
-| Rust crates | 490 | — |
+| Source | **5,146 lines** (2,649 TS/TSX · 1,071 Rust · 1,426 CSS) | closed, VS Code fork |
+| npm dependencies | **19** direct, 38 in the production tree | — |
+| Rust crates | 443 | — |
 
 ## What this is not
 

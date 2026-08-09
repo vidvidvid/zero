@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 4,988 lines of source   (3,562 code, 1,426 CSS)
+ 5,146 lines of source   (3,720 code, 1,426 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -168,6 +168,27 @@ discovered:
   zero won't touch it. Same technique VS Code and Warp use.
 
 Nothing is sent anywhere. There is no network code in this app.
+
+### Opening a repository doesn't run its code
+
+A repository can name programs for git to run in its own `.git/config`, and
+some of them fire on plain reads: `core.fsmonitor`, and a `filter.<n>.clean`
+selected by the repo's own `.gitattributes`, both execute during `git status`.
+The worktree panel is the default sidebar tab and polls status every three
+seconds, so opening a repository that arrived with a `.git` directory already
+in it would otherwise be enough to run a stranger's command.
+
+So the commands that run on their own — `worktree list`, `status`, `rev-list`,
+`show` — blank every config key that names a program, but only where the
+*repository* set it, never your own global config. Staging, committing and
+pushing are left alone: a blanked clean filter would stage the wrong bytes, and
+hooks are rather the point of committing. Those you asked for; the others run
+whether you asked or not.
+
+One consequence worth knowing: if you configured git-lfs into a repository's
+local config rather than globally, its files may show as modified in the panel.
+`git lfs install` writes to your global config by default, where zero won't
+touch it.
 
 ## 120 fps in a WebView
 

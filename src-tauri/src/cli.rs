@@ -52,19 +52,32 @@ fn bin_path() -> Option<PathBuf> {
 /// never a broken app, so nothing here is fatal.
 pub fn install_command() -> Result<&'static str, String> {
     let path = bin_path().ok_or("no HOME")?;
-    if std::fs::read_to_string(&path).is_ok_and(|cur| cur == SCRIPT) {
+    // A symlink at this path isn't ours, and writing to one writes straight
+    // through it — pointed at something of yours, that file would be replaced
+    // by this script on every launch. So a link is always replaced, never
+    // followed, and the skip-if-unchanged check doesn't apply to one.
+    let linked = std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink());
+    if !linked && std::fs::read_to_string(&path).is_ok_and(|cur| cur == SCRIPT) {
         return Ok("already current");
     }
     let dir = path.parent().ok_or("no parent dir")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    std::fs::write(&path, SCRIPT).map_err(|e| e.to_string())?;
+
+    // write alongside and rename over: rename replaces the link itself, and
+    // there's never a moment where `zero` exists but isn't yet executable
+    let tmp = dir.join(".zero.install");
+    std::fs::write(&tmp, SCRIPT).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| e.to_string())?;
     }
-    Ok("installed")
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })?;
+    Ok(if linked { "replaced a symlink" } else { "installed" })
 }
 
 /// Take a pending request, if there is a fresh one. Consuming it is the point:
