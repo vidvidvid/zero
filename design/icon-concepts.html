@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>zero — icon concepts</title>
+<style>
+  body {
+    margin: 0;
+    background: #0e0e0e;
+    color: #ccc;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 48px;
+  }
+  h1 {
+    font-weight: 400;
+    font-size: 18px;
+    letter-spacing: 0.3em;
+    color: #888;
+    margin-bottom: 40px;
+  }
+  .row {
+    display: flex;
+    gap: 56px;
+    flex-wrap: wrap;
+  }
+  .concept {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .concept .name {
+    font-size: 13px;
+    color: #eee;
+    font-weight: 600;
+  }
+  .concept .note {
+    font-size: 11.5px;
+    color: #777;
+    max-width: 260px;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 18px;
+    background: linear-gradient(#161616, #121212);
+    border: 1px solid #222;
+    border-radius: 16px;
+    padding: 24px 28px;
+  }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<h1>zero — icon concepts</h1>
+
+<!-- shared defs used by all -->
+<svg width="0" height="0">
+  <defs>
+    <clipPath id="clipL"><rect x="0" y="0" width="512" height="1024"/></clipPath>
+    <clipPath id="clipR"><rect x="512" y="0" width="512" height="1024"/></clipPath>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#242424"/>
+      <stop offset="1" stop-color="#191919"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="row">
+
+  <!-- A: cursor zero -->
+  <div class="concept">
+    <div class="sizes">
+      <svg width="256" height="256" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <rect x="6" y="6" width="1012" height="1012" rx="226" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="8"/>
+        <ellipse cx="512" cy="512" rx="212" ry="300" fill="none" stroke="#e6e6e6" stroke-width="86"/>
+        <rect x="472" y="392" width="80" height="240" rx="16" fill="#4da3ff"/>
+      </svg>
+      <svg width="64" height="64" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <ellipse cx="512" cy="512" rx="212" ry="300" fill="none" stroke="#e6e6e6" stroke-width="86"/>
+        <rect x="472" y="392" width="80" height="240" rx="16" fill="#4da3ff"/>
+      </svg>
+      <svg width="32" height="32" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <ellipse cx="512" cy="512" rx="212" ry="300" fill="none" stroke="#e6e6e6" stroke-width="96"/>
+        <rect x="462" y="382" width="100" height="260" rx="20" fill="#4da3ff"/>
+      </svg>
+    </div>
+    <div class="name">A — cursor zero</div>
+    <div class="note">the counter of the 0 is a terminal block cursor. zero + terminal in one glyph. the blue is the only color in the app's chrome, so dock and app match.</div>
+  </div>
+
+  <!-- B: slashed zero -->
+  <div class="concept">
+    <div class="sizes">
+      <svg width="256" height="256" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <rect x="6" y="6" width="1012" height="1012" rx="226" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="8"/>
+        <ellipse cx="512" cy="512" rx="212" ry="300" fill="none" stroke="#e6e6e6" stroke-width="86"/>
+        <line x1="368" y1="726" x2="656" y2="298" stroke="#e6e6e6" stroke-width="70" stroke-linecap="round"/>
+      </svg>
+      <svg width="64" height="64" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <ellipse cx="512" cy="512" rx="212" ry="300" fill="none" stroke="#e6e6e6" stroke-width="86"/>
+        <line x1="368" y1="726" x2="656" y2="298" stroke="#e6e6e6" stroke-width="70" stroke-linecap="round"/>
+      </svg>
+      <svg width="32" height="32" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <ellipse cx="512" cy="512" rx="212" ry="300" fill="none" stroke="#e6e6e6" stroke-width="96"/>
+        <line x1="368" y1="726" x2="656" y2="298" stroke="#e6e6e6" stroke-width="80" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="name">B — slashed zero</div>
+    <div class="note">the programmer's zero, straight from monospace fonts. instantly reads "dev tool". safe, classic, monochrome.</div>
+  </div>
+
+  <!-- C: diff zero -->
+  <div class="concept">
+    <div class="sizes">
+      <svg width="256" height="256" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <rect x="6" y="6" width="1012" height="1012" rx="226" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="8"/>
+        <g clip-path="url(#clipL)">
+          <ellipse cx="512" cy="536" rx="212" ry="300" fill="none" stroke="#6e6e6e" stroke-width="86"/>
+        </g>
+        <g clip-path="url(#clipR)">
+          <ellipse cx="512" cy="488" rx="212" ry="300" fill="none" stroke="#f0f0f0" stroke-width="86"/>
+        </g>
+      </svg>
+      <svg width="64" height="64" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <g clip-path="url(#clipL)">
+          <ellipse cx="512" cy="536" rx="212" ry="300" fill="none" stroke="#6e6e6e" stroke-width="86"/>
+        </g>
+        <g clip-path="url(#clipR)">
+          <ellipse cx="512" cy="488" rx="212" ry="300" fill="none" stroke="#f0f0f0" stroke-width="86"/>
+        </g>
+      </svg>
+      <svg width="32" height="32" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <g clip-path="url(#clipL)">
+          <ellipse cx="512" cy="536" rx="212" ry="300" fill="none" stroke="#6e6e6e" stroke-width="96"/>
+        </g>
+        <g clip-path="url(#clipR)">
+          <ellipse cx="512" cy="488" rx="212" ry="300" fill="none" stroke="#f0f0f0" stroke-width="96"/>
+        </g>
+      </svg>
+    </div>
+    <div class="name">C — diff zero</div>
+    <div class="note">split down the middle, halves offset: old left, new right — a split diff as a glyph. cleverest concept, but reads as "broken" at 32px.</div>
+  </div>
+
+  <!-- D: bare ring -->
+  <div class="concept">
+    <div class="sizes">
+      <svg width="256" height="256" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <rect x="6" y="6" width="1012" height="1012" rx="226" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="8"/>
+        <ellipse cx="512" cy="512" rx="220" ry="308" fill="none" stroke="#e6e6e6" stroke-width="44"/>
+      </svg>
+      <svg width="64" height="64" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <ellipse cx="512" cy="512" rx="220" ry="308" fill="none" stroke="#e6e6e6" stroke-width="52"/>
+      </svg>
+      <svg width="32" height="32" viewBox="0 0 1024 1024">
+        <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)"/>
+        <ellipse cx="512" cy="512" rx="220" ry="308" fill="none" stroke="#e6e6e6" stroke-width="64"/>
+      </svg>
+    </div>
+    <div class="name">D — bare ring</div>
+    <div class="note">just a thin zero, nothing else. the most "zero" of them all — but also anonymous; could be any minimal app.</div>
+  </div>
+
+</div>
+</body>
+</html>

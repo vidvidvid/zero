@@ -1,0 +1,98 @@
+//! The `zero` shell command.
+//!
+//! Installed by the app itself on every launch, so putting zero.app in place
+//! is the whole installation — there's no second step to forget. The command
+//! hands a directory over through a file the app watches, rather than through
+//! argv: `open -a` doesn't pass arguments, and launching the binary directly
+//! would start a second instance with its own set of shells.
+
+use std::path::PathBuf;
+use std::time::Duration;
+use tauri::{Emitter, Manager};
+
+/// Where the CLI leaves a directory for the app to pick up. Written by the
+/// script below and by nothing else, so the name is a private detail — but it
+/// has to be spelled out in both places, hence the constant.
+const REQUEST_FILE: &str = "open-request";
+
+/// A request older than this was meant for a session that never read it —
+/// opening it now would be a surprise, not a convenience.
+const REQUEST_TTL: Duration = Duration::from_secs(90);
+
+const SCRIPT: &str = r#"#!/bin/sh
+# zero — open a project in zero.
+# Installed by zero itself on launch; local edits are overwritten.
+set -e
+
+APP="/Applications/zero.app"
+[ -d "$APP" ] || { printf 'zero: %s is not installed\n' "$APP" >&2; exit 1; }
+
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -h|--help) printf 'usage: zero [directory]\n'; exit 0 ;;
+  esac
+  dir=$(cd -- "$1" 2>/dev/null && pwd) || {
+    printf 'zero: not a directory: %s\n' "$1" >&2
+    exit 1
+  }
+  store="$HOME/Library/Application Support/com.vidtopolovec.zero"
+  mkdir -p "$store"
+  printf '%s' "$dir" > "$store/open-request"
+fi
+
+exec open -a "$APP"
+"#;
+
+fn bin_path() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var("HOME").ok()?).join(".local/bin/zero"))
+}
+
+/// Write `~/.local/bin/zero` unless it's already exactly this script. Returns
+/// what happened, for the launch log; every failure is just a missing command,
+/// never a broken app, so nothing here is fatal.
+pub fn install_command() -> Result<&'static str, String> {
+    let path = bin_path().ok_or("no HOME")?;
+    if std::fs::read_to_string(&path).is_ok_and(|cur| cur == SCRIPT) {
+        return Ok("already current");
+    }
+    let dir = path.parent().ok_or("no parent dir")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(&path, SCRIPT).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok("installed")
+}
+
+/// Take a pending request, if there is a fresh one. Consuming it is the point:
+/// the same directory must not be opened twice.
+fn take(app: &tauri::AppHandle) -> Option<String> {
+    let path = app.path().app_config_dir().ok()?.join(REQUEST_FILE);
+    let age = std::fs::metadata(&path).ok()?.modified().ok()?.elapsed().ok()?;
+    let dir = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    let dir = dir.trim().to_string();
+    if age > REQUEST_TTL || !PathBuf::from(&dir).is_dir() {
+        return None;
+    }
+    Some(dir)
+}
+
+/// Poll for requests in the background.
+///
+/// Polling rather than reacting to window focus, because the most likely place
+/// to type `zero .` is a terminal inside zero — where the window is already
+/// frontmost and no focus event ever arrives. A stat of one file is cheap
+/// enough to do on a timer, and it costs the frontend nothing: it only hears
+/// about it when there's something to open.
+pub fn watch(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(600));
+        if let Some(dir) = take(&app) {
+            let _ = app.emit("open-project", dir);
+        }
+    });
+}
