@@ -32,6 +32,9 @@ zero's bundle is three files because Tauri compiles the frontend into the
 binary and uses the WebKit that ships with macOS. Electron carries its own
 Chromium.
 
+For reference, the same machine's Visual Studio Code is 820 MB across 6,577
+files — Cursor's extra bulk over it is Cursor's own, not Electron's.
+
 ## Launch
 
 Time from `open` to the app's first window on screen, via the Accessibility
@@ -122,6 +125,26 @@ of one core.
 Both are low. Cursor's is file watchers, the extension host, and a git worker;
 zero's is its own once-a-second poll for what Claude is doing in each terminal.
 
+## Frame rate
+
+Not a comparison with Cursor — Chromium already drives ProMotion displays at
+120 Hz. This is zero against *itself*, because WKWebView caps rendering at 60
+fps by default and the app would otherwise ship at half its display's rate.
+Measured over a sustained scroll in the terminal:
+
+| | fps | median frame | p90 |
+|---|---:|---:|---:|
+| Stock WKWebView | 59 | 16.7 ms | |
+| After the unlock | **125** | **8.0 ms** | 9.0 ms |
+| Safari, same machine, same page | 125 | 8.3 ms | |
+
+376 scroll frames. Safari is in the table because it's the control: it proves
+the display and the machine were never the limit, only the default. How the
+flag is flipped is in the [README](README.md#120-fps-in-a-webview).
+
+You will see it claimed that macOS 26 removed this clamp. Measured on 26.5.1,
+that is false.
+
 ## Code
 
 | | zero | Cursor |
@@ -153,10 +176,10 @@ The comparison is only honest with all of this attached:
 - **Single machine, single session, n=3.** Launch timings in particular move
   with disk cache state.
 
-The one performance claim zero makes that isn't in this table is frame rate,
-and it's not a comparison with Cursor — it's a fix for a WebKit default that
-would otherwise cap the app at 60 fps. That's documented in the
-[README](README.md#120-fps-in-a-webview).
+- **The frame-rate table is not a win over Cursor.** Chromium already renders
+  at 120 Hz on this display. That measurement is zero against a WebKit default,
+  and it's included because it's the one number the app was explicitly built to
+  move.
 
 ## Reproducing
 

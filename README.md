@@ -26,6 +26,9 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 |---|---:|---:|---|
 | App bundle | **11 MB** | 860 MB | 78× |
 | Files in the bundle | **3** | 17,035 | |
+| Shipped JS | **1.3 MB** | 12 MB in 12,025 files | 9× |
+| Bundled runtime | 0, system WebKit | 259 MB of Electron | |
+| Bundled extensions | 0 | 116 | |
 | Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
 | Warm: window / ready to use | **0.40 s** / 2.39 s | 1.14 s / 6.59 s | |
 | Memory, one project | **354 MB** | 687 MB | 1.9× |
@@ -59,6 +62,21 @@ per project", it's that at this scale the per-project cost is below zero's own
 noise floor.
 
 **~2× at one project, ~7× at four.**
+
+### Frame rate
+
+Not a Cursor comparison — Chromium already drives this display at 120 Hz. It's
+zero against a WebKit default that would otherwise ship the app at half its
+screen's rate, over 376 scroll frames in the terminal:
+
+| | fps | median frame |
+|---|---:|---:|
+| Stock WKWebView | 59 | 16.7 ms |
+| After the unlock | **125** | **8.0 ms** |
+| Safari, same machine, same page | 125 | 8.3 ms |
+
+Safari is the control: it proves the machine was never the limit, only the
+default. [How it's done.](#120-fps-in-a-webview)
 
 And the caveat that matters: **Cursor does enormously more** — language
 servers, extensions, debugging, an actual AI product. Most of the gap above is
