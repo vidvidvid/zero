@@ -1363,7 +1363,7 @@ body.dragging-row .term-divider.col::after {
   right: 6px;
   z-index: 3;
   display: flex;
-  gap: 1px;
+  gap: 2px;
   padding: 1px 2px;
   border-radius: 4px;
   background: var(--bg-panel);
@@ -1379,9 +1379,9 @@ body.dragging-row .term-divider.col::after {
 }
 
 .pane-actions button {
-  padding: 0 5px;
-  font-size: 13px;
-  line-height: 19px;
+  padding: 0 7px;
+  font-size: 16px;
+  line-height: 24px;
   color: var(--text-faint);
   border-radius: 3px;
 }
