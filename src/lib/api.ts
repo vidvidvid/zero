@@ -43,6 +43,7 @@ export const api = {
   getRecents: () => invoke<RecentProject[]>("get_recents"),
   addRecent: (path: string) => invoke<void>("add_recent", { path }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
+  existingDirs: (paths: string[]) => invoke<string[]>("existing_dirs", { paths }),
   worktrees: (root: string) => invoke<Worktree[]>("git_worktrees", { root }),
   worktreeRemove: (root: string, path: string, force: boolean) =>
     invoke<void>("git_worktree_remove", { root, path, force }),

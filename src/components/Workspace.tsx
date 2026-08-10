@@ -5,6 +5,7 @@ import { EditorPane } from "./EditorPane";
 import { Terminals, useTerminalTree } from "./Terminals";
 import { QuickOpen } from "./QuickOpen";
 import { moveItem, movedIndex } from "../lib/tabReorder";
+import { projectSession, saveProject } from "../lib/session";
 
 export type View =
   | { kind: "diff"; key: string; worktree: string; relPath: string }
@@ -52,16 +53,19 @@ export const Workspace = memo(function Workspace({
   project: Project;
   active: boolean;
 }) {
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("scm");
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [terminalVisible, setTerminalVisible] = useState(true);
+  // last session's layout for this project. Read once: the component is keyed
+  // by root, so a mount is always a project arriving, never one changing.
+  const [saved] = useState(() => projectSession(project.root));
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(saved.sidebarTab ?? "scm");
+  const [sidebarVisible, setSidebarVisible] = useState(saved.sidebarVisible ?? true);
+  const [terminalVisible, setTerminalVisible] = useState(saved.terminalVisible ?? true);
   const [sidebarWidth, setSidebarWidth] = useState(() => persisted("zero-sidebar-w", 260));
   const [quickOpen, setQuickOpen] = useState(false);
   const [termHeight, setTermHeight] = useState(() => persisted("zero-term-h", 300));
-  const [views, setViews] = useState<View[]>([]);
-  const [activeView, setActiveView] = useState(0);
+  const [views, setViews] = useState<View[]>(saved.views ?? []);
+  const [activeView, setActiveView] = useState(saved.activeView ?? 0);
   const untitledRef = useRef(0);
-  const term = useTerminalTree(project.root);
+  const term = useTerminalTree(project.root, saved);
 
   useEffect(() => {
     localStorage.setItem("zero-sidebar-w", String(sidebarWidth));
@@ -69,6 +73,29 @@ export const Workspace = memo(function Workspace({
   useEffect(() => {
     localStorage.setItem("zero-term-h", String(termHeight));
   }, [termHeight]);
+
+  // everything this project should look like next launch. The store debounces,
+  // so a divider drag firing this per mousemove costs one write at the end.
+  useEffect(() => {
+    saveProject(project.root, {
+      term: term.root,
+      focusedId: term.focusedId,
+      sidebarTab,
+      sidebarVisible,
+      terminalVisible,
+      views,
+      activeView,
+    });
+  }, [
+    project.root,
+    term.root,
+    term.focusedId,
+    sidebarTab,
+    sidebarVisible,
+    terminalVisible,
+    views,
+    activeView,
+  ]);
 
   const openView = useCallback((v: View) => {
     setViews((prev) => {

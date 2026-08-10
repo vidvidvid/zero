@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 5,430 lines of source   (3,941 code, 1,489 CSS)
+ 5,744 lines of source   (4,255 code, 1,489 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -112,6 +112,12 @@ agents are going at once.
 plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
 and `node_modules` never appears. There's no search-in-files panel: an agent in
 the terminal is better at that than a sidebar ever was.
+
+**It opens how you left it.** Which projects were open and in what order, the
+terminal splits and their sizes, the sidebar, the open tabs. Not the shells —
+they're children of this process and die with it, so a restored pane is a *new*
+shell in the same directory. `claude --continue` picks the conversation back up,
+which is usually the part you actually wanted.
 
 Plus the ordinary things: file tree, diffs, tab reordering by drag,
 `⌘`/`⌘-` zoom.

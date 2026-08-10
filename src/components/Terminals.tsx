@@ -88,6 +88,10 @@ function firstLeafId(node: TermNode): string {
   return node.type === "leaf" ? node.id : firstLeafId(node.children[0]);
 }
 
+function hasLeaf(node: TermNode, id: string): boolean {
+  return node.type === "leaf" ? node.id === id : node.children.some((c) => hasLeaf(c, id));
+}
+
 export interface TerminalTree {
   root: TermNode | null;
   cwd: string;
@@ -100,9 +104,20 @@ export interface TerminalTree {
   setSizes: (path: number[], sizes: number[]) => void;
 }
 
-export function useTerminalTree(cwd: string): TerminalTree {
-  const [root, setRoot] = useState<TermNode | null>(() => newLeaf());
-  const [focusedId, setFocused] = useState<string | null>(() => (root ? firstLeafId(root) : null));
+/**
+ * `restore` is last session's layout, if there was one. Only read on the first
+ * render — the tree is this hook's from then on.
+ */
+export function useTerminalTree(
+  cwd: string,
+  restore?: { root?: TermNode | null; focusedId?: string | null }
+): TerminalTree {
+  const [root, setRoot] = useState<TermNode | null>(() => restore?.root ?? newLeaf());
+  const [focusedId, setFocused] = useState<string | null>(() => {
+    if (!root) return null;
+    const saved = restore?.focusedId;
+    return saved && hasLeaf(root, saved) ? saved : firstLeafId(root);
+  });
 
   const newTerminal = useCallback(() => {
     const leaf = newLeaf();

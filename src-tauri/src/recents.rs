@@ -41,6 +41,21 @@ pub fn get_recents(app: tauri::AppHandle) -> Vec<RecentProject> {
         .collect()
 }
 
+/// Which of these directories are still there. Used when restoring a session:
+/// a project that has been moved or deleted since last launch would otherwise
+/// come back as a tab whose shell can't start and whose tree won't list.
+///
+/// Deliberately only asks "is it a directory", not `is_main_worktree` — a
+/// linked worktree is a perfectly good thing to have open as a project, it
+/// just never makes it into the recents list.
+#[tauri::command]
+pub fn existing_dirs(paths: Vec<String>) -> Vec<String> {
+    paths
+        .into_iter()
+        .filter(|p| PathBuf::from(p).is_dir())
+        .collect()
+}
+
 #[tauri::command]
 pub fn add_recent(app: tauri::AppHandle, path: String) -> Result<(), String> {
     if !is_main_worktree(&path) {

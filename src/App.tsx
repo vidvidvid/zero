@@ -7,6 +7,7 @@ import { Launcher } from "./components/Launcher";
 import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { moveItem, movedIndex } from "./lib/tabReorder";
+import { restoreSession, saveProjects } from "./lib/session";
 import "./App.css";
 
 export interface Project {
@@ -18,11 +19,38 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // fresh frontend boot (including webview reload after a crash):
-  // reap any shells a previous page instance left behind
+  // Nothing renders until this has settled, and the ordering is the reason.
+  // The reap kills every shell the Rust side is still holding, and React runs
+  // child effects before parent ones — so restoring the projects in the same
+  // commit would have each pane spawn its shell and then be killed by this.
+  const [restored, setRestored] = useState(false);
   useEffect(() => {
-    api.ptyKillAll().catch(() => {});
+    let live = true;
+    // fresh frontend boot (including webview reload after a crash):
+    // reap any shells a previous page instance left behind
+    api
+      .ptyKillAll()
+      .catch(() => {})
+      .then(restoreSession)
+      .then((s) => {
+        if (!live) return;
+        setProjects(s.projects);
+        setActiveIdx(s.activeIdx);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (live) setRestored(true);
+      });
+    return () => {
+      live = false;
+    };
   }, []);
+
+  // guarded on `restored` so the empty state we start with can't overwrite a
+  // stored session before it has been read back
+  useEffect(() => {
+    if (restored) saveProjects(projects, activeIdx);
+  }, [restored, projects, activeIdx]);
 
   const openProject = useCallback((root: string) => {
     const name = root.split("/").filter(Boolean).pop() ?? root;
@@ -110,6 +138,10 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [projects.length, pickProject]);
+
+  // one IPC round trip, and showing the launcher for that frame would mean a
+  // flash of it every launch on the way to the projects that were already open
+  if (!restored) return null;
 
   if (projects.length === 0) {
     return <Launcher onOpen={openProject} onPick={pickProject} />;

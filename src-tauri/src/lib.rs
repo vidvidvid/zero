@@ -47,6 +47,7 @@ pub fn run() {
             recents::get_recents,
             recents::add_recent,
             recents::remove_recent,
+            recents::existing_dirs,
             git::git_worktrees,
             git::git_worktree_remove,
             pty::claude_status,
