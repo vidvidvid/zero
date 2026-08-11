@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Six thousand lines, an 11 MB app. It exists because Cursor was a 350 MB
+Eight thousand lines, an 11 MB app. It exists because Cursor was a 350 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 6,155 lines of source   (4,676 code, 1,479 CSS)
+ 8,479 lines of source   (6,679 code, 1,800 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -112,8 +112,30 @@ agents are going at once.
 
 **⌘P goes to a file.** Fuzzy, over everything git will admit to — tracked files
 plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
-and `node_modules` never appears. There's no search-in-files panel: an agent in
-the terminal is better at that than a sidebar ever was.
+and `node_modules` never appears.
+
+**⌘⇧F searches the project**, with case and whole-word toggles, replace, and
+comma-separated globs for the files to include and exclude. The matching is
+done in Rust rather than shelled out: ripgrep isn't installed on most machines
+— and `which rg` can report one that isn't, since Claude Code defines a shell
+function by that name — but more than that, drawing a match inside its line
+means knowing where in the line it sat, and finding it a second time in the
+frontend is how the highlight and the replace end up disagreeing. Both go
+through the same matcher.
+
+It's about as quick as the thing it isn't calling. On a 6,777-file, 232 MB
+repository, warm: **53 ms**, against ripgrep's 83 ms for the same query. Most
+of that is reading the bytes — the per-file work is one in-place case fold and
+one question, *is this string anywhere in this file*, and the ~96% that say no
+are never split into lines at all.
+
+Literal, though. There's no regex toggle, because there's no regex engine.
+
+**⌘-click a name in the editor** and it opens where that name is defined,
+including through `@/…` tsconfig path aliases. It reads the file's own imports
+rather than running a language server, which is a real limit and a deliberate
+one: a name re-exported through a barrel lands on the barrel. The alternative
+is a long-running process and tens of megabytes.
 
 **⌘-click a path in the terminal.** Files in the project open in the editor
 beside it, anything else is revealed in Finder, and `file.ts:42` lands on the
@@ -140,6 +162,7 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag,
 | `⌘J` / `⌃\`` | show or hide the terminal |
 | `⌘B` | sidebar |
 | `⌘P` | go to file |
+| `⌘⇧F` / `⌘⇧H` | search / search and replace |
 | `⌘⇧E` / `⌃⇧G` | files / worktrees |
 | `⌘N` / `⌘W` | new file / close file |
 | `⌘\`` | cycle projects |

@@ -3,8 +3,10 @@ import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { WorktreePanel } from "./WorktreePanel";
 import { FileTree } from "./FileTree";
+import { SearchPanel } from "./SearchPanel";
+import type { Search } from "../lib/search";
 
-export type SidebarTab = "scm" | "files";
+export type SidebarTab = "scm" | "files" | "search";
 
 // activity-bar glyphs, drawn to the same 16px / 1.2-stroke grid
 const ICONS: Record<SidebarTab, ReactElement> = {
@@ -28,10 +30,17 @@ const ICONS: Record<SidebarTab, ReactElement> = {
       />
     </svg>
   ),
+  search: (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="M10.1 10.1 13.5 13.5" strokeLinecap="round" />
+    </svg>
+  ),
 };
 
 const TABS: { id: SidebarTab; title: string }[] = [
   { id: "files", title: "files (⌘⇧E)" },
+  { id: "search", title: "search (⌘⇧F)" },
   { id: "scm", title: "changes (⌃⇧G)" },
 ];
 
@@ -42,6 +51,7 @@ export function Sidebar({
   onOpenView,
   active,
   width,
+  search,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -49,6 +59,7 @@ export function Sidebar({
   onOpenView: (v: View) => void;
   active: boolean;
   width: number;
+  search: Search;
 }) {
   return (
     <div className="sidebar" style={{ width }}>
@@ -67,6 +78,9 @@ export function Sidebar({
       <div className="sidebar-body">
         {tab === "scm" && <WorktreePanel project={project} onOpenView={onOpenView} active={active} />}
         {tab === "files" && <FileTree root={project.root} onOpenView={onOpenView} />}
+        {tab === "search" && (
+          <SearchPanel root={project.root} search={search} onOpenView={onOpenView} />
+        )}
       </div>
     </div>
   );

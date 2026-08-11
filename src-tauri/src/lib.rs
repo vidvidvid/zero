@@ -5,6 +5,7 @@ mod links;
 mod high_refresh;
 mod pty;
 mod recents;
+mod search;
 
 use pty::PtyManager;
 
@@ -66,6 +67,8 @@ pub fn run() {
             git::list_project_files,
             git::read_file,
             git::write_file,
+            search::search_project,
+            search::replace_matches,
             pty::pty_kill_all,
             pty::pty_spawn,
             pty::pty_write,

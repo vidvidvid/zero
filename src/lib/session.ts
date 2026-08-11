@@ -101,7 +101,10 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
   return {
     term: validTree(p.term, new Set()),
     focusedId: typeof p.focusedId === "string" ? p.focusedId : null,
-    sidebarTab: p.sidebarTab === "files" || p.sidebarTab === "scm" ? p.sidebarTab : undefined,
+    sidebarTab:
+      p.sidebarTab === "files" || p.sidebarTab === "scm" || p.sidebarTab === "search"
+        ? p.sidebarTab
+        : undefined,
     sidebarVisible: typeof p.sidebarVisible === "boolean" ? p.sidebarVisible : undefined,
     terminalVisible: typeof p.terminalVisible === "boolean" ? p.terminalVisible : undefined,
     views,

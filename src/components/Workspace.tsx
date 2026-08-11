@@ -6,6 +6,7 @@ import { Terminals, useTerminalTree } from "./Terminals";
 import { QuickOpen } from "./QuickOpen";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { projectSession, saveProject } from "../lib/session";
+import { useSearch } from "../lib/search";
 
 export type View =
   | { kind: "diff"; key: string; worktree: string; relPath: string }
@@ -76,6 +77,9 @@ export const Workspace = memo(function Workspace({
   const [activeView, setActiveView] = useState(saved.activeView ?? 0);
   const untitledRef = useRef(0);
   const term = useTerminalTree(project.root, saved);
+  // held here rather than in the panel so a result list survives a look at the
+  // file tree — the sidebar renders one tab at a time
+  const search = useSearch(project.root);
 
   useEffect(() => {
     localStorage.setItem("zero-sidebar-w", String(sidebarWidth));
@@ -168,6 +172,13 @@ export const Workspace = memo(function Workspace({
         e.preventDefault();
         setSidebarVisible(true);
         setSidebarTab("files");
+      } else if (meta && e.shiftKey && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "h")) {
+        // ⌘⇧F searches, ⌘⇧H arrives with the replace field already open — the
+        // same split VS Code and Cursor make
+        e.preventDefault();
+        setSidebarVisible(true);
+        setSidebarTab("search");
+        search.focus(e.key.toLowerCase() === "h");
       } else if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
         e.preventDefault();
         setSidebarVisible(true);
@@ -193,7 +204,7 @@ export const Workspace = memo(function Workspace({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, closeView, openView, project.root, term.newTerminal, term.splitFocused]);
+  }, [active, closeView, openView, project.root, search.focus, term.newTerminal, term.splitFocused]);
 
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
   const activeViewRefValue = useStateRef(activeView);
@@ -232,6 +243,7 @@ export const Workspace = memo(function Workspace({
               onOpenView={openView}
               active={active}
               width={sidebarWidth}
+              search={search}
             />
             <div
               className="resizer-col"

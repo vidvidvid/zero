@@ -382,10 +382,9 @@ const MAX_PROJECT_FILES: usize = 20_000;
 /// Every file in the project worth opening: tracked, plus anything new that
 /// isn't ignored. The same set `git grep` searches, and the same set VS Code's
 /// quick open offers — which is why neither needs to read .gitignore itself.
-#[tauri::command]
-pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
+pub fn project_files(root: &str) -> Result<Vec<String>, String> {
     let out = run_git(
-        &root,
+        root,
         &["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
     )?;
     let mut seen = std::collections::HashSet::new();
@@ -396,6 +395,11 @@ pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
         .take(MAX_PROJECT_FILES)
         .map(str::to_string)
         .collect())
+}
+
+#[tauri::command]
+pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
+    project_files(&root)
 }
 
 #[tauri::command]

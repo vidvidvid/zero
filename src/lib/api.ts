@@ -39,6 +39,50 @@ export interface ClaudeStat {
   burst_ms: number;
 }
 
+export interface SearchQuery {
+  text: string;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  /** comma-separated globs; empty means every file */
+  include: string;
+  exclude: string;
+}
+
+export interface SearchSpan {
+  /** offsets into `SearchLine.text`, in the units a JS string is indexed by */
+  start: number;
+  end: number;
+  /** which match this is within its line — names one match to replace */
+  nth: number;
+}
+
+export interface SearchLine {
+  line: number;
+  /** the line as shown: indentation dropped, long lines cut */
+  text: string;
+  spans: SearchSpan[];
+}
+
+export interface SearchFile {
+  path: string;
+  /** every match in the file, which can be more than `lines` lists */
+  count: number;
+  lines: SearchLine[];
+}
+
+export interface SearchResult {
+  files: SearchFile[];
+  matches: number;
+  truncated: boolean;
+}
+
+/** a whole file when `line` is absent, one match when it isn't */
+export interface ReplaceTarget {
+  path: string;
+  line?: number;
+  nth?: number;
+}
+
 export const api = {
   claudeStatus: () => invoke<ClaudeStat[]>("claude_status"),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
@@ -62,6 +106,10 @@ export const api = {
   headFile: (worktree: string, path: string) => invoke<string>("git_head_file", { worktree, path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   projectFiles: (root: string) => invoke<string[]>("list_project_files", { root }),
+  searchProject: (root: string, query: SearchQuery) =>
+    invoke<SearchResult>("search_project", { root, query }),
+  replaceMatches: (root: string, query: SearchQuery, replacement: string, targets: ReplaceTarget[]) =>
+    invoke<number>("replace_matches", { root, query, replacement, targets }),
   readFile: (path: string) => invoke<string>("read_file", { path }),
   writeFile: (path: string, content: string) => invoke<void>("write_file", { path, content }),
   ptyKillAll: () => invoke<void>("pty_kill_all"),
