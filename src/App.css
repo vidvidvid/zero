@@ -1202,6 +1202,33 @@ body.dragging-row {
   cursor: auto;
 }
 
+/* `const` names, coloured off the syntax tree rather than by tag — see
+   constNames.ts. Both rules have to beat syntax highlighting, which paints the
+   spans these marks wrap, so they carry the same weight as the link rule and
+   sit above it: a ⌘-hover on a const should still read as a link. */
+.cm-host .cm-const-name,
+.cm-host .cm-const-name * {
+  color: #4fc1ff !important;
+}
+
+.cm-host .cm-fn-name,
+.cm-host .cm-fn-name * {
+  color: #dcdcaa !important;
+}
+
+/* ⌘ held over a name that resolves — the affordance before the click. This is
+   Dark Modern's `editorLink.activeForeground`, the same colour Cursor uses.
+   The editor is the one place the UI's monochrome rule doesn't apply: inside
+   the code, colour carries meaning. The rule has to beat syntax highlighting,
+   which paints the spans this mark wraps, hence the descendant selector. */
+.cm-host .cm-mod-link,
+.cm-host .cm-mod-link * {
+  color: #4e94ce !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .cm-host .cm-editor {
   height: 100%;
   font-size: 12.5px;

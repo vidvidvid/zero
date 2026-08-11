@@ -49,6 +49,7 @@ export function EditorPane({
   onSelect,
   onClose,
   onReplace,
+  onOpenFile,
   onReorder,
   root,
 }: {
@@ -57,6 +58,7 @@ export function EditorPane({
   onSelect: (i: number) => void;
   onClose: (i: number) => void;
   onReplace: (i: number, v: View) => void;
+  onOpenFile: (abs: string, line?: number) => void;
   onReorder: (from: number, to: number) => void;
   root: string;
 }) {
@@ -114,7 +116,12 @@ export function EditorPane({
                 onSaved={(absPath) => onReplace(i, { kind: "file", key: `file:${absPath}`, absPath })}
               />
             ) : (
-              <FileView absPath={v.absPath} line={v.line} visible={i === activeView} />
+              <FileView
+                absPath={v.absPath}
+                line={v.line}
+                visible={i === activeView}
+                onOpenFile={onOpenFile}
+              />
             )}
           </div>
         ))}

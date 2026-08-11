@@ -5,15 +5,19 @@ import { indentWithTab } from "@codemirror/commands";
 import { darkModern } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor } from "../lib/lang";
+import { modClick } from "../lib/modClick";
 
 export function FileView({
   absPath,
   line,
   visible,
+  onOpenFile,
 }: {
   absPath: string;
   line?: number;
   visible: boolean;
+  /** ⌘-click resolved to a definition somewhere */
+  onOpenFile: (abs: string, line?: number) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -21,6 +25,9 @@ export function FileView({
   const lastLoadedRef = useRef("");
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  // the editor is built once per file; the callback is new every render
+  const onOpenFileRef = useRef(onOpenFile);
+  onOpenFileRef.current = onOpenFile;
 
   useEffect(() => {
     let disposed = false;
@@ -39,6 +46,10 @@ export function FileView({
           EditorView.updateListener.of((u) => {
             if (u.docChanged) dirtyRef.current = true;
           }),
+          modClick(
+            () => absPath,
+            (abs, ln) => onOpenFileRef.current(abs, ln)
+          ),
           // basicSetup deliberately leaves Tab for focus traversal; in an
           // editor you want it indenting, like Cursor
           keymap.of([

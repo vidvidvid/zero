@@ -127,6 +127,13 @@ export const Workspace = memo(function Workspace({
     setViews((prev) => prev.map((old, i) => (i === idx ? v : old)));
   }, []);
 
+  // a resolved path from a ⌘-click, in the terminal or in the editor
+  const openFile = useCallback(
+    (abs: string, line?: number) =>
+      openView({ kind: "file", key: `file:${abs}`, absPath: abs, line }),
+    [openView]
+  );
+
   const reorderViews = useCallback((from: number, to: number) => {
     setViews((prev) => {
       if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
@@ -240,6 +247,7 @@ export const Workspace = memo(function Workspace({
             onClose={closeView}
             onReplace={replaceView}
             onReorder={reorderViews}
+            onOpenFile={openFile}
             root={project.root}
           />
         </div>
@@ -257,7 +265,7 @@ export const Workspace = memo(function Workspace({
         visible={terminalVisible}
         height={termHeight}
         active={active}
-        onOpenFile={(abs, line) => openView({ kind: "file", key: `file:${abs}`, absPath: abs, line })}
+        onOpenFile={openFile}
       />
       {quickOpen && (
         <QuickOpen

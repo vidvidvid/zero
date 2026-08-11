@@ -1,6 +1,7 @@
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
+import { constNames } from "./constNames";
 
 // VS Code / Cursor "Dark Modern" (Dark+) — editor chrome
 const darkModernChrome = EditorView.theme(
@@ -61,14 +62,28 @@ const darkModernHighlight = HighlightStyle.define([
   { tag: [t.string, t.special(t.string), t.character], color: "#ce9178" },
   { tag: [t.number, t.integer, t.float], color: "#b5cea8" },
   { tag: [t.comment, t.blockComment, t.lineComment], color: "#6a9955" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: "#dcdcaa" },
+  // `t.function(t.definition(...))` is what a *declaration* gets — without it
+  // the name in `export function useThing()` falls back to the plain-variable
+  // rule below and comes out light blue instead of yellow
+  {
+    tag: [
+      t.function(t.variableName),
+      t.function(t.definition(t.variableName)),
+      t.function(t.propertyName),
+      t.macroName,
+    ],
+    color: "#dcdcaa",
+  },
   { tag: [t.typeName, t.className, t.namespace], color: "#4ec9b0" },
   { tag: [t.variableName, t.propertyName, t.definition(t.variableName), t.attributeName], color: "#9cdcfe" },
   { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: "#4fc1ff" },
   { tag: [t.operator, t.punctuation, t.separator, t.bracket], color: "#d4d4d4" },
   { tag: [t.regexp], color: "#d16969" },
   { tag: [t.escape, t.special(t.character)], color: "#d7ba7d" },
-  { tag: [t.tagName], color: "#569cd6" },
+  // JSX splits two ways: lowercase `<div>` is a built-in and stays blue, while
+  // `<Table>` is a component and takes the type colour, as it does in Cursor
+  { tag: [t.standard(t.tagName)], color: "#569cd6" },
+  { tag: [t.tagName], color: "#4ec9b0" },
   { tag: [t.angleBracket], color: "#808080" },
   { tag: [t.heading], color: "#569cd6", fontWeight: "bold" },
   { tag: [t.link, t.url], color: "#3794ff" },
@@ -79,4 +94,4 @@ const darkModernHighlight = HighlightStyle.define([
   { tag: [t.invalid], color: "#f44747" },
 ]);
 
-export const darkModern = [darkModernChrome, syntaxHighlighting(darkModernHighlight)];
+export const darkModern = [darkModernChrome, syntaxHighlighting(darkModernHighlight), constNames];
