@@ -19,6 +19,9 @@ function persisted(key: string, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
+/** a pane's vertical padding — the part of the panel's height that isn't rows */
+const PANE_PAD_Y = 12;
+
 function startDrag(
   e: React.MouseEvent,
   axis: "x" | "y",
@@ -26,14 +29,21 @@ function startDrag(
   start: number,
   min: number,
   max: number,
-  set: (v: number) => void
+  set: (v: number) => void,
+  /** row height, if this edge should move a whole line at a time */
+  step = 0
 ) {
   e.preventDefault();
   const startPos = axis === "x" ? e.clientX : e.clientY;
   document.body.classList.add(axis === "x" ? "dragging-col" : "dragging-row");
   const move = (ev: MouseEvent) => {
     const delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
-    set(clamp(start + dir * delta, min, max));
+    let next = start + dir * delta;
+    // snap to heights that hold a whole number of rows. Measured from the
+    // padding, not from zero, or the landing points sit a few px off the rows
+    // they're meant to line up with.
+    if (step > 1) next = Math.round((next - PANE_PAD_Y) / step) * step + PANE_PAD_Y;
+    set(clamp(next, min, max));
   };
   const up = () => {
     window.removeEventListener("mousemove", move);
@@ -181,8 +191,19 @@ export const Workspace = memo(function Workspace({
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
   const activeViewRefValue = useStateRef(activeView);
 
+  // this project's own row height. Scoped to the workspace rather than the
+  // document because every project's panes are mounted at once, and an
+  // inactive one's rows are laid out just as measurably as the visible one's.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const termCell = () => {
+    const row = rootRef.current?.querySelector<HTMLElement>(".xterm-rows > div");
+    const h = row?.getBoundingClientRect().height ?? 0;
+    return h > 1 ? h : 0;
+  };
+
   return (
     <div
+      ref={rootRef}
       className={`workspace ${active ? "" : "inactive"}`}
       // how much width the sidebar (plus its resizer) is stealing from the
       // right-hand side — anything that wants the window's centre reads this
@@ -227,11 +248,17 @@ export const Workspace = memo(function Workspace({
         <div
           className="resizer-row"
           onMouseDown={(e) =>
-            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight)
+            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight, termCell())
           }
         />
       )}
-      <Terminals tree={term} visible={terminalVisible} height={termHeight} active={active} />
+      <Terminals
+        tree={term}
+        visible={terminalVisible}
+        height={termHeight}
+        active={active}
+        onOpenFile={(abs, line) => openView({ kind: "file", key: `file:${abs}`, absPath: abs, line })}
+      />
       {quickOpen && (
         <QuickOpen
           root={project.root}

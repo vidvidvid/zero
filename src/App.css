@@ -331,19 +331,6 @@ body.dragging-tab .editor-tab * {
   }
 }
 
-/* only when a project has more than one session going. Absolutely placed so
-   it costs no layout width — a second session must not resize the tab. */
-.claude-count {
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  transform: translate(-3px, -50%);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 1;
-  color: var(--text-faint);
-}
-
 /* fixed square, flex-centred — same vertical axis as the status dot */
 .titlebar-tab-close {
   flex: none;
@@ -1360,7 +1347,10 @@ body.dragging-row .term-divider.col::after {
   /* inset by the pane's own padding, and kept near enough one cell tall that
      it rides the terminal's first line instead of sitting above it */
   top: 3px;
-  right: 6px;
+  /* clear of the scrollbar, not flush to the pane. The viewport's right edge
+     is the pane's 6px padding and the bar is 8px wide, so anything under 14px
+     sits on top of it — which put the close button squarely on the thumb. */
+  right: 16px;
   z-index: 3;
   display: flex;
   gap: 2px;

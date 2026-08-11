@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ResolvedPath } from "./termLinks";
 
 export interface RecentProject {
   path: string;
@@ -44,6 +45,10 @@ export const api = {
   addRecent: (path: string) => invoke<void>("add_recent", { path }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   existingDirs: (paths: string[]) => invoke<string[]>("existing_dirs", { paths }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
+  revealPath: (path: string) => invoke<void>("reveal_path", { path }),
+  resolvePaths: (cwd: string, paths: string[]) =>
+    invoke<ResolvedPath[]>("resolve_paths", { cwd, paths }),
   worktrees: (root: string) => invoke<Worktree[]>("git_worktrees", { root }),
   worktreeRemove: (root: string, path: string, force: boolean) =>
     invoke<void>("git_worktree_remove", { root, path, force }),

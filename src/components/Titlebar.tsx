@@ -66,27 +66,25 @@ export function Titlebar({
                 session starts and the row never shuffles under the cursor */}
             <span className="titlebar-tab-status">
               {(() => {
-                // the tab you're on says nothing — the terminal is right there
-                if (i === activeIdx) return null;
                 const c = claude[p.root];
                 const working = c?.working ?? 0;
+                // Working shows on every tab, the one you're on included:
+                // switching to a project isn't the same as its work being
+                // over, and a spinner that vanished when you looked at it made
+                // the tab strip disagree with the terminal underneath it.
+                // Finished is the one that's genuinely about you — it clears
+                // by being read, which is what `seen` tracks.
                 const done = seen.has(p.root) ? 0 : (c?.done ?? 0);
                 if (!working && !done) return null;
-                const n = working + done;
                 return (
-                  <>
-                    {/* the numeral can't live inside the ring — the working
-                        state masks its children down to the 10px band */}
-                    <span
-                      className={`claude-ring ${working ? "working" : "done"}`}
-                      title={
-                        working
-                          ? `${working} claude working`
-                          : `${done} claude finished — waiting for you`
-                      }
-                    />
-                    {n > 1 && <span className="claude-count">{n}</span>}
-                  </>
+                  <span
+                    className={`claude-ring ${working ? "working" : "done"}`}
+                    title={
+                      working
+                        ? `${working} claude working`
+                        : `${done} claude finished — waiting for you`
+                    }
+                  />
                 );
               })()}
             </span>

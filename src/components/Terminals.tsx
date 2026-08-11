@@ -5,6 +5,12 @@ import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
 import { ptyBus } from "../lib/ptyBus";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
+import { pathLinkProvider } from "../lib/termLinks";
+
+/** A clicked link leaves the app entirely — the Rust side vets the scheme */
+function openLink(uri: string) {
+  api.openUrl(uri).catch((e) => console.warn(`link: ${e}`));
+}
 
 export type TermNode =
   | { type: "leaf"; id: string }
@@ -229,11 +235,14 @@ export function Terminals({
   visible,
   height,
   active,
+  onOpenFile,
 }: {
   tree: TerminalTree;
   visible: boolean;
   height: number;
   active: boolean;
+  /** a ⌘-clicked path that belongs to this project */
+  onOpenFile: (abs: string, line?: number) => void;
 }) {
   // The pane toolbar only exists near the top edge of a pane, so working in
   // the middle of a session never puts chrome on screen.
@@ -333,6 +342,7 @@ export function Terminals({
                   active={active && visible}
                   onFocus={tree.setFocused}
                   onExit={tree.removePane}
+                  onOpenFile={onOpenFile}
                 />
               </div>
             ));
@@ -401,6 +411,7 @@ function TerminalPane({
   active,
   onFocus,
   onExit,
+  onOpenFile,
 }: {
   id: string;
   cwd: string;
@@ -408,9 +419,14 @@ function TerminalPane({
   active: boolean;
   onFocus: (id: string) => void;
   onExit: (id: string) => void;
+  onOpenFile: (abs: string, line?: number) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  // the link provider is registered once, for the life of the pane, but the
+  // callback it closes over is a fresh function every render
+  const onOpenFileRef = useRef(onOpenFile);
+  onOpenFileRef.current = onOpenFile;
 
   useEffect(() => {
     const el = hostRef.current;
@@ -428,11 +444,24 @@ function TerminalPane({
       // lives there; 0 duration still matters — it keeps the scrollLines calls
       // we make immediate rather than easing towards the target
       smoothScrollDuration: 0,
+      // OSC 8 hyperlinks — the escape sequence that carries a URI behind text
+      // that reads as something else ("PR #9422"). xterm parses them either
+      // way; without a handler they're simply inert, which is why clicking one
+      // did nothing.
+      linkHandler: {
+        activate: (_e, uri) => openLink(uri),
+      },
     });
     termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
+
+    // bare URLs and file paths in ordinary output. OSC 8 links are separate —
+    // the terminal parses those itself and calls linkHandler above.
+    const links = term.registerLinkProvider(
+      pathLinkProvider(term, cwd, (abs, line) => onOpenFileRef.current(abs, line))
+    );
 
     // DOM renderer on purpose. WebGL: WKWebView drops the contexts (frozen
     // panes, webview crashes). Canvas: the only build that exists is compiled
@@ -559,6 +588,7 @@ function TerminalPane({
       window.cancelAnimationFrame(resizeRaf);
       window.cancelAnimationFrame(sizeRaf);
       smooth.dispose();
+      links.dispose();
       ptyBus.off(id);
       api.ptyKill(id).catch(() => {});
       termRef.current = null;

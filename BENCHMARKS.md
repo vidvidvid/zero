@@ -149,7 +149,7 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **5,744 lines** (3,080 TS/TSX · 1,175 Rust · 1,489 CSS) | closed, VS Code fork |
+| Source | **6,155 lines** (3,328 TS/TSX · 1,348 Rust · 1,479 CSS) | closed, VS Code fork |
 | npm dependencies | **19** direct, 38 in the production tree | — |
 | Rust crates | 443 | — |
 

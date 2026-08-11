@@ -1,5 +1,6 @@
 mod cli;
 mod git;
+mod links;
 #[cfg(target_os = "macos")]
 mod high_refresh;
 mod pty;
@@ -44,6 +45,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             debug_log,
+            links::open_url,
+            links::reveal_path,
+            links::resolve_paths,
             recents::get_recents,
             recents::add_recent,
             recents::remove_recent,

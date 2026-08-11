@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Five thousand lines, an 11 MB app. It exists because Cursor was a 350 MB
+Six thousand lines, an 11 MB app. It exists because Cursor was a 350 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
- 5,744 lines of source   (4,255 code, 1,489 CSS)
+ 6,155 lines of source   (4,676 code, 1,479 CSS)
     11 MB app bundle          Cursor: 860 MB
   0.4 s to a usable window    Cursor: 8.2 s from cold
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -95,10 +95,12 @@ and painted, so nothing re-fits or re-rasterises when you come back to it.
 
 **A ring per tab tells you what Claude is doing.** A sweeping arc while a
 session is working, a closed green circle once it has gone quiet and is waiting
-on you. Only on the tabs you aren't looking at, and it clears when you've been
-there. It works by walking each shell's process tree once a second looking for
-a live `claude`, then reading how long that pty has been silent — no
-integration, no cooperation from the agent.
+on you. The arc runs on every tab, the one you're on included — switching to a
+project isn't the same as its work being over. The green circle is an unread
+mark, so that one clears once you've been there. It works by walking each
+shell's process tree once a second looking for a live `claude`, then reading
+how long that pty has been silent — no integration, no cooperation from the
+agent.
 
 **The terminal is the point.** Full window width, splits in any direction with
 draggable dividers, and no chrome: no title, no bar, no rule. The split and
@@ -112,6 +114,13 @@ agents are going at once.
 plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
 and `node_modules` never appears. There's no search-in-files panel: an agent in
 the terminal is better at that than a sidebar ever was.
+
+**⌘-click a path in the terminal.** Files in the project open in the editor
+beside it, anything else is revealed in Finder, and `file.ts:42` lands on the
+line. Bare URLs open in your browser, as do OSC 8 hyperlinks — the ones where a
+program hides a URL behind text like `PR #9422`. Paths are checked against the
+disk before they light up, because any pattern loose enough to catch
+`src/lib/api.ts` also catches `e.g.`.
 
 **It opens how you left it.** Which projects were open and in what order, the
 terminal splits and their sizes, the sidebar, the open tabs. Not the shells —
