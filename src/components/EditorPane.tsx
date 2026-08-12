@@ -1,7 +1,9 @@
 import type { View } from "./Workspace";
 import { DiffView } from "./DiffView";
 import { FileView } from "./FileView";
+import { ImageView } from "./ImageView";
 import { NewFileView } from "./NewFileView";
+import { isImage } from "../lib/imageFile";
 import { FileIconSpan } from "./FileIcon";
 import { useTabReorder } from "../lib/tabReorder";
 
@@ -115,6 +117,8 @@ export function EditorPane({
                 root={root}
                 onSaved={(absPath) => onReplace(i, { kind: "file", key: `file:${absPath}`, absPath })}
               />
+            ) : isImage(v.absPath) ? (
+              <ImageView absPath={v.absPath} />
             ) : (
               <FileView
                 absPath={v.absPath}

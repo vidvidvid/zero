@@ -66,6 +66,7 @@ pub fn run() {
             git::list_dir,
             git::list_project_files,
             git::read_file,
+            git::read_binary,
             git::write_file,
             search::search_project,
             search::replace_matches,

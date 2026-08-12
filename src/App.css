@@ -209,13 +209,17 @@ kbd {
 
 /* symmetric: a fixed square at each end (status left, close right) with the
    name between them, so the tab is one width in every state */
+/* 11px, and it's derived rather than chosen: the bar is 38px and the two icon
+   squares at the ends are 16px, so they float (38 − 16) / 2 = 11px clear of the
+   top and bottom. Anything else on the sides and the ring sits nearer the tab's
+   edge than its ceiling, which is what 5px looked like. */
 .titlebar-tab {
   position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
   height: 100%;
-  padding: 0 5px;
+  padding: 0 11px;
   font-size: 12.5px;
   color: var(--text-faint);
   border-right: 1px solid var(--border);
@@ -268,10 +272,12 @@ body.dragging-tab .editor-tab * {
   cursor: grabbing;
 }
 
-/* per-project claude indicator, built on zero's own mark: a hairline ring
-   with one arc of light travelling round it while a session works, closing
-   into a complete green circle once it's finished and waiting on you. Never
-   shown on the active tab, and the green clears once you've been there. */
+/* per-project claude indicator, built on zero's own mark: a hairline ring with
+   one arc of light travelling round it while a session works, closing into a
+   complete circle once it's finished and waiting on you. White throughout, like
+   everything else in this theme — the two states are told apart by whether the
+   light is moving and whether the ring is closed, which reads at 10px better
+   than a hue does. Cleared once you've been there. */
 /* the reserved square — same 16px as the close button on the other end */
 .titlebar-tab-status {
   position: relative;
@@ -295,13 +301,13 @@ body.dragging-tab .editor-tab * {
   background: conic-gradient(
     from 0deg,
     transparent 0deg 250deg,
-    #3794ff 330deg,
-    #b9e2ff 358deg,
+    rgba(255, 255, 255, 0.5) 330deg,
+    #ffffff 358deg,
     transparent 360deg
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
-  filter: drop-shadow(0 0 2px rgba(55, 148, 255, 0.6));
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
   animation: claude-spin 1.5s linear infinite;
 }
 
@@ -315,8 +321,8 @@ body.dragging-tab .editor-tab * {
 }
 
 .claude-ring.done {
-  border: 1.4px solid var(--green);
-  box-shadow: 0 0 4px 0 rgba(137, 209, 133, 0.4);
+  border: 1.4px solid #ffffff;
+  box-shadow: 0 0 4px 0 rgba(255, 255, 255, 0.4);
 }
 
 @keyframes claude-spin {
@@ -325,6 +331,8 @@ body.dragging-tab .editor-tab * {
   }
 }
 
+/* Still an open arc against a closed circle, so the two states stay apart
+   without anything moving — the distinction was never only the motion. */
 @media (prefers-reduced-motion: reduce) {
   .claude-ring.working {
     animation: none;
@@ -945,6 +953,82 @@ body.dragging-row {
 }
 
 /* ===== quick open (⌘P) ===== */
+
+/* ===== image view ===== */
+
+.image-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* The checkerboard is the only way a transparent PNG reads as transparent
+   rather than as dark grey — which on this theme it otherwise exactly is. Two
+   crossed gradients rather than an asset, so the bundle stays three files. */
+.image-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  background-color: #1a1a1a;
+  background-image:
+    linear-gradient(45deg, #232323 25%, transparent 25%, transparent 75%, #232323 75%),
+    linear-gradient(45deg, #232323 25%, transparent 25%, transparent 75%, #232323 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+/* fit, but never blown up past its own size — a 16px favicon stretched across
+   a window says nothing a 16px favicon doesn't */
+.image-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  cursor: zoom-in;
+  /* the grid behind it is a backdrop, not part of the picture */
+  image-rendering: auto;
+}
+
+/* 1:1. `max-width` has to go or the fit rule wins and nothing appears to happen */
+.image-stage.actual {
+  align-items: safe center;
+  justify-content: safe center;
+}
+
+.image-stage.actual .image-canvas {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+/* pixel art at 1:1 is usually why you opened it, so don't smooth it */
+.image-stage.actual .image-canvas {
+  image-rendering: pixelated;
+}
+
+.image-meta {
+  flex: none;
+  padding: 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.image-broken {
+  max-width: 320px;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+}
 
 /* ===== search panel ===== */
 

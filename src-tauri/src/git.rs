@@ -402,6 +402,19 @@ pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
     project_files(&root)
 }
 
+/// A file as bytes rather than text, for the things that aren't text.
+///
+/// `tauri::ipc::Response` puts the bytes on the IPC channel raw. Returning a
+/// `Vec<u8>` would have serialised a megabyte image as a JSON array of a
+/// million numbers, and encoding it as a data: URI instead would still cost a
+/// third again in base64 — this way the frontend gets an ArrayBuffer it can
+/// wrap in a Blob directly.
+#[tauri::command]
+pub async fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())

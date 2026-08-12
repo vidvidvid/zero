@@ -111,6 +111,8 @@ export const api = {
   replaceMatches: (root: string, query: SearchQuery, replacement: string, targets: ReplaceTarget[]) =>
     invoke<number>("replace_matches", { root, query, replacement, targets }),
   readFile: (path: string) => invoke<string>("read_file", { path }),
+  /** raw bytes, for files that aren't text — arrives as an ArrayBuffer */
+  readBinary: (path: string) => invoke<ArrayBuffer>("read_binary", { path }),
   writeFile: (path: string, content: string) => invoke<void>("write_file", { path, content }),
   ptyKillAll: () => invoke<void>("pty_kill_all"),
   ptySpawn: (id: string, cwd: string, cols: number, rows: number) =>

@@ -6,6 +6,7 @@ import { useTabReorder } from "../lib/tabReorder";
 const sameSet = (a: Set<string>, b: Set<string>) =>
   a.size === b.size && [...a].every((v) => b.has(v));
 
+
 export function Titlebar({
   projects,
   activeIdx,
