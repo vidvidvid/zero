@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Eight thousand lines, an 11 MB app. It exists because Cursor was an 860 MB
+Eight thousand lines, a 13 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -12,7 +12,7 @@ Never capitalised. It's `zero`, not Zero.
 
 ```
  8,479 lines of source   (6,679 code, 1,800 CSS)
-    11 MB app bundle            Cursor: 860 MB
+    13 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
 ```
@@ -24,9 +24,9 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **11 MB** | 860 MB | 78× |
-| Files in the bundle | **3** | 17,035 | |
-| Shipped JS | **1.3 MB** | 256 MB in 12,021 files | 197× |
+| App bundle | **13 MB** | 860 MB | 66× |
+| Files in the bundle | **4** | 17,035 | |
+| Shipped JS | **1.4 MB** at startup, 2.4 MB in all | 256 MB in 12,021 files | 183× |
 | Bundled runtime | 0, system WebKit | 259 MB of Electron | |
 | Bundled extensions | 0 | 116 | |
 | Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
@@ -132,6 +132,19 @@ are never split into lines at all.
 
 Literal, though. There's no regex toggle, because there's no regex engine.
 
+**It highlights 143 languages.** Ruby, Go, Java, C and C++, C#, PHP, Swift,
+Kotlin, shell, SQL, YAML, TOML, Erlang, Haskell, Clojure — the whole CodeMirror
+language set, plus the extensions it doesn't know but everyone writes (`.zsh`,
+`.mdx`, `.jsonc`, `.gemspec`, and `.m`, which the upstream list insists is
+Mathematica). The seven zero is itself written in are compiled in and applied
+the instant a tab opens; the rest are fetched the first time you
+open a file of that kind, so a project with no Ruby in it never pays for the
+Ruby mode. That's 32 KB on the startup bundle and about a megabyte sitting in
+the binary unread.
+
+Still missing, for want of a mode to load: Zig, Nix, Terraform, GraphQL,
+Elixir, Makefiles.
+
 **⌘-click a name in the editor** and it opens where that name is defined,
 including through `@/…` tsconfig path aliases. It reads the file's own imports
 rather than running a language server, which is a real limit and a deliberate
@@ -183,6 +196,25 @@ cp -R src-tauri/target/release/bundle/macos/zero.app /Applications/
 The app is **not signed or notarised**, so the first launch needs a
 right-click → Open (or `xattr -dr com.apple.quarantine /Applications/zero.app`).
 Signing it properly needs an Apple Developer account.
+
+Building it needs Xcode 26 present, but only for the icon: macOS 26 wants a
+layered icon compiled by `actool`, and Tauri shells out to it. If a build stops
+at `failed to run actool`, that's Xcode's `ibtoold` daemon having wedged itself
+rather than anything about the icon — `pkill -f ibtoold` and build again.
+
+### The icon
+
+`src-tauri/icons/zero-icon.py` draws every icon the app ships, and is the only
+place any of them are edited. It emits two, because macOS is mid-change about
+what an app icon is: an `AppIcon.icon` bundle for macOS 26, which hands the
+system a transparent zero and a background colour and lets it supply the
+rounded rectangle, the material, the shadow and the dark, tinted and clear
+variants; and a fully drawn `.icns` for every macOS before that, on Apple's
+older grid — an 824px square inside a 1024px canvas, shadow included, because
+nothing on those systems will add one. The silhouette in that one isn't a
+formula: Apple ships the shape as a template, so it was measured off icons
+already drawn to it, and matches the system's own mask to within 750 pixels of
+a million.
 
 ### The `zero` command
 

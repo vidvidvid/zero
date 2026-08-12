@@ -23,23 +23,35 @@ Method    3 launches each, median reported, apps quit between runs
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **11 MB** | 860 MB | 78× |
-| Installer | **3.6 MB** dmg | — | |
-| Files in the bundle | **3** | 17,035 | |
-| Shipped JS | **1.3 MB** | 256 MB across 12,021 files | 197× |
+| App bundle | **13 MB** | 860 MB | 66× |
+| Installer | **6.0 MB** dmg | — | |
+| Files in the bundle | **4** | 17,035 | |
+| Shipped JS | **1.4 MB** loaded, 2.4 MB in all | 256 MB across 12,021 files | 183× |
 | Electron/WebKit runtime | 0 (system WebKit) | 259 MB bundled | |
 | Bundled extensions | 0 | 116 | |
 
-zero's bundle is three files because Tauri compiles the frontend into the
+zero's bundle is four files because Tauri compiles the frontend into the
 binary and uses the WebKit that ships with macOS. Electron carries its own
 Chromium.
+
+Two of those four are the icon, and they're most of the 2 MB the bundle grew
+in August 2026: a 428 KB `.icns` for macOS 25 and earlier, and a 1.6 MB
+`Assets.car` holding the layered macOS 26 icon, which the system renders in
+seven appearances — light, dark, clear light and dark, tinted light and dark,
+and the mono one. That's the price of letting the system compose the icon
+instead of drawing it ourselves, and it is a real 15% of the app.
+
+Two JS numbers, because the syntax highlighting split them apart: 1.4 MB is
+what loads to draw the window, and the other megabyte is 109 language modes
+that are fetched only when a file of that kind is opened. Both live inside the
+binary; neither adds a file to the bundle.
 
 The JS figure was wrong here until it was rechecked: it read 12 MB, which was
 a measuring mistake — `find … | xargs du -ch | tail -1` splits into several
 xargs batches on a tree this size and `tail -1` reports only the last one. The
 sum of every `.js` file in the bundle is 256 MB, and one file alone
 (`workbench.glass.main.js`) is 45.9 MB. The error was in Cursor's favour, and
-the corrected ratio is 197×.
+the corrected ratio is the 183× in the table.
 
 ```sh
 du -sh /Applications/Cursor.app                     # bundle
