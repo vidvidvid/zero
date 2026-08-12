@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Eight thousand lines, an 11 MB app. It exists because Cursor was a 350 MB
+Eight thousand lines, an 11 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -12,8 +12,8 @@ Never capitalised. It's `zero`, not Zero.
 
 ```
  8,479 lines of source   (6,679 code, 1,800 CSS)
-    11 MB app bundle          Cursor: 860 MB
-  0.4 s to a usable window    Cursor: 8.2 s from cold
+    11 MB app bundle            Cursor: 860 MB
+  0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
 ```
 
@@ -26,7 +26,7 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 |---|---:|---:|---|
 | App bundle | **11 MB** | 860 MB | 78× |
 | Files in the bundle | **3** | 17,035 | |
-| Shipped JS | **1.3 MB** | 12 MB in 12,025 files | 9× |
+| Shipped JS | **1.3 MB** | 256 MB in 12,021 files | 197× |
 | Bundled runtime | 0, system WebKit | 259 MB of Electron | |
 | Bundled extensions | 0 | 116 | |
 | Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
@@ -50,7 +50,7 @@ the same page.
 | 1 | 143 MB | 5 | 807 MB | 8 |
 | 2 | 176 MB | 5 | 1,050 MB | 11 |
 | 3 | 420 MB | 5 | 1,453 MB | 14 |
-| **4** | **243 MB** | **5** | **1,803 MB** | **17** |
+| **4, steady** | **243 MB** | **5** | **1,803 MB** | **17** |
 
 Cursor costs about **360 MB and three processes per extra project**, linearly.
 zero's process count never moves off five, and its per-project cost is small
@@ -84,8 +84,9 @@ that difference priced in bytes and milliseconds, not better engineering. zero
 also carries a live shell in every one of those numbers, which Cursor doesn't
 open at all.
 
-[BENCHMARKS.md](BENCHMARKS.md) has the method, the full caveats, and the
-scripts in [`bench/`](bench/) to reproduce all of it.
+[BENCHMARKS.md](BENCHMARKS.md) has the method and the full caveats. The
+scripts in [`bench/`](bench/) reproduce the launch, memory and CPU numbers; the
+disk and frame-rate ones were measured by hand and say how.
 
 ## What's in it
 
@@ -150,8 +151,8 @@ they're children of this process and die with it, so a restored pane is a *new*
 shell in the same directory. `claude --continue` picks the conversation back up,
 which is usually the part you actually wanted.
 
-Plus the ordinary things: file tree, diffs, tab reordering by drag,
-`⌘`/`⌘-` zoom.
+Plus the ordinary things: file tree, diffs, tab reordering by drag, and
+`⌘+` / `⌘-` / `⌘0` zoom.
 
 ### Keys
 

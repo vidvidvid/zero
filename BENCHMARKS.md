@@ -1,9 +1,10 @@
 # Benchmarks
 
 zero against Cursor, both opening the same project on the same machine, in the
-same session. Everything here is reproducible with the scripts in
-[`bench/`](bench/) — run them yourself rather than taking these numbers on
-trust.
+same session. The launch, memory, idle-CPU and multi-project numbers are
+reproducible with the scripts in [`bench/`](bench/) — run them yourself rather
+than taking them on trust. The disk, frame-rate and line-count tables have no
+script; they were measured by hand, and the commands are given beside them.
 
 Read the [caveats](#what-this-is-not) before quoting any of it. Cursor does
 enormously more than zero does, and most of the gap below is that difference
@@ -13,7 +14,8 @@ showing up as a cost, not Cursor being badly built.
 Machine   Apple M3 Max · 36 GB · macOS 26.5.1
 Cursor    3.15.6, with the extensions I actually have installed
 zero      0.1.0
-Project   the zero repo itself — ~5k lines, a git worktree, node_modules present
+Project   the zero repo itself — 5.0k lines when these were run, a git
+          worktree, node_modules present (it is 8.5k now; see Code below)
 Method    3 launches each, median reported, apps quit between runs
 ```
 
@@ -24,13 +26,27 @@ Method    3 launches each, median reported, apps quit between runs
 | App bundle | **11 MB** | 860 MB | 78× |
 | Installer | **3.6 MB** dmg | — | |
 | Files in the bundle | **3** | 17,035 | |
-| Shipped JS | **1.3 MB** | 12 MB across 12,025 files | 9× |
+| Shipped JS | **1.3 MB** | 256 MB across 12,021 files | 197× |
 | Electron/WebKit runtime | 0 (system WebKit) | 259 MB bundled | |
 | Bundled extensions | 0 | 116 | |
 
 zero's bundle is three files because Tauri compiles the frontend into the
 binary and uses the WebKit that ships with macOS. Electron carries its own
 Chromium.
+
+The JS figure was wrong here until it was rechecked: it read 12 MB, which was
+a measuring mistake — `find … | xargs du -ch | tail -1` splits into several
+xargs batches on a tree this size and `tail -1` reports only the last one. The
+sum of every `.js` file in the bundle is 256 MB, and one file alone
+(`workbench.glass.main.js`) is 45.9 MB. The error was in Cursor's favour, and
+the corrected ratio is 197×.
+
+```sh
+du -sh /Applications/Cursor.app                     # bundle
+find /Applications/Cursor.app -type f | wc -l       # files
+find /Applications/Cursor.app -name '*.js' -type f -exec stat -f %z {} + \
+  | awk '{s+=$1} END {print s/1048576 " MB"}'       # shipped JS
+```
 
 For reference, the same machine's Visual Studio Code is 820 MB across 6,577
 files — Cursor's extra bulk over it is Cursor's own, not Electron's.
@@ -73,6 +89,14 @@ spectacular one, and the spectacular version would have been wrong.
 Worth noting for anyone reading zero's code: its single largest consumer isn't
 the app at all, it's `WebKit.GPU` at 216 MB — more than half the total, and
 more than seven times the 29 MB the zero process itself uses.
+
+**This table and the first row of the next one disagree**, and both are
+`phys_footprint` — 354 MB here against 143 MB there for one project, 687 MB
+against 807 MB for Cursor. They're separate runs, and the difference is mostly
+WebKit's GPU process, which grows and is reclaimed on a schedule of its own
+(see the sampling spread below). The 1.9× headline uses the pair that flatters
+zero least. Neither run is more correct than the other; a single figure for
+"zero's memory" is finer-grained than the measurement supports.
 
 ## Multiple projects
 

@@ -318,22 +318,46 @@ pub fn pty_resize(state: tauri::State<PtyManager>, id: String, cols: u16, rows: 
         .map_err(|e| e.to_string())
 }
 
+/// Signal a shell and then collect it.
+///
+/// Until someone calls `wait`, the kernel keeps a dead child in the process
+/// table so its exit status can still be read — a zombie — and
+/// `std::process::Child` has no `Drop` that does it for you.
+///
+/// portable_pty's `kill` half-handles this, which is what made the leak so
+/// quiet. It sends SIGHUP, then spends about 200 ms calling `try_wait`; a shell
+/// that dies in that window *is* collected and leaves nothing behind. Only the
+/// ones still alive at the end of the grace period get SIGKILLed — and those it
+/// abandons. So an idle pane closed cleanly and a pane running an agent left a
+/// zombie, which is why they accumulated slowly rather than one per close.
+///
+/// On its own thread because `wait` blocks and a synchronous Tauri command runs
+/// on the main thread: waiting there would hang the window for as long as the
+/// shell took to die. A thread that outlives its usefulness is the cheaper
+/// failure of the two.
+fn reap(mut child: Box<dyn Child + Send + Sync>) {
+    std::thread::spawn(move || {
+        let _ = child.kill();
+        let _ = child.wait();
+    });
+}
+
 /// Kill every session — called on frontend boot so a webview reload
 /// (e.g. after a content-process crash) can't leak orphaned shells.
 #[tauri::command]
 pub fn pty_kill_all(state: tauri::State<PtyManager>) -> Result<(), String> {
-    for (_, mut session) in state.0.lock().unwrap().drain() {
+    for (_, session) in state.0.lock().unwrap().drain() {
         session.alive.store(false, Ordering::Relaxed);
-        let _ = session.child.kill();
+        reap(session.child);
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn pty_kill(state: tauri::State<PtyManager>, id: String) -> Result<(), String> {
-    if let Some(mut session) = state.0.lock().unwrap().remove(&id) {
+    if let Some(session) = state.0.lock().unwrap().remove(&id) {
         session.alive.store(false, Ordering::Relaxed);
-        let _ = session.child.kill();
+        reap(session.child);
     }
     Ok(())
 }

@@ -195,7 +195,10 @@ export const Workspace = memo(function Workspace({
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         setQuickOpen((v) => !v);
-      } else if (meta && e.key === "\\") {
+        // `code`, not `key`: with shift held the character is `|`, so matching
+        // on `e.key === "\\"` skipped the whole branch and split-down never
+        // fired. Same reason the terminal toggle above matches Backquote.
+      } else if (meta && e.code === "Backslash") {
         e.preventDefault();
         setTerminalVisible(true);
         term.splitFocused(e.shiftKey ? "col" : "row");
