@@ -184,8 +184,19 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 
 ## Install
 
-Requires macOS on Apple Silicon and `git`, which the worktree panel and ⌘P both
-use. Nothing else needs installing.
+There's no download yet, so you build it, which takes about a minute. **Running**
+zero needs macOS on Apple Silicon and `git`, which the worktree panel and ⌘P
+both use. **Building** it needs three more things, and your Mac may already have
+none of them:
+
+| | is it there? | if not |
+|---|---|---|
+| Rust | `cargo -V` | [rustup.rs](https://rustup.rs), then open a new shell |
+| Node 20.19+ | `node -v` | `brew install node`, or [nodejs.org](https://nodejs.org) |
+| Apple's command line tools | `xcode-select -p` | `xcode-select --install` |
+
+The one that isn't obvious from the error it gives: `failed to run 'cargo
+metadata' … No such file or directory` means Rust isn't installed.
 
 ```sh
 npm install
@@ -197,10 +208,8 @@ The app is **not signed or notarised**, so the first launch needs a
 right-click → Open (or `xattr -dr com.apple.quarantine /Applications/zero.app`).
 Signing it properly needs an Apple Developer account.
 
-Building it needs Xcode 26 present, but only for the icon: macOS 26 wants a
-layered icon compiled by `actool`, and Tauri shells out to it. If a build stops
-at `failed to run actool`, that's Xcode's `ibtoold` daemon having wedged itself
-rather than anything about the icon — `pkill -f ibtoold` and build again.
+Xcode isn't needed. The macOS 26 icon is a compiled asset catalog, and the
+compiled file is committed rather than built here — see below for why.
 
 ### The icon
 
@@ -215,6 +224,18 @@ nothing on those systems will add one. The silhouette in that one isn't a
 formula: Apple ships the shape as a template, so it was measured off icons
 already drawn to it, and matches the system's own mask to within 750 pixels of
 a million.
+
+The layered one ships as `Assets.car`, the compiled form, committed beside its
+source. Tauri is perfectly happy to compile it during a build, but that would
+put an Apple bug in the way of everyone who clones this: `actool`'s Icon
+Composer support intermittently starts crashing — `attempt to insert nil object
+from objects[0]` — and once it starts it fails on *every* icon, including
+Tauri's own example, until something out of reach resets. Restarting `ibtoold`
+doesn't clear it; nor does deleting its pipes or the asset-runtime cache. And a
+*missing* `actool` the bundler skips politely, while a *crashing* one fails the
+build outright. Committing the compiled file means a build never calls it, and
+regenerating the icon does — `zero-icon.py` recompiles when it can and leaves
+the committed file alone when Apple is in one of its moods.
 
 ### The `zero` command
 

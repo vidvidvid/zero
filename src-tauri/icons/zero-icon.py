@@ -133,6 +133,7 @@ def layer_svg():
 
 
 def render(svg, out, size=W):
+    """rsvg writes no metadata, so these are byte-stable across runs"""
     src = out + ".svg"
     open(src, "w").write(svg)
     subprocess.run(["rsvg-convert", "-w", str(size), "-h", str(size), src, "-o", out], check=True)
@@ -153,7 +154,7 @@ def main():
         "(", "+clone", "-alpha", "extract", "-blur", "0x6",
         "-evaluate", "multiply", "0.42", "-background", "black", "-alpha", "shape", ")",
         "-compose", "dst-over", "-geometry", "+0+11", "-composite",
-        "-background", "none", "-flatten", "icon.png")
+        "-background", "none", "-flatten", "-strip", "icon.png")
     os.remove(os.path.join(HERE, "flat.png"))
 
     for name, size in [("32x32.png", 32), ("64x64.png", 64), ("128x128.png", 128),
@@ -163,7 +164,8 @@ def main():
                        ("Square142x142Logo.png", 142), ("Square150x150Logo.png", 150),
                        ("Square284x284Logo.png", 284), ("Square310x310Logo.png", 310),
                        ("StoreLogo.png", 50)]:
-        run("magick", "icon.png", "-filter", "Lanczos", "-resize", f"{size}x{size}", name)
+        run("magick", "icon.png", "-filter", "Lanczos", "-resize", f"{size}x{size}",
+            "-strip", name)
 
     iconset = os.path.join(HERE, "icon.iconset")
     subprocess.run(["rm", "-rf", iconset], check=True)
@@ -172,14 +174,17 @@ def main():
                        ("128x128", 128), ("128x128@2x", 256), ("256x256", 256),
                        ("256x256@2x", 512), ("512x512", 512), ("512x512@2x", 1024)]:
         run("magick", "icon.png", "-filter", "Lanczos", "-resize", f"{size}x{size}",
-            f"icon.iconset/icon_{name}.png")
+            "-strip", f"icon.iconset/icon_{name}.png")
     run("iconutil", "-c", "icns", "icon.iconset", "-o", "icon.icns")
     subprocess.run(["rm", "-rf", iconset], check=True)
     # 256 is a quarter of a megabyte of uncompressed bitmap on its own, and
     # nothing on this platform reads the .ico at all
-    run("magick", "icon.png", "-define", "icon:auto-resize=128,64,48,32,16", "icon.ico")
+    run("magick", "icon.png", "-define", "icon:auto-resize=128,64,48,32,16",
+        "-strip", "icon.ico")
 
-    # and the layered one, for the system that would rather compose it itself
+    # and the layered one, for the system that would rather compose it itself.
+    # Its compiled form, Assets.car, is committed next to it and is what the
+    # bundler is pointed at — see compile_icon() below for why.
     assets = os.path.join(HERE, "AppIcon.icon", "Assets")
     os.makedirs(assets, exist_ok=True)
     render(layer_svg(), os.path.join(assets, "zero.png"))
@@ -201,6 +206,42 @@ def main():
         "supported-platforms": {"squares": ["macOS"]},
     }, indent=2) + "\n")
     print("drawn")
+    compile_icon()
+
+
+def compile_icon():
+    """Compile AppIcon.icon into Assets.car, which is the file that ships.
+
+    Tauri can do this during a build, but that puts an Apple bug on the path
+    of everyone who clones this: actool's Icon Composer support crashes —
+    `attempt to insert nil object from objects[0]`, somewhere inside
+    selectCatalogIconComposerItemsFromCollection — and once it starts, it
+    keeps crashing on every icon, including Tauri's own example, until
+    something out of reach resets. Restarting ibtoold doesn't clear it, nor
+    does deleting its pipes or the asset-runtime cache. A missing actool the
+    bundler skips gracefully; a crashing one fails the build outright.
+
+    So the compiled catalog is committed and the config points at it. Building
+    zero needs no Xcode, and this runs only when the icon is redrawn — and if
+    it's in one of its moods, it says so and leaves the committed file alone.
+    """
+    out = os.path.join(HERE, "build")
+    subprocess.run(["rm", "-rf", out], check=True)
+    os.makedirs(out)
+    r = subprocess.run(["actool", os.path.join(HERE, "AppIcon.icon"), "--compile", out,
+                        "--app-icon", "AppIcon", "--include-all-app-icons",
+                        "--platform", "macosx", "--minimum-deployment-target", "26.0",
+                        "--output-partial-info-plist", os.path.join(out, "partial.plist"),
+                        "--output-format", "human-readable-text"],
+                       capture_output=True, text=True)
+    car = os.path.join(out, "Assets.car")
+    if os.path.exists(car):
+        subprocess.run(["mv", car, os.path.join(HERE, "Assets.car")], check=True)
+        print("compiled Assets.car")
+    else:
+        print("actool didn't produce Assets.car — keeping the committed one.")
+        print((r.stdout + r.stderr).strip()[:400] or "  (no output)")
+    subprocess.run(["rm", "-rf", out], check=True)
 
 
 if __name__ == "__main__":
