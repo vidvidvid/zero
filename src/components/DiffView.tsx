@@ -3,10 +3,10 @@ import { MergeView } from "@codemirror/merge";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { darkModern } from "../lib/cmTheme";
 import { api } from "../lib/api";
-import { langFor } from "../lib/lang";
+import { langFor, lazyLangFor } from "../lib/lang";
 
 export function DiffView({
   worktree,
@@ -27,6 +27,11 @@ export function DiffView({
   useEffect(() => {
     let disposed = false;
     const absPath = `${worktree}/${relPath}`;
+    // one compartment per side: a compartment holds one value per state, and
+    // the two sides are two states
+    const langA = new Compartment();
+    const langB = new Compartment();
+    const langLater = lazyLangFor(relPath);
 
     const load = async () => {
       const [head, current] = await Promise.all([
@@ -59,7 +64,7 @@ export function DiffView({
             EditorState.readOnly.of(true),
             EditorView.lineWrapping,
             darkModern,
-            ...langFor(relPath),
+            langA.of(langFor(relPath)),
           ],
         },
         b: {
@@ -68,7 +73,7 @@ export function DiffView({
             basicSetup,
             EditorView.lineWrapping,
             darkModern,
-            ...langFor(relPath),
+            langB.of(langFor(relPath)),
             EditorView.updateListener.of((u) => {
               if (u.docChanged) dirtyRef.current = true;
             }),
@@ -79,6 +84,12 @@ export function DiffView({
         // show only the edited regions, VS Code style: 3 lines of context,
         // longer unchanged stretches become a click-to-expand band
         collapseUnchanged: { margin: 3, minSize: 4 },
+      });
+
+      langLater.then((ext) => {
+        if (disposed || !ext || !mergeRef.current) return;
+        mergeRef.current.a.dispatch({ effects: langA.reconfigure(ext) });
+        mergeRef.current.b.dispatch({ effects: langB.reconfigure(ext) });
       });
     });
 

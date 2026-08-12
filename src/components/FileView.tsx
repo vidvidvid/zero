@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
+import { Compartment } from "@codemirror/state";
 import { darkModern } from "../lib/cmTheme";
 import { api } from "../lib/api";
-import { langFor } from "../lib/lang";
+import { langFor, lazyLangFor } from "../lib/lang";
 import { modClick } from "../lib/modClick";
 
 export function FileView({
@@ -31,6 +32,11 @@ export function FileView({
 
   useEffect(() => {
     let disposed = false;
+    // the language sits in a compartment so a mode that has to be fetched can
+    // drop in later without rebuilding the editor under the cursor
+    const lang = new Compartment();
+    // started now, applied after the view exists — the two races otherwise
+    const langLater = lazyLangFor(absPath);
 
     api.readFile(absPath).then((content) => {
       if (disposed || !hostRef.current) return;
@@ -42,7 +48,7 @@ export function FileView({
           basicSetup,
           darkModern,
           EditorView.lineWrapping,
-          ...langFor(absPath),
+          lang.of(langFor(absPath)),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) dirtyRef.current = true;
           }),
@@ -69,6 +75,11 @@ export function FileView({
         ],
       });
       if (line) jumpToLine(viewRef.current, line);
+
+      langLater.then((ext) => {
+        if (disposed || !ext || !viewRef.current) return;
+        viewRef.current.dispatch({ effects: lang.reconfigure(ext) });
+      });
     });
 
     // live refresh unless the user has unsaved edits — and never for a tab
