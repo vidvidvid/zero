@@ -387,15 +387,19 @@ body.dragging-tab .editor-tab * {
 }
 
 /* unlike the +, always there: settings shouldn't need the shortcut known or
-   the bar hovered to be found. The far corner is the one place in the bar
-   that's never contested — tabs grow from the centre, traffic lights own the
-   left — so the gear can sit in it at full size without crowding anything. */
+   the bar hovered to be found. Absolutely pinned, for two reasons that are the
+   same reason: in the flex row the bar's 78px inset would hold it that far
+   from the edge, and its width would join the spacer math and pull the tabs
+   off the window axis. Out of the flow it sits in the true corner and the
+   tabs never feel it. */
 .titlebar-gear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
-  margin-left: auto;
-  margin-right: 6px;
-  padding: 4px 8px;
+  padding: 4px 6px;
   color: var(--text-faint);
 }
 

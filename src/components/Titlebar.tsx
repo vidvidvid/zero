@@ -120,20 +120,23 @@ export function Titlebar({
         <button className="titlebar-add" title="open project (⌘⇧N / ⌘⇧O)" onClick={onPick}>
           ＋
         </button>
-        <button className="titlebar-gear" title="settings (⌘,)" onClick={onSettings}>
-          {/* drawn like the tab close ×: a cog glyph from a font sits off-centre
-              in its em box and half of them render as emoji */}
-          <svg width="16" height="16" viewBox="0 0 14 14">
-            <circle cx="7" cy="7" r="2.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
-            <path
-              d="M7 2.4 V4.2 M7 9.8 V11.6 M2.4 7 H4.2 M9.8 7 H11.6 M5 5 L3.7 3.7 M9 5 L10.3 3.7 M9 9 L10.3 10.3 M5 9 L3.7 10.3"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
       </div>
+      {/* outside the spacers: the gear sits in the bar's right inset — the
+          78px the tabs never enter — so it can be pinned to the corner without
+          entering the centring math that keeps the tabs on the window axis */}
+      <button className="titlebar-gear" title="settings (⌘,)" onClick={onSettings}>
+        {/* drawn like the tab close ×: a cog glyph from a font sits off-centre
+            in its em box and half of them render as emoji */}
+        <svg width="16" height="16" viewBox="0 0 14 14">
+          <circle cx="7" cy="7" r="2.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <path
+            d="M7 2.4 V4.2 M7 9.8 V11.6 M2.4 7 H4.2 M9.8 7 H11.6 M5 5 L3.7 3.7 M9 5 L10.3 3.7 M9 9 L10.3 10.3 M5 9 L3.7 10.3"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 }
