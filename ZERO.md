@@ -27,3 +27,7 @@
 - macOS — misheard as: macro I said (suggested)
 - Dynamic Island — misheard as: dynamic island (suggested)
 - VS Code — misheard as: views code (suggested)
+- Vid — misheard as: Vida (suggested)
+- Netlify — misheard as: 95, matify (suggested)
+- Vercel — misheard as: Versa, versal (suggested)
+- Railway — misheard as: the railway (as the ordinary word) (suggested)
