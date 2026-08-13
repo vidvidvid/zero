@@ -13,9 +13,9 @@ showing up as a cost, not Cursor being badly built.
 ```
 Machine   Apple M3 Max · 36 GB · macOS 26.5.1
 Cursor    3.15.6, with the extensions I actually have installed
-zero      0.1.0
+zero      0.1.0 for launch, memory and CPU; 0.2.0 for disk and code
 Project   the zero repo itself — 5.0k lines when these were run, a git
-          worktree, node_modules present (it is 8.5k now; see Code below)
+          worktree, node_modules present (it is 17.6k now; see Code below)
 Method    3 launches each, median reported, apps quit between runs
 ```
 
@@ -23,23 +23,29 @@ Method    3 launches each, median reported, apps quit between runs
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **13 MB** | 860 MB | 66× |
-| Installer | **6.0 MB** dmg | — | |
-| Files in the bundle | **4** | 17,035 | |
+| App bundle | **14 MB** | 860 MB | 61× |
+| Installer | **6.3 MB** dmg | — | |
+| Files in the bundle | **5** | 17,035 | |
 | Shipped JS | **1.4 MB** loaded, 2.4 MB in all | 256 MB across 12,021 files | 183× |
 | Electron/WebKit runtime | 0 (system WebKit) | 259 MB bundled | |
 | Bundled extensions | 0 | 116 | |
 
-zero's bundle is four files because Tauri compiles the frontend into the
+zero's bundle is five files because Tauri compiles the frontend into the
 binary and uses the WebKit that ships with macOS. Electron carries its own
 Chromium.
 
-Two of those four are the icon, and they're most of the 2 MB the bundle grew
+The fifth arrived with voice memos in 0.2.0: `zero-voice`, a 175 KB Swift
+binary that records and transcribes, spawned per request rather than held
+open. It is only a sixth of the megabyte the bundle grew — the icons didn't
+change, so the rest is the memo pipeline compiled into the main binary, which
+is 12.6 MB of the 14.
+
+Two of those five are the icon, and they're most of the 2 MB the bundle grew
 in August 2026: a 428 KB `.icns` for macOS 25 and earlier, and a 1.6 MB
 `Assets.car` holding the layered macOS 26 icon, which the system renders in
 seven appearances — light, dark, clear light and dark, tinted light and dark,
 and the mono one. That's the price of letting the system compose the icon
-instead of drawing it ourselves, and it is a real 15% of the app.
+instead of drawing it ourselves, and it is a real 14% of the app.
 
 Two JS numbers, because the syntax highlighting split them apart: 1.4 MB is
 what loads to draw the window, and the other megabyte is 109 language modes
@@ -185,9 +191,19 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **8,479 lines** (4,364 TS/TSX · 2,315 Rust · 1,800 CSS) | closed, VS Code fork |
+| Source | **17,593 lines** (7,457 TS/TSX · 6,410 Rust · 2,918 CSS · 808 Swift) | closed, VS Code fork |
 | npm dependencies | **19** direct, 38 in the production tree | — |
 | Rust crates | 443 | — |
+
+Voice memos roughly doubled it: 4,009 of the Rust lines and 808 of the Swift
+are the memo pipeline and its helper.
+
+```sh
+find src -name '*.ts' -o -name '*.tsx' | xargs wc -l | tail -1   # TS/TSX
+find src-tauri/src -name '*.rs'        | xargs wc -l | tail -1   # Rust
+find src -name '*.css'                 | xargs wc -l | tail -1   # CSS
+wc -l helper/zero-voice.swift                                    # Swift
+```
 
 ## What this is not
 
