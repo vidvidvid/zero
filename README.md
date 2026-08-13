@@ -34,6 +34,10 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 | Memory, one project | **354 MB** | 687 MB | 1.9× |
 | Idle CPU | **1.10%** of a core | 2.66% | |
 
+Measured before voice memos landed, which add a ~1 MB compiled Swift helper and
+a fifth file to the bundle. The numbers above will be re-measured rather than
+adjusted on paper.
+
 Memory is `phys_footprint` — what Activity Monitor shows. Summed RSS would
 have said 256 MB against 2,057 MB, but it counts a shared framework page once
 per process and so punishes Cursor for having twelve of them. The 2× is the
@@ -111,6 +115,41 @@ close buttons appear only when the pointer is in the top fifth of a pane.
 changes, staging, and commit box — which is the shape of the work when several
 agents are going at once.
 
+**Voice memos, per project.** Press record, ramble, press stop. The
+transcription is the one built into macOS, so it happens on this Mac, and then
+a single `claude -p` pass turns it into the concise version you would
+otherwise have pasted into a chat and asked for by hand. A memo that came back
+takes follow-ups: the ＋ on its row records on top of it, and the new words are
+merged into the same document, the follow-up winning wherever the two
+disagree.
+
+Clicking a memo opens it as its thread — what you said, what came back, take
+by take, oldest at the top, with the button that records the next take at the
+bottom of it. It is still files all the way down, all of them in
+`<project>/.zero/memos/`: the audio, the raw transcript of every take, the
+document, and a copy of the document as each take left it. The thread reads
+those files rather than standing in for them — ⌥-clicking the row still opens
+the transcript as an ordinary tab, and `edit` in the thread's header drops you
+into the document itself, where saving it is what it has always been.
+
+Speech recognition mangles precisely the words that carry the meaning: TRMNL
+comes back as "terminal", Anthropic as "entropic", zero as the digit. So each
+project keeps a `ZERO.md` at its root — zero's one setup file per project, the
+way a CLAUDE.md is, holding a plain list of that project's proper nouns —
+which goes to the recogniser as bias and to the cleanup as context. The second
+of those is the one that earns its keep — TRMNL *is* pronounced "terminal",
+and in a code editor "terminal" is also a real and frequent word, so only
+meaning can tell the two apart.
+
+The list writes itself. The first version is derived from the project's own
+README — the one document where a person has already explained the thing in
+prose and named everything odd in it — and after that each cleanup pass
+suggests the proper nouns it had to correct, marked `(suggested)` so a bad one
+is pruned by deleting its line.
+
+The transcriber is new in macOS 26 and there is no second one to fall back to,
+so **memos need macOS 26**. Nothing else in zero does.
+
 **⌘P goes to a file.** Fuzzy, over everything git will admit to — tracked files
 plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
 and `node_modules` never appears.
@@ -177,7 +216,7 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 | `⌘B` | sidebar |
 | `⌘P` | go to file |
 | `⌘⇧F` / `⌘⇧H` | search / search and replace |
-| `⌘⇧E` / `⌃⇧G` | files / worktrees |
+| `⌘⇧E` / `⌃⇧G` / `⌘⇧M` | files / worktrees / memos |
 | `⌘N` / `⌘W` | new file / close file |
 | `⌘\`` | cycle projects |
 | `⌘⇧O` | open a project |
@@ -197,6 +236,12 @@ none of them:
 
 The one that isn't obvious from the error it gives: `failed to run 'cargo
 metadata' … No such file or directory` means Rust isn't installed.
+
+The build compiles one more thing than it used to: a small Swift helper
+(`helper/zero-voice.swift`) that does the recording and the transcription for
+voice memos. It wants `swiftc` — already in the command line tools above — and
+the macOS 26 SDK, which came with them if that install is recent enough. Memos
+need macOS 26 to run, not only to build: the transcriber is the system's.
 
 ```sh
 npm install
@@ -253,7 +298,7 @@ binary directly would start a second instance with its own set of shells.
 
 ## Things it does to your machine
 
-All three are the kind of thing you'd want told to you plainly rather than
+All six are the kind of thing you'd want told to you plainly rather than
 discovered:
 
 - **It writes `~/.local/bin/zero`** on every launch (overwriting it, if you've
@@ -268,8 +313,28 @@ discovered:
   `TERM_SESSION_ID` it inherited from whatever launched it — otherwise macOS's
   shell-session integration greets every new terminal with "Restored session:"
   and saves history into `~/.zsh_sessions` on behalf of someone else's window.
+- **It writes `<project>/.zero/`** the first time you record a voice memo in
+  that project — the audio and both transcripts — **and a `<project>/ZERO.md`**
+  beside it, the vocabulary that project is transcribed against, which is meant
+  to be committed the way a CLAUDE.md is. They are the first things zero has
+  ever put inside a project of its own accord, and they appear only if you
+  press record or open that file from the panel.
+- **It appends `.zero/memos/` to that project's `.gitignore`** at the same
+  moment, once, under a comment saying which program added it. The recordings
+  stay on your machine; `ZERO.md` is outside that line, so the project's words
+  are the part that travels with the repository. It skips the append if the
+  path is already ignored or the directory isn't a repository, and it never
+  writes the line a second time — delete it and it stays deleted.
+- **It asks for the microphone** the first time you press record — macOS's own
+  prompt, at the press rather than at launch, so merely opening the tab asks
+  for nothing.
 
-Nothing is sent anywhere. There is no network code in this app.
+There is still no network code in this app, which used to be the whole story
+and isn't quite any more. Transcription runs on this Mac, though the OS may
+download Apple's speech model once if system dictation never has. And the
+cleanup pass pipes the transcript through the `claude` CLI you were already
+running, which sends it to Anthropic — the same trip as anything else you type
+into it. Skip that step or let it fail, and nothing has left the machine.
 
 ### Opening a repository doesn't run its code
 
