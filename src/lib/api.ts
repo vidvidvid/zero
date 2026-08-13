@@ -25,6 +25,12 @@ export interface BranchInfo {
   behind: number;
 }
 
+export interface Baseline {
+  content: string;
+  /** false when HEAD has no such file — a new file, which gets no change bars */
+  tracked: boolean;
+}
+
 export interface DirEntry {
   name: string;
   is_dir: boolean;
@@ -152,6 +158,7 @@ export const api = {
   gitPush: (worktree: string) => invoke<string>("git_push", { worktree }),
   branchInfo: (worktree: string) => invoke<BranchInfo>("git_branch_info", { worktree }),
   headFile: (worktree: string, path: string) => invoke<string>("git_head_file", { worktree, path }),
+  gitBaseline: (path: string) => invoke<Baseline>("git_baseline", { path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   projectFiles: (root: string) => invoke<string[]>("list_project_files", { root }),
   searchProject: (root: string, query: SearchQuery) =>

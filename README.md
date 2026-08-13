@@ -115,6 +115,26 @@ close buttons appear only when the pointer is in the top fifth of a pane.
 changes, staging, and commit box — which is the shape of the work when several
 agents are going at once.
 
+**It shows you what you changed, wherever you are.** Bars in the editor gutter
+against every line that differs from the committed file — green for added, blue
+for edited, and a red wedge at the seam where lines were deleted — and the same
+marks again in a lane beside the scrollbar, so a change you've scrolled past is
+still findable. In the file tree, changed files take git's colour and its
+letter, and every folder above them takes the colour too: something edited three
+levels down is visible without opening anything.
+
+The diff is against HEAD rather than the index, so staging a file doesn't make
+its bars vanish — the changes panel goes on listing a staged file, and the two
+shouldn't disagree about what changed. A brand-new file gets no bars at all:
+every line being "added" is noise, and the tree is where new gets said.
+
+None of it is on a three-second timer. Saving refreshes it, and so does coming
+back to the window; between those it polls, but the interval is measured rather
+than picked — a sweep is timed and allowed about 7% of the clock, which on this
+repository is 14 ms of git and a poll just under a second, and on a monorepo
+where `git status` costs half a second is a back-off instead of a stutter. The
+tree and the changes panel read one sweep between them.
+
 **Voice memos, per project.** Press record, ramble, press stop. The
 transcription is the one built into macOS, so it happens on this Mac, and then
 a single `claude -p` pass turns it into the concise version you would
@@ -216,17 +236,38 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 | `⌘B` | sidebar |
 | `⌘P` | go to file |
 | `⌘⇧F` / `⌘⇧H` | search / search and replace |
-| `⌘⇧E` / `⌃⇧G` / `⌘⇧M` | files / worktrees / memos |
+| `⌘E` / `⌃⇧G` / `⌘⇧M` | files — walks the tree to the file you're on / worktrees / memos |
 | `⌘N` / `⌘W` | new file / close file |
 | `⌘\`` | cycle projects |
 | `⌘⇧O` | open a project |
 
 ## Install
 
-There's no download yet, so you build it, which takes about a minute. **Running**
-zero needs macOS on Apple Silicon and `git`, which the worktree panel and ⌘P
-both use. **Building** it needs three more things, and your Mac may already have
-none of them:
+Running zero needs macOS on Apple Silicon and `git`, which the worktree panel
+and ⌘P both use. Nothing else.
+
+```sh
+brew install --cask vidvidvid/zero/zero
+```
+
+Or [download the dmg](https://github.com/vidvidvid/zero/releases/latest/download/zero_aarch64.dmg)
+and drag zero to Applications.
+
+**The app isn't signed** — signing it properly needs an Apple Developer
+account — so macOS quarantines anything you download and then refuses to open
+it. The message it gives is "zero is damaged and can't be opened", which reads
+like a corrupt download and isn't: it's the message for *unsigned*. Homebrew
+clears the quarantine flag itself, which is the whole reason to prefer it. After
+a manual download you clear it yourself, once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/zero.app
+```
+
+### Or build it
+
+About a minute. Building needs three things beyond running it, and your Mac may
+have none of them:
 
 | | is it there? | if not |
 |---|---|---|
@@ -249,12 +290,77 @@ npm run tauri build
 cp -R src-tauri/target/release/bundle/macos/zero.app /Applications/
 ```
 
-The app is **not signed or notarised**, so the first launch needs a
-right-click → Open (or `xattr -dr com.apple.quarantine /Applications/zero.app`).
-Signing it properly needs an Apple Developer account.
+Nothing quarantines an app you built yourself, so this one just opens.
 
 Xcode isn't needed. The macOS 26 icon is a compiled asset catalog, and the
 compiled file is committed rather than built here — see below for why.
+
+### Working on it
+
+```sh
+npm install
+npm run tauri dev
+```
+
+The frontend hot-reloads; touching Rust rebuilds and relaunches. `npm run build`
+typechecks and bundles the frontend on its own, which is also what
+`tauri build` runs first, so a type error fails the release before it compiles
+anything.
+
+The Rust side has tests — 11 of them, in about a tenth of a second:
+
+```sh
+cd src-tauri && cargo test
+```
+
+Two are the hardening described below, and they come as a pair: one proves
+`git status` doesn't run a repository's own configured commands, and the other
+proves the same repository *does* run them without the guard, so the first can't
+quietly stop testing anything.
+
+### Releases
+
+**Nothing on `main` reaches anyone.** The only trigger is a tag, and the
+download link resolves to the newest release, not the newest commit.
+
+```sh
+npm version 0.2.0 -m "zero %s"   # bumps package.json, commits, tags v0.2.0
+git push origin main --follow-tags
+```
+
+`.github/workflows/release.yml` then builds the dmg on a macOS arm64 runner —
+about two minutes — and attaches it, so the file on the releases page is always
+the one that tag builds.
+
+`package.json` is the only copy of the version: `tauri.conf.json` names it as a
+path instead of repeating the number, and `Cargo.toml` sits at `0.0.0` because
+nothing reads it. The workflow checks the tag against `package.json`, and checks
+that `tauri.conf.json` still points at it — a literal number put back there
+would go stale with nothing to notice.
+
+The asset is named `zero_aarch64.dmg`, with no version in it, which is what
+makes `/releases/latest/download/zero_aarch64.dmg` a link that keeps working;
+the tagged URL carries the version instead.
+
+**The Homebrew cask doesn't follow releases.** It lives in
+[vidvidvid/homebrew-zero](https://github.com/vidvidvid/homebrew-zero) and pins
+both the version and the dmg's sha256, so a new tag means bumping `version` and
+`sha256` in its `Casks/zero.rb` and pushing that repository too — otherwise
+`brew install --cask` goes on handing people the old dmg. The sha256 is printed
+in the release notes, so you don't need to download the file to get it, and
+
+```sh
+brew fetch --cask vidvidvid/zero/zero
+```
+
+checks the cask and the release agree without installing anything.
+
+One thing that isn't obvious: a dmg built on a runner has no arranged icons in
+its window. Tauri's `bundle_dmg.sh` sets that up with an AppleScript that drives
+Finder, and it exits 64 when it can't reach one — on a machine with no GUI
+session that's not a cosmetic difference, it's a failed build. The bundler
+passes `--skip-jenkins` when `CI` is set, which Actions sets, so the layout is
+what gets dropped instead.
 
 ### The icon
 
@@ -341,8 +447,8 @@ into it. Skip that step or let it fail, and nothing has left the machine.
 A repository can name programs for git to run in its own `.git/config`, and
 some of them fire on plain reads: `core.fsmonitor`, and a `filter.<n>.clean`
 selected by the repo's own `.gitattributes`, both execute during `git status`.
-The worktree panel is the default sidebar tab and polls status every three
-seconds, so opening a repository that arrived with a `.git` directory already
+The worktree panel is the default sidebar tab and polls status about once a
+second, so opening a repository that arrived with a `.git` directory already
 in it would otherwise be enough to run a stranger's command.
 
 So the commands that run on their own — `worktree list`, `status`, `rev-list`,

@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { WorktreePanel } from "./WorktreePanel";
-import { FileTree } from "./FileTree";
+import { FileTree, type Reveal } from "./FileTree";
 import { SearchPanel } from "./SearchPanel";
 import { MemoPanel } from "./MemoPanel";
 import type { Search } from "../lib/search";
@@ -68,6 +68,7 @@ export function Sidebar({
   search,
   memos,
   activeMemo,
+  reveal,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -80,6 +81,7 @@ export function Sidebar({
   /** the memo whose thread is the view on screen, so its row can say so —
    *  passed straight through, since the sidebar knows nothing about tabs */
   activeMemo: string | null;
+  reveal: Reveal | null;
 }) {
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
@@ -110,7 +112,14 @@ export function Sidebar({
       </div>
       <div className="sidebar-body">
         {tab === "scm" && <WorktreePanel project={project} onOpenView={onOpenView} active={active} />}
-        {tab === "files" && <FileTree root={project.root} onOpenView={onOpenView} />}
+        {tab === "files" && (
+          <FileTree
+            root={project.root}
+            active={active}
+            reveal={reveal}
+            onOpenView={onOpenView}
+          />
+        )}
         {tab === "search" && (
           <SearchPanel root={project.root} search={search} onOpenView={onOpenView} />
         )}

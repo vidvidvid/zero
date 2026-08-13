@@ -1,0 +1,79 @@
+name: release
+
+# Tagging is the release. Nothing builds on a push to main — a dmg is only
+# worth making when there's a version to call it.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    # arm64. zero is Apple Silicon only, which is also the only thing this
+    # builds for — a universal binary would double the download to serve
+    # machines the app doesn't claim to run on. macOS 26 rather than an older
+    # image because the build now compiles the voice helper against the
+    # macOS 26 SDK — SpeechAnalyzer doesn't exist in the ones before it.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag has to be the version
+        # a dmg labelled 0.1.0 cut from tag v0.2.0 is the kind of thing nobody
+        # notices for months
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          json() { node -e "console.log(JSON.parse(require('fs').readFileSync('$1','utf8')).version)"; }
+          v=$(json package.json)
+          [ "$v" = "$tag" ] || { echo "::error::package.json says $v, tag says $tag"; exit 1; }
+          # and that package.json is still the only copy — a literal version
+          # put back here would go stale without anything noticing
+          conf=$(json src-tauri/tauri.conf.json)
+          [ "$conf" = "../package.json" ] || {
+            echo "::error::tauri.conf.json version is '$conf', expected ../package.json"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - run: npm ci
+
+      # CI is set here, and the bundler reads it: it passes --skip-jenkins to
+      # bundle_dmg.sh, which skips the Finder-prettifying AppleScript. That
+      # script exits 64 when it can't reach Finder, so on a runner with no GUI
+      # session it isn't a cosmetic difference, it's the difference between a
+      # dmg and a failed build. The cost is a dmg window with no arranged
+      # icons. Xcode isn't needed for the icon — it ships compiled — but the
+      # voice helper wants swiftc, which the runner image carries.
+      - run: npm run tauri build
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # a filename with no version in it, so
+          # /releases/latest/download/zero_aarch64.dmg is a link that keeps
+          # working across releases — the tagged URL carries the version
+          mv "src-tauri/target/release/bundle/dmg/zero_${GITHUB_REF_NAME#v}_aarch64.dmg" \
+             zero_aarch64.dmg
+          sha=$(shasum -a 256 zero_aarch64.dmg | cut -d' ' -f1)
+          # the checksum goes in the notes because the Homebrew cask needs it,
+          # and this is where it can be read without downloading the file.
+          # Four spaces rather than a fence: no backticks to escape twice.
+          notes=$(printf '%s\n' \
+            "Apple Silicon." \
+            "" \
+            "The app is not signed, so macOS quarantines it on download. Installing through the Homebrew tap clears that for you; a downloaded dmg needs one line, which the README gives." \
+            "" \
+            "    sha256  $sha")
+          # --notes is prepended to the changelog --generate-notes writes
+          gh release create "$GITHUB_REF_NAME" zero_aarch64.dmg \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            --notes "$notes"

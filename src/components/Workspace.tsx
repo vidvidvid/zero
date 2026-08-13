@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "../App";
 import { Sidebar, SidebarTab } from "./Sidebar";
+import type { Reveal } from "./FileTree";
 import { EditorPane } from "./EditorPane";
 import { Terminals, useTerminalTree } from "./Terminals";
 import { QuickOpen } from "./QuickOpen";
@@ -99,6 +100,8 @@ export const Workspace = memo(function Workspace({
   const [terminalVisible, setTerminalVisible] = useState(saved.terminalVisible ?? true);
   const [sidebarWidth, setSidebarWidth] = useState(() => persisted("zero-sidebar-w", 260));
   const [quickOpen, setQuickOpen] = useState(false);
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+  const revealCount = useRef(0);
   const [termHeight, setTermHeight] = useState(() => persisted("zero-term-h", 300));
   const [views, setViews] = useState<View[]>(saved.views ?? []);
   const [activeView, setActiveView] = useState(saved.activeView ?? 0);
@@ -226,10 +229,16 @@ export const Workspace = memo(function Workspace({
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
         closeView(activeViewRefValue.current);
-      } else if (meta && e.shiftKey && e.key.toLowerCase() === "e") {
+      } else if (meta && e.key.toLowerCase() === "e") {
+        // the tree opens on the file you're looking at, folders and all —
+        // ⌘⇧E does it too, since that's the one people arrive with
         e.preventDefault();
         setSidebarVisible(true);
         setSidebarTab("files");
+        const v = viewsRef.current[activeViewRefValue.current];
+        const abs =
+          v?.kind === "file" ? v.absPath : v?.kind === "diff" ? `${v.worktree}/${v.relPath}` : null;
+        if (abs) setReveal({ path: abs, n: revealCount.current++ });
       } else if (meta && e.shiftKey && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "h")) {
         // ⌘⇧F searches, ⌘⇧H arrives with the replace field already open — the
         // same split VS Code and Cursor make
@@ -273,6 +282,7 @@ export const Workspace = memo(function Workspace({
 
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
   const activeViewRefValue = useStateRef(activeView);
+  const viewsRef = useStateRef(views);
   // and one for the memos, for a stronger version of the same reason: this
   // object is rebuilt on every tick of the elapsed timer, so a handler that
   // closed over it would be torn down and rebound twice a second for the whole
@@ -325,6 +335,7 @@ export const Workspace = memo(function Workspace({
               search={search}
               memos={memos}
               activeMemo={activeMemo}
+              reveal={reveal}
             />
             <div
               className="resizer-col"

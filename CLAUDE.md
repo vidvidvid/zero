@@ -1,0 +1,75 @@
+# CLAUDE.md
+
+For agents working in this repository. The README says what zero is and why;
+this is the part you'd otherwise have to rediscover.
+
+## Releasing — nothing on `main` reaches anyone
+
+The only trigger is a tag. `.github/workflows/release.yml` runs on
+`push: tags: v*`, builds the dmg on a macOS arm64 runner in about two minutes,
+and attaches it as `zero_aarch64.dmg`. The public download —
+
+```
+https://github.com/vidvidvid/zero/releases/latest/download/zero_aarch64.dmg
+```
+
+— resolves to the newest **release**, which is the newest tag, not the newest
+commit. Merging to main changes nothing anyone can download.
+
+**So: after shipping something a user would notice, ask whether it's worth a
+release.** Not every commit is, but a change nobody can install is a change
+nobody has.
+
+To cut one, from a clean tree on `main`:
+
+```sh
+npm version 0.2.0 -m "zero %s"   # bumps package.json, commits, tags v0.2.0
+git push origin main --follow-tags
+```
+
+`package.json` is the only copy of the version. `tauri.conf.json` names it as a
+path rather than repeating the number, and `Cargo.toml` sits at `0.0.0` because
+nothing reads it. The workflow checks the tag against `package.json` — and
+checks that `tauri.conf.json` still points at it, since a literal number put
+back there would go stale with nothing to notice.
+
+The Homebrew cask lives in its own repository, `vidvidvid/homebrew-zero`, and
+pins both the version and the dmg's sha256. **It does not follow releases** —
+a new tag means bumping `version` and `sha256` in `Casks/zero.rb` and pushing
+that repository too, or `brew install --cask` goes on handing people the old
+dmg. The sha256 is printed in the release notes so you don't have to download
+the file to get it, and `brew fetch --cask vidvidvid/zero/zero` checks the two
+agree without installing anything.
+
+## Building and installing locally
+
+- **Never quit or relaunch the installed app.** There may be live Claude Code
+  sessions in its terminals. Install, say it's installed, and let Vid relaunch
+  it himself.
+- **Install atomically** — copy beside, then swap. A `rm -rf` followed by a
+  `cp` leaves no app at all if the copy fails:
+  ```sh
+  rm -rf /Applications/zero.app.new
+  cp -R src-tauri/target/release/bundle/macos/zero.app /Applications/zero.app.new
+  rm -rf /Applications/zero.app
+  mv /Applications/zero.app.new /Applications/zero.app
+  ```
+- **Never chain `&&` after a piped build.** `npm run tauri build | tail && …`
+  reports the pipe's status, not the build's, so a failed build runs the next
+  command anyway. Use `set -o pipefail`.
+- **Show it in `npm run tauri dev` first**, and wait for an explicit go-ahead
+  before building, installing or pushing. Praise for the plan isn't it.
+
+## Numbers in the docs are measured, not estimated
+
+README and BENCHMARKS quote bundle sizes, file counts and timings. If a change
+could move one, re-measure it and update both — a stale number in a document
+that exists to be precise costs more than no number.
+
+## The icon
+
+`src-tauri/icons/zero-icon.py` draws every icon the app ships and is the only
+place any of them is edited. `Assets.car` is the compiled macOS 26 icon and is
+committed deliberately, so a build never invokes `actool` — Apple's is
+intermittently broken and takes every build with it. The README's "The icon"
+section has the whole story.

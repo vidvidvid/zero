@@ -1,6 +1,9 @@
 [package]
 name = "zero"
-version = "0.1.0"
+# Not the app's version, and deliberately a number nobody could mistake for it:
+# tauri.conf.json reads that from package.json, so this crate's is unused and
+# would only be a third copy to forget to bump.
+version = "0.0.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

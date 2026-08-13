@@ -7,6 +7,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { darkModern } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
+import { pokeGit } from "../lib/gitStatus";
 
 export function DiffView({
   worktree,
@@ -46,6 +47,7 @@ export function DiffView({
       api.writeFile(absPath, text).then(() => {
         dirtyRef.current = false;
         loadedRef.current = { ...loadedRef.current, b: text };
+        pokeGit();
       });
       return true;
     };
