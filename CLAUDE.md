@@ -20,17 +20,18 @@ commit. Merging to main changes nothing anyone can download.
 release.** Not every commit is, but a change nobody can install is a change
 nobody has.
 
-To cut one, bump the version in all three places — `package.json`,
-`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` — then:
+To cut one, from a clean tree on `main`:
 
 ```sh
-git tag -a v0.2.0 -m "zero 0.2.0"
+npm version 0.2.0 -m "zero %s"   # bumps package.json, commits, tags v0.2.0
 git push origin main --follow-tags
 ```
 
-The workflow checks the three against the tag before it builds anything and
-fails loudly if they disagree. That check exists because three copies of one
-number drift quietly.
+`package.json` is the only copy of the version. `tauri.conf.json` names it as a
+path rather than repeating the number, and `Cargo.toml` sits at `0.0.0` because
+nothing reads it. The workflow checks the tag against `package.json` — and
+checks that `tauri.conf.json` still points at it, since a literal number put
+back there would go stale with nothing to notice.
 
 The Homebrew cask lives in its own repository, `vidvidvid/homebrew-zero`, and
 pins both the version and the dmg's sha256. **It does not follow releases** —

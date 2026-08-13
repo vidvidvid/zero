@@ -20,15 +20,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: The tag has to be the version
-        # three files carry it and they drift silently; a dmg labelled 0.1.0
-        # cut from tag v0.2.0 is the kind of thing nobody notices for months
+        # a dmg labelled 0.1.0 cut from tag v0.2.0 is the kind of thing nobody
+        # notices for months
         run: |
           tag="${GITHUB_REF_NAME#v}"
           json() { node -e "console.log(JSON.parse(require('fs').readFileSync('$1','utf8')).version)"; }
-          check() { [ "$2" = "$tag" ] || { echo "::error::$1 says $2, tag says $tag"; exit 1; }; }
-          check package.json "$(json package.json)"
-          check tauri.conf.json "$(json src-tauri/tauri.conf.json)"
-          check Cargo.toml "$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)"
+          v=$(json package.json)
+          [ "$v" = "$tag" ] || { echo "::error::package.json says $v, tag says $tag"; exit 1; }
+          # and that package.json is still the only copy — a literal version
+          # put back here would go stale without anything noticing
+          conf=$(json src-tauri/tauri.conf.json)
+          [ "$conf" = "../package.json" ] || {
+            echo "::error::tauri.conf.json version is '$conf', expected ../package.json"; exit 1; }
 
       - uses: actions/setup-node@v4
         with:
