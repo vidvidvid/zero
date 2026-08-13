@@ -1,4 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./api";
 
 // Files dragged in from Finder never reach the terminal on their own. Tauri
@@ -17,15 +18,39 @@ function escapePath(path: string): string {
   return path.replace(NEEDS_ESCAPE, "\\$&");
 }
 
-/** the terminal pane under a screen point, if the point is over one at all */
+// The event's position is typed `PhysicalPosition`, and on macOS it isn't one.
+// wry reads it from `NSDraggingInfo.draggingLocation` and passes the AppKit
+// point straight through, so what arrives is points within the webview's frame
+// — off from CSS pixels by the page zoom, and off from physical pixels by the
+// display's backing scale. Dividing by devicePixelRatio, which is what the
+// name invites, lands the hit test in the top-left quarter of the window and
+// finds no pane at all.
+//
+// So measure the two coordinate spaces against each other instead of naming a
+// factor: the frame the points are in and the viewport CSS pixels are in are
+// the same rectangle, so their widths give the ratio between them, whatever
+// the zoom and whatever the display.
+let toCss = 1;
+let measuring: Promise<void> | null = null;
+
+function measure(): Promise<void> {
+  const done = (async () => {
+    const win = getCurrentWindow();
+    const [size, scale] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+    const points = size.width / scale;
+    if (points > 0 && window.innerWidth > 0) toCss = window.innerWidth / points;
+  })()
+    .catch(() => {})
+    .then(() => {
+      if (measuring === done) measuring = null;
+    });
+  measuring = done;
+  return done;
+}
+
+/** the terminal pane under a drop point, if the point is over one at all */
 function paneAt(pos: { x: number; y: number }): HTMLElement | null {
-  // the event carries physical pixels and elementFromPoint wants CSS ones.
-  // devicePixelRatio is the whole conversion: it holds the display's scale and
-  // the UI zoom together, because WebKit folds page zoom into it — and the app
-  // zooms the page natively (see App.tsx), so a fixed scale factor would miss
-  // the pane by the zoom factor at anything other than 100%.
-  const scale = window.devicePixelRatio || 1;
-  const el = document.elementFromPoint(pos.x / scale, pos.y / scale);
+  const el = document.elementFromPoint(pos.x * toCss, pos.y * toCss);
   return el?.closest<HTMLElement>("[data-term-id]") ?? null;
 }
 
@@ -46,12 +71,18 @@ let started = false;
 export function watchFileDrops() {
   if (started) return;
   started = true;
+  measure();
   getCurrentWebview()
-    .onDragDropEvent(({ payload }) => {
+    .onDragDropEvent(async ({ payload }) => {
       if (payload.type === "leave") {
         highlight(null);
         return;
       }
+      // a drag begins with `enter`, which is the moment to re-measure: the
+      // window may have been resized or the UI zoomed since the last one
+      if (payload.type === "enter") measure();
+      if (measuring) await measuring;
+
       const pane = paneAt(payload.position);
       if (payload.type !== "drop") {
         // lighting the pane as it's dragged over says where the path will go,
