@@ -367,9 +367,8 @@ body.dragging-tab .editor-tab * {
 }
 
 /* only while you're up here — unclickable as well as invisible, so a stray
-   click on the empty title bar can't open a file dialog or the settings */
-.titlebar-add,
-.titlebar-gear {
+   click on the empty title bar can't open a file dialog */
+.titlebar-add {
   padding: 3px 10px;
   font-size: 12px;
   color: var(--text-faint);
@@ -378,21 +377,30 @@ body.dragging-tab .editor-tab * {
   transition: opacity 0.12s ease;
 }
 
-.titlebar:hover .titlebar-add,
-.titlebar:hover .titlebar-gear {
+.titlebar:hover .titlebar-add {
   opacity: 1;
   pointer-events: auto;
 }
 
-.titlebar-add:hover,
-.titlebar-gear:hover {
+.titlebar-add:hover {
   color: var(--text);
 }
 
+/* unlike the +, always there: settings shouldn't need the shortcut known or
+   the bar hovered to be found. The far corner is the one place in the bar
+   that's never contested — tabs grow from the centre, traffic lights own the
+   left — so the gear can sit in it at full size without crowding anything. */
 .titlebar-gear {
   display: flex;
   align-items: center;
-  padding: 3px 6px;
+  margin-left: auto;
+  margin-right: 6px;
+  padding: 4px 8px;
+  color: var(--text-faint);
+}
+
+.titlebar-gear:hover {
+  color: var(--text);
 }
 
 /* ===== workspace ===== */

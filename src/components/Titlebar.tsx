@@ -123,7 +123,7 @@ export function Titlebar({
         <button className="titlebar-gear" title="settings (⌘,)" onClick={onSettings}>
           {/* drawn like the tab close ×: a cog glyph from a font sits off-centre
               in its em box and half of them render as emoji */}
-          <svg width="13" height="13" viewBox="0 0 14 14">
+          <svg width="16" height="16" viewBox="0 0 14 14">
             <circle cx="7" cy="7" r="2.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
             <path
               d="M7 2.4 V4.2 M7 9.8 V11.6 M2.4 7 H4.2 M9.8 7 H11.6 M5 5 L3.7 3.7 M9 5 L10.3 3.7 M9 9 L10.3 10.3 M5 9 L3.7 10.3"
