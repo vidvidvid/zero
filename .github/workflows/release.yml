@@ -18,6 +18,14 @@ jobs:
     # macOS 26 SDK — SpeechAnalyzer doesn't exist in the ones before it.
     runs-on: macos-26
 
+    # The three that aren't secret-shaped, needed by more than one step: the
+    # certificate's name, and the two halves of the App Store Connect key that
+    # aren't the key itself. tauri reads all three from the environment.
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +51,49 @@ jobs:
 
       - run: npm ci
 
+      # Signing and notarizing are what keep macOS from calling the download
+      # damaged. CLAUDE.md says where the secrets come from and when they
+      # expire.
+      - name: Apple credentials
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -eu
+          # Check every one of them before the build rather than during it.
+          # tauri treats absent notarization credentials as a warning and signs
+          # anyway, so half a configuration doesn't fail — it quietly produces
+          # a dmg that only the people downloading it find out about.
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_P8 \
+                   APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER; do
+            [ -n "$(printenv "$v" || true)" ] || { echo "::error::secret $v is missing or empty"; exit 1; }
+          done
+
+          # notarytool wants the key as a file on disk, and it's read twice:
+          # by tauri for the app, and by the dmg step for the disk image.
+          printf '%s' "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/key.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/key.p8" >> "$GITHUB_ENV"
+
+          # A keychain of our own holding the certificate. tauri can make its
+          # own from APPLE_CERTIFICATE, but it deletes it when the build ends
+          # and the dmg still has to be signed after that — so the certificate
+          # is imported once, here, and both find it by identity instead.
+          kc="$RUNNER_TEMP/build.keychain"
+          pw=$(uuidgen)
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings "$kc"   # no auto-lock partway through
+          security unlock-keychain -p "$pw" "$kc"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          # without this codesign waits on a keychain prompt no one can answer
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$pw" "$kc" >/dev/null
+          # and codesign only searches keychains that are on the list
+          security list-keychains -d user -s "$kc" "$HOME/Library/Keychains/login.keychain-db"
+
       # CI is set here, and the bundler reads it: it passes --skip-jenkins to
       # bundle_dmg.sh, which skips the Finder-prettifying AppleScript. That
       # script exits 64 when it can't reach Finder, so on a runner with no GUI
@@ -52,23 +103,56 @@ jobs:
       # voice helper wants swiftc, which the runner image carries.
       - run: npm run tauri build
 
+      - name: Notarize the dmg
+        run: |
+          set -eu
+          # a filename with no version in it, so
+          # /releases/latest/download/zero_aarch64.dmg is a link that keeps
+          # working across releases — the tagged URL carries the version.
+          # Renaming before signing, because the signature covers the file and
+          # a rename after stapling is one more thing to get wrong.
+          mv "src-tauri/target/release/bundle/dmg/zero_${GITHUB_REF_NAME#v}_aarch64.dmg" \
+             zero_aarch64.dmg
+          # tauri notarizes and staples the .app and then stops: it signs the
+          # disk image around it but never notarizes that, which spctl scores
+          # as "Unnotarized Developer ID" — rejected, and the "Apple could not
+          # verify it is free of malware" dialog, which is the whole thing
+          # we're paying to avoid. Measured on 2.11.4, both halves of it.
+          #
+          # Signing again is deliberate. It's redundant today, costs a second,
+          # and means this step doesn't quietly depend on undocumented bundler
+          # behaviour staying put — notarytool refuses an unsigned dmg outright.
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" zero_aarch64.dmg
+          xcrun notarytool submit zero_aarch64.dmg --wait \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER"
+          xcrun stapler staple zero_aarch64.dmg
+
+      - name: Gatekeeper has to accept it
+        run: |
+          set -eu
+          # what a downloader's Mac is about to do, done here while there's
+          # still no release. spctl exits non-zero on rejection, and it rejects
+          # a Developer ID signature that isn't notarized — so this is the step
+          # that catches a stapling that silently didn't happen.
+          spctl -a -t open --context context:primary-signature -vv zero_aarch64.dmg
+          app=src-tauri/target/release/bundle/macos/zero.app
+          spctl -a -t exec -vv "$app"
+          # --deep because the sidecar is nested code: an unsigned or stale
+          # zero-voice invalidates the app around it.
+          codesign --verify --deep --strict --verbose=2 "$app"
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # a filename with no version in it, so
-          # /releases/latest/download/zero_aarch64.dmg is a link that keeps
-          # working across releases — the tagged URL carries the version
-          mv "src-tauri/target/release/bundle/dmg/zero_${GITHUB_REF_NAME#v}_aarch64.dmg" \
-             zero_aarch64.dmg
           sha=$(shasum -a 256 zero_aarch64.dmg | cut -d' ' -f1)
           # the checksum goes in the notes because the Homebrew cask needs it,
           # and this is where it can be read without downloading the file.
           # Four spaces rather than a fence: no backticks to escape twice.
           notes=$(printf '%s\n' \
-            "Apple Silicon." \
-            "" \
-            "The app is not signed, so macOS quarantines it on download. Installing through the Homebrew tap clears that for you; a downloaded dmg needs one line, which the README gives." \
+            "Apple Silicon. Signed and notarized — it opens without a warning." \
             "" \
             "    sha256  $sha")
           # --notes is prepended to the changelog --generate-notes writes
@@ -77,3 +161,11 @@ jobs:
             --verify-tag \
             --generate-notes \
             --notes "$notes"
+
+      # The runner is thrown away either way. This is for the run that fails
+      # halfway and leaves a certificate sitting in an unlocked keychain.
+      - name: Forget the certificate
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain" || true
+          rm -f "$RUNNER_TEMP/key.p8"

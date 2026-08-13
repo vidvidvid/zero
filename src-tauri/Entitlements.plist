@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Notarization requires the hardened runtime, and the hardened runtime
+	     takes the microphone back off you: Info.plist's usage string asks the
+	     user, this asks the runtime, and a signed build without it is denied
+	     the mic no matter what the user answers. It matters most for
+	     zero-voice — the sidecar, not the app, is what opens the microphone —
+	     which is why this file has to cover both. It does: the bundler signs
+	     every Mach-O in the bundle with the same entitlements, sidecars first
+	     and the app last.
+
+	     Nothing else belongs here. The webview needs no JIT entitlement (its
+	     JavaScript runs in a system WebContent process, not in ours), and the
+	     terminals need nothing either — the hardened runtime is a property of
+	     a process's own signature, so the shells and agents zero spawns are
+	     unaffected by it. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

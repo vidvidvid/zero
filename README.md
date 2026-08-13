@@ -248,22 +248,14 @@ Running zero needs macOS on Apple Silicon and `git`, which the worktree panel
 and ⌘P both use. Nothing else.
 
 ```sh
-brew install --cask zero-editor/zero/zero
+brew install --cask zero-editor/tap/zero
 ```
 
 Or [download the dmg](https://github.com/zero-editor/zero/releases/latest/download/zero_aarch64.dmg)
 and drag zero to Applications.
 
-**The app isn't signed** — signing it properly needs an Apple Developer
-account — so macOS quarantines anything you download and then refuses to open
-it. The message it gives is "zero is damaged and can't be opened", which reads
-like a corrupt download and isn't: it's the message for *unsigned*. Homebrew
-clears the quarantine flag itself, which is the whole reason to prefer it. After
-a manual download you clear it yourself, once:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/zero.app
-```
+Both are signed with an Apple Developer ID and notarized, so macOS opens them
+without a warning and without anything to clear first.
 
 ### Or build it
 
@@ -291,7 +283,11 @@ npm run tauri build
 cp -R src-tauri/target/release/bundle/macos/zero.app /Applications/
 ```
 
-Nothing quarantines an app you built yourself, so this one just opens.
+This one is unsigned — the certificate lives in the release workflow, not in
+the repository — but nothing quarantines an app you built yourself, so it opens
+all the same. The one difference you may notice is that macOS asks again for
+the microphone after a rebuild: permission is remembered per signature, and an
+unsigned build gets a new one every time.
 
 Xcode isn't needed. The macOS 26 icon is a compiled asset catalog, and the
 compiled file is committed rather than built here — see below for why.
@@ -344,14 +340,14 @@ makes `/releases/latest/download/zero_aarch64.dmg` a link that keeps working;
 the tagged URL carries the version instead.
 
 **The Homebrew cask doesn't follow releases.** It lives in
-[zero-editor/homebrew-zero](https://github.com/zero-editor/homebrew-zero) and pins
+[zero-editor/homebrew-tap](https://github.com/zero-editor/homebrew-tap) and pins
 both the version and the dmg's sha256, so a new tag means bumping `version` and
 `sha256` in its `Casks/zero.rb` and pushing that repository too — otherwise
 `brew install --cask` goes on handing people the old dmg. The sha256 is printed
 in the release notes, so you don't need to download the file to get it, and
 
 ```sh
-brew fetch --cask zero-editor/zero/zero
+brew fetch --cask zero-editor/tap/zero
 ```
 
 checks the cask and the release agree without installing anything.

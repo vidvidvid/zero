@@ -38,6 +38,9 @@
       "icons/icon.ico",
       "icons/Assets.car"
     ],
-    "externalBin": ["binaries/zero-voice"]
+    "externalBin": ["binaries/zero-voice"],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    }
   }
 }
