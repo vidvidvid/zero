@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { WorktreePanel } from "./WorktreePanel";
-import { FileTree } from "./FileTree";
+import { FileTree, type Reveal } from "./FileTree";
 import { SearchPanel } from "./SearchPanel";
 import type { Search } from "../lib/search";
 
@@ -52,6 +52,7 @@ export function Sidebar({
   active,
   width,
   search,
+  reveal,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -60,6 +61,7 @@ export function Sidebar({
   active: boolean;
   width: number;
   search: Search;
+  reveal: Reveal | null;
 }) {
   return (
     <div className="sidebar" style={{ width }}>
@@ -77,7 +79,14 @@ export function Sidebar({
       </div>
       <div className="sidebar-body">
         {tab === "scm" && <WorktreePanel project={project} onOpenView={onOpenView} active={active} />}
-        {tab === "files" && <FileTree root={project.root} onOpenView={onOpenView} />}
+        {tab === "files" && (
+          <FileTree
+            root={project.root}
+            active={active}
+            reveal={reveal}
+            onOpenView={onOpenView}
+          />
+        )}
         {tab === "search" && (
           <SearchPanel root={project.root} search={search} onOpenView={onOpenView} />
         )}

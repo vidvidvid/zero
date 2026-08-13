@@ -924,6 +924,56 @@ body.dragging-row {
   background: var(--bg-raised);
 }
 
+/* the name takes the room, the badge keeps its corner */
+.tree-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the row you arrived at with ⌘E. A tree that highlighted on every click
+   would be showing you where you already are; this marks where you were sent. */
+.tree-item.selected {
+  background: #04395e;
+}
+
+.tree-item.selected:hover {
+  background: #0a4a75;
+}
+
+/* git status, same colours the changes panel uses on the same file names —
+   two views of one fact shouldn't need translating between them */
+.tree-item.git-modified,
+.tree-item.git-modified.ignored {
+  color: var(--yellow);
+}
+
+.tree-item.git-added,
+.tree-item.git-added.ignored {
+  color: var(--green);
+}
+
+.tree-item.git-deleted,
+.tree-item.git-deleted.ignored {
+  color: var(--red);
+}
+
+.tree-item.file.git-deleted .tree-name {
+  text-decoration: line-through;
+}
+
+/* the letter git itself uses. Folders don't get one: it would be a badge for
+   something you can't see until you open it, and the colour already said so. */
+.tree-badge {
+  margin-left: auto;
+  padding-left: 6px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
 /* Files and folders read at the same brightness. They used to differ, which
    meant dimness said two things at once — "this is a file" and "git ignores
    this" — and every ordinary file in a folder looked ignored. In this tree
@@ -1666,6 +1716,72 @@ body.dragging-row {
 
 .cm-merge-b .cm-changedLineGutter {
   background: rgba(155, 185, 85, 0.6) !important;
+}
+
+/* ===== change bars (see changeGutter.ts) ===== */
+
+/* VS Code's own editorGutter.{added,modified,deleted}Background — the Dark+
+   built-ins, not something the theme file sets */
+
+.cm-host .cm-gutter.cm-changeGutter {
+  width: 3px;
+  min-width: 3px;
+  margin: 0 4px 0 2px;
+}
+
+.cm-host .cm-changeGutter .cm-gutterElement {
+  position: relative;
+}
+
+.cm-host .cm-change-add {
+  background: #587c0c;
+}
+
+.cm-host .cm-change-mod {
+  background: #0c7d9d;
+}
+
+/* deleted is the odd one: the lines it's about aren't there to paint. It marks
+   the seam they closed over, so it's a wedge at the top of the surviving line
+   rather than a bar down the side of it. */
+.cm-host .cm-changeGutter .cm-change-del {
+  background: none;
+}
+
+.cm-host .cm-changeGutter .cm-change-del::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 7px;
+  background: #94151b;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* the same marks against the whole file, in the lane beside the scrollbar:
+   the gutter tells you about the screen, this tells you about the file */
+.cm-host .cm-changeRuler {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 8px;
+  width: 4px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cm-host .cm-changeTick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 2px;
+  border-radius: 1px;
+  opacity: 0.85;
+}
+
+.cm-host .cm-changeTick.cm-change-del {
+  background: #94151b;
 }
 
 /* oneDark paints its own #282c34 — pin editor surfaces to the theme bg */

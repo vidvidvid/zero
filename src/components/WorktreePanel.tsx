@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { api, FileChange, Worktree } from "../lib/api";
+import { api, FileChange } from "../lib/api";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
+import { pokeGit, useGitStatus, WorktreeChanges } from "../lib/gitStatus";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 
-interface WtState extends Worktree {
-  changes: FileChange[];
-}
+type WtState = WorktreeChanges;
 
 const STATUS_CLASS: Record<string, string> = {
   M: "mod",
@@ -27,8 +26,12 @@ export function WorktreePanel({
   onOpenView: (v: View) => void;
   active: boolean;
 }) {
-  const [worktrees, setWorktrees] = useState<WtState[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // the same sweep the file tree reads, so switching sidebar tabs doesn't cost
+  // a fresh round of git processes — and so the two never disagree
+  const git = useGitStatus(project.root, active);
+  const worktrees = git.worktrees;
+  const [failed, setFailed] = useState<string | null>(null);
+  const error = failed ?? git.error;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -43,46 +46,6 @@ export function WorktreePanel({
       return next;
     });
 
-  const [tick, setTick] = useState(0);
-  const refreshNow = () => setTick((t) => t + 1);
-
-  useEffect(() => {
-    let stop = false;
-    const refresh = async () => {
-      try {
-        const wts = await api.worktrees(project.root);
-        // no branch info: nothing in the panel reads it since the push button
-        // went, and it was another git process per worktree every 3 seconds
-        const withChanges = await Promise.all(
-          wts.map(async (wt) => ({
-            ...wt,
-            changes: await api.gitStatus(wt.path).catch(() => [] as FileChange[]),
-          }))
-        );
-        if (!stop) {
-          // main worktree first, then by branch name
-          withChanges.sort((a, b) => Number(b.is_main) - Number(a.is_main) || a.branch.localeCompare(b.branch));
-          setWorktrees(withChanges);
-          setError(null);
-        }
-      } catch (e) {
-        if (!stop) setError(String(e));
-      }
-    };
-    // a beat of delay so the git processes this kicks off don't land in the
-    // same frame as a project switch
-    const first = window.setTimeout(refresh, 150);
-    const iv = active ? window.setInterval(refresh, 3000) : undefined;
-    const onFocus = () => refresh();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      stop = true;
-      window.clearTimeout(first);
-      if (iv) window.clearInterval(iv);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [project.root, active, tick]);
-
   const removeWt = async (wt: WtState) => {
     try {
       await api.worktreeRemove(project.root, wt.path, false);
@@ -95,11 +58,11 @@ export function WorktreePanel({
       try {
         await api.worktreeRemove(project.root, wt.path, true);
       } catch (err) {
-        setError(String(err));
+        setFailed(String(err));
         return;
       }
     }
-    setWorktrees((ws) => ws.filter((w) => w.path !== wt.path));
+    pokeGit();
   };
 
   const deletable = worktrees.filter((w) => !w.is_main);
@@ -118,13 +81,13 @@ export function WorktreePanel({
       try {
         await api.worktreeRemove(project.root, deletable[i].path, true);
       } catch (e) {
-        setError(String(e));
+        setFailed(String(e));
         setDeleting(null);
         return;
       }
     }
     setDeleting(null);
-    setWorktrees((ws) => ws.filter((w) => w.is_main));
+    pokeGit();
   };
 
   // every git action ends the same way: surface failures, then re-read state
@@ -138,7 +101,7 @@ export function WorktreePanel({
       setNotice(String(e).split("\n").slice(0, 3).join(" "));
     } finally {
       setBusy(null);
-      refreshNow();
+      pokeGit();
     }
   };
 

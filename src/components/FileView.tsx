@@ -2,11 +2,13 @@ import { useEffect, useRef } from "react";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
-import { Compartment } from "@codemirror/state";
+import { Compartment, Text } from "@codemirror/state";
 import { darkModern } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
 import { modClick } from "../lib/modClick";
+import { changeGutter, setBaseline } from "../lib/changeGutter";
+import { pokeGit } from "../lib/gitStatus";
 
 export function FileView({
   absPath,
@@ -38,6 +40,17 @@ export function FileView({
     // started now, applied after the view exists — the two races otherwise
     const langLater = lazyLangFor(absPath);
 
+    // what the change bars are measured against. Re-read on a timer as well as
+    // at open, because HEAD moves under us: a commit in the terminal should
+    // clear the bars for what it just committed.
+    const readBaseline = async () => {
+      const b = await api.gitBaseline(absPath).catch(() => null);
+      if (disposed || !viewRef.current) return;
+      viewRef.current.dispatch({
+        effects: setBaseline.of(b?.tracked ? Text.of(b.content.split("\n")) : null),
+      });
+    };
+
     api.readFile(absPath).then((content) => {
       if (disposed || !hostRef.current) return;
       lastLoadedRef.current = content;
@@ -48,6 +61,7 @@ export function FileView({
           basicSetup,
           darkModern,
           EditorView.lineWrapping,
+          changeGutter(),
           lang.of(langFor(absPath)),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) dirtyRef.current = true;
@@ -67,6 +81,9 @@ export function FileView({
                 api.writeFile(absPath, text).then(() => {
                   dirtyRef.current = false;
                   lastLoadedRef.current = text;
+                  // the file just changed on disk, so the panel is wrong until
+                  // it looks again — this is the one moment we know that
+                  pokeGit();
                 });
                 return true;
               },
@@ -75,6 +92,7 @@ export function FileView({
         ],
       });
       if (line) jumpToLine(viewRef.current, line);
+      void readBaseline();
 
       langLater.then((ext) => {
         if (disposed || !ext || !viewRef.current) return;
@@ -97,9 +115,15 @@ export function FileView({
       }
     }, 2000);
 
+    const baselineIv = window.setInterval(() => {
+      if (!viewRef.current || document.hidden || !visibleRef.current) return;
+      void readBaseline();
+    }, 5000);
+
     return () => {
       disposed = true;
       window.clearInterval(iv);
+      window.clearInterval(baselineIv);
       viewRef.current?.destroy();
       viewRef.current = null;
     };

@@ -111,6 +111,26 @@ close buttons appear only when the pointer is in the top fifth of a pane.
 changes, staging, and commit box — which is the shape of the work when several
 agents are going at once.
 
+**It shows you what you changed, wherever you are.** Bars in the editor gutter
+against every line that differs from the committed file — green for added, blue
+for edited, and a red wedge at the seam where lines were deleted — and the same
+marks again in a lane beside the scrollbar, so a change you've scrolled past is
+still findable. In the file tree, changed files take git's colour and its
+letter, and every folder above them takes the colour too: something edited three
+levels down is visible without opening anything.
+
+The diff is against HEAD rather than the index, so staging a file doesn't make
+its bars vanish — the changes panel goes on listing a staged file, and the two
+shouldn't disagree about what changed. A brand-new file gets no bars at all:
+every line being "added" is noise, and the tree is where new gets said.
+
+None of it is on a three-second timer. Saving refreshes it, and so does coming
+back to the window; between those it polls, but the interval is measured rather
+than picked — a sweep is timed and allowed about 7% of the clock, which on this
+repository is 14 ms of git and a poll just under a second, and on a monorepo
+where `git status` costs half a second is a back-off instead of a stutter. The
+tree and the changes panel read one sweep between them.
+
 **⌘P goes to a file.** Fuzzy, over everything git will admit to — tracked files
 plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
 and `node_modules` never appears.
@@ -177,7 +197,7 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 | `⌘B` | sidebar |
 | `⌘P` | go to file |
 | `⌘⇧F` / `⌘⇧H` | search / search and replace |
-| `⌘⇧E` / `⌃⇧G` | files / worktrees |
+| `⌘E` / `⌃⇧G` | files — walks the tree to the file you're on / worktrees |
 | `⌘N` / `⌘W` | new file / close file |
 | `⌘\`` | cycle projects |
 | `⌘⇧O` | open a project |

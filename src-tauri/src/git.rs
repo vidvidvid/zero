@@ -289,6 +289,41 @@ pub async fn git_head_file(worktree: String, path: String) -> String {
 }
 
 #[derive(Serialize)]
+pub struct Baseline {
+    /// the file as it was committed
+    pub content: String,
+    /// false when HEAD has no such file. A new file gets no change bars at all
+    /// rather than every one of its lines marked as added — the same call VS
+    /// Code makes, and the file tree is where "this is new" gets said instead.
+    pub tracked: bool,
+}
+
+/// The committed version of a file, found without being told which repository
+/// it belongs to.
+///
+/// The editor opens files from anywhere — another worktree, a path outside the
+/// project entirely — so the caller genuinely doesn't know the repository root.
+/// `HEAD:./name` resolves relative to git's own working directory, which turns
+/// the whole question into "run it in the file's folder": no root to find, no
+/// path arithmetic, and none of the ways that arithmetic goes wrong when a
+/// path arrives through a symlink.
+#[tauri::command]
+pub async fn git_baseline(path: String) -> Baseline {
+    let untracked = || Baseline { content: String::new(), tracked: false };
+    let p = Path::new(&path);
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else {
+        return untracked();
+    };
+    match run_git(
+        &dir.to_string_lossy(),
+        &["show", &format!("HEAD:./{}", name.to_string_lossy())],
+    ) {
+        Ok(content) => Baseline { content, tracked: true },
+        Err(_) => untracked(),
+    }
+}
+
+#[derive(Serialize)]
 pub struct DirEntry {
     pub name: String,
     pub is_dir: bool,
