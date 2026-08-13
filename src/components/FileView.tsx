@@ -3,7 +3,7 @@ import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { Compartment, Text } from "@codemirror/state";
-import { darkModern } from "../lib/cmTheme";
+import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
 import { modClick } from "../lib/modClick";
@@ -59,7 +59,7 @@ export function FileView({
         doc: content,
         extensions: [
           basicSetup,
-          darkModern,
+          editorTheme(),
           EditorView.lineWrapping,
           changeGutter(),
           lang.of(langFor(absPath)),

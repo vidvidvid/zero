@@ -4,7 +4,7 @@ import { basicSetup } from "codemirror";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
-import { darkModern } from "../lib/cmTheme";
+import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
 import { pokeGit } from "../lib/gitStatus";
@@ -65,7 +65,7 @@ export function DiffView({
             EditorView.editable.of(false),
             EditorState.readOnly.of(true),
             EditorView.lineWrapping,
-            darkModern,
+            editorTheme(),
             langA.of(langFor(relPath)),
           ],
         },
@@ -74,7 +74,7 @@ export function DiffView({
           extensions: [
             basicSetup,
             EditorView.lineWrapping,
-            darkModern,
+            editorTheme(),
             langB.of(langFor(relPath)),
             EditorView.updateListener.of((u) => {
               if (u.docChanged) dirtyRef.current = true;

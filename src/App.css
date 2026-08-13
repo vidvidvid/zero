@@ -367,8 +367,9 @@ body.dragging-tab .editor-tab * {
 }
 
 /* only while you're up here — unclickable as well as invisible, so a stray
-   click on the empty title bar can't open a file dialog */
-.titlebar-add {
+   click on the empty title bar can't open a file dialog or the settings */
+.titlebar-add,
+.titlebar-gear {
   padding: 3px 10px;
   font-size: 12px;
   color: var(--text-faint);
@@ -377,13 +378,21 @@ body.dragging-tab .editor-tab * {
   transition: opacity 0.12s ease;
 }
 
-.titlebar:hover .titlebar-add {
+.titlebar:hover .titlebar-add,
+.titlebar:hover .titlebar-gear {
   opacity: 1;
   pointer-events: auto;
 }
 
-.titlebar-add:hover {
+.titlebar-add:hover,
+.titlebar-gear:hover {
   color: var(--text);
+}
+
+.titlebar-gear {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
 }
 
 /* ===== workspace ===== */
@@ -1464,6 +1473,88 @@ body.dragging-row {
   color: var(--text-faint);
   font-size: 12px;
   text-align: center;
+}
+
+/* ===== settings (⌘,) ===== */
+
+/* rides the quick-open backdrop; only the box is its own */
+.settings-box {
+  display: flex;
+  flex-direction: column;
+  width: min(400px, 88vw);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.settings-title {
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-group {
+  padding: 6px 0 8px;
+}
+
+.settings-label {
+  padding: 6px 14px 4px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.settings-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 14px;
+  text-align: left;
+}
+
+.settings-choice:hover {
+  background: var(--bg-hover);
+}
+
+/* the radio, in this theme's one axis: brightness */
+.settings-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--text-faint);
+  flex: none;
+}
+
+.settings-choice.on .settings-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-choice-name {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.settings-choice.on .settings-choice-name {
+  color: var(--text);
+}
+
+/* the colours are the point — the swatch is the theme speaking for itself */
+.settings-swatch {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.settings-swatch i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
 }
 
 /* ===== memos ===== */

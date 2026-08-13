@@ -205,6 +205,10 @@ the binary unread.
 Still missing, for want of a mode to load: Zig, Nix, Terraform, GraphQL,
 Elixir, Makefiles.
 
+Two themes to draw them in: Dark Modern, the VS Code default, and the one from
+TRMNL's plugin editor. `⌘,` — or the gear in the title bar — opens settings;
+picking a theme lands on every open tab as you click it.
+
 **⌘-click a name in the editor** and it opens where that name is defined,
 including through `@/…` tsconfig path aliases. It reads the file's own imports
 rather than running a language server, which is a real limit and a deliberate
@@ -241,6 +245,7 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 | `⌘N` / `⌘W` | new file / close file |
 | `⌘\`` | cycle projects |
 | `⌘⇧O` | open a project |
+| `⌘,` | settings |
 
 ## Install
 
