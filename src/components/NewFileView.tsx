@@ -3,7 +3,7 @@ import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { save } from "@tauri-apps/plugin-dialog";
-import { darkModern } from "../lib/cmTheme";
+import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
 
 /**
@@ -23,7 +23,7 @@ export function NewFileView({ root, onSaved }: { root: string; onSaved: (absPath
       doc: "",
       extensions: [
         basicSetup,
-        darkModern,
+        editorTheme(),
         EditorView.lineWrapping,
         keymap.of([
           indentWithTab,

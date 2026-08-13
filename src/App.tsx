@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api";
 import { Launcher } from "./components/Launcher";
+import { Settings } from "./components/Settings";
 import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { moveItem, movedIndex } from "./lib/tabReorder";
@@ -111,12 +112,17 @@ export default function App() {
     localStorage.setItem("zero-zoom", String(zoom));
   }, [zoom]);
 
+  const [showSettings, setShowSettings] = useState(false);
+
   // Global keys: cmd+` / cmd+shift+` cycle projects, cmd+shift+O / cmd+shift+N
-  // open a project, cmd+/-/0 zoom
+  // open a project, cmd+/-/0 zoom, cmd+, settings
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
-      if (e.code === "Backquote") {
+      if (e.key === ",") {
+        e.preventDefault();
+        setShowSettings((s) => !s);
+      } else if (e.code === "Backquote") {
         e.preventDefault();
         if (projects.length > 1) {
           setActiveIdx((i) => (i + (e.shiftKey ? projects.length - 1 : 1)) % projects.length);
@@ -143,8 +149,16 @@ export default function App() {
   // flash of it every launch on the way to the projects that were already open
   if (!restored) return null;
 
+  // rendered in both branches: ⌘, should work from the launcher too
+  const settings = showSettings ? <Settings onClose={() => setShowSettings(false)} /> : null;
+
   if (projects.length === 0) {
-    return <Launcher onOpen={openProject} onPick={pickProject} />;
+    return (
+      <>
+        <Launcher onOpen={openProject} onPick={pickProject} />
+        {settings}
+      </>
+    );
   }
 
   return (
@@ -156,12 +170,14 @@ export default function App() {
         onClose={closeProject}
         onReorder={reorderProjects}
         onPick={pickProject}
+        onSettings={() => setShowSettings(true)}
       />
       <div className="workspaces">
         {projects.map((p, i) => (
           <Workspace key={p.root} project={p} active={i === activeIdx} />
         ))}
       </div>
+      {settings}
     </div>
   );
 }

@@ -1,7 +1,9 @@
-import { EditorView } from "@codemirror/view";
+import { EditorView, ViewPlugin } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { Compartment, Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 import { constNames } from "./constNames";
+import { EditorTheme, getSettings, onSettingsChange } from "./settings";
 
 // VS Code / Cursor "Dark Modern" (Dark+) — editor chrome
 const darkModernChrome = EditorView.theme(
@@ -95,3 +97,156 @@ const darkModernHighlight = HighlightStyle.define([
 ]);
 
 export const darkModern = [darkModernChrome, syntaxHighlighting(darkModernHighlight), constNames];
+
+// TRMNL — the theme from trmnl.com's JSON editor, dark variant. Ported as
+// written except for the font: the source pins Space Mono at 0.75rem, but
+// zero's editor font is set once in App.css for every theme, and Space Mono
+// isn't in the bundle anyway. constNames stays out too — its colours live in
+// App.css and are Dark Modern's.
+const trmnlChrome = EditorView.theme(
+  {
+    "&": {
+      color: "#d8dee9",
+      backgroundColor: "#151515",
+    },
+    ".cm-content": {
+      caretColor: "#d8dee9",
+    },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "#d8dee9",
+    },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
+      backgroundColor: "rgba(131,214,197,0.15)",
+    },
+    ".cm-activeLine": {
+      backgroundColor: "rgba(255,255,255,0.04)",
+    },
+    ".cm-gutters": {
+      backgroundColor: "#151515",
+      color: "#6d6d6d",
+      borderRight: "1px solid #2a2a2a",
+    },
+    ".cm-activeLineGutter": {
+      backgroundColor: "rgba(255,255,255,0.06)",
+    },
+    ".cm-lineNumbers .cm-gutterElement": {
+      minWidth: "3.2ch",
+    },
+    ".cm-foldPlaceholder": {
+      backgroundColor: "#2a2a2a",
+      color: "#6d6d6d",
+      border: "none",
+    },
+    ".cm-tooltip": {
+      backgroundColor: "#151515",
+      border: "1px solid #2a2a2a",
+      color: "#d8dee9",
+    },
+    ".cm-tooltip .cm-tooltip-arrow::before": {
+      borderTopColor: "#2a2a2a",
+      borderBottomColor: "#2a2a2a",
+    },
+    ".cm-tooltip .cm-tooltip-arrow::after": {
+      borderTopColor: "#151515",
+      borderBottomColor: "#151515",
+    },
+    ".cm-tooltip-autocomplete": {
+      "& > ul > li[aria-selected]": {
+        backgroundColor: "rgba(131,214,197,0.15)",
+        color: "#d8dee9",
+      },
+    },
+    ".cm-searchMatch": {
+      backgroundColor: "rgba(131,214,197,0.2)",
+      outline: "1px solid rgba(131,214,197,0.4)",
+    },
+    ".cm-searchMatch.cm-searchMatch-selected": {
+      backgroundColor: "rgba(131,214,197,0.35)",
+    },
+    ".cm-panels": {
+      backgroundColor: "#151515",
+      color: "#d8dee9",
+    },
+    ".cm-panels.cm-panels-top": {
+      borderBottom: "1px solid #2a2a2a",
+    },
+    ".cm-panels.cm-panels-bottom": {
+      borderTop: "1px solid #2a2a2a",
+    },
+  },
+  { dark: true }
+);
+
+const trmnlHighlight = HighlightStyle.define([
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "#6d6d6d", fontStyle: "italic" },
+  {
+    tag: [t.punctuation, t.bracket, t.squareBracket, t.paren, t.brace, t.angleBracket],
+    color: "#a4a4a4",
+  },
+  { tag: t.tagName, color: "#699b87" },
+  { tag: t.attributeName, color: "#aaa0fa", fontStyle: "italic" },
+  { tag: [t.string, t.special(t.string)], color: "#e394dc" },
+  { tag: [t.number, t.integer, t.float], color: "#ebc88d" },
+  {
+    tag: [t.keyword, t.operatorKeyword, t.moduleKeyword, t.controlKeyword],
+    color: "#83d6c5",
+  },
+  { tag: t.function(t.variableName), color: "#efb080" },
+  { tag: [t.propertyName, t.special(t.propertyName)], color: "#81d2ce" },
+  { tag: [t.className, t.typeName, t.namespace], color: "#87c3ff" },
+  { tag: t.operator, color: "#83d6c5" },
+  { tag: [t.bool, t.literal, t.null, t.atom], color: "rgba(255,255,255,0.36)" },
+  { tag: [t.variableName, t.regexp], color: "#e394dc" },
+  { tag: t.definition(t.variableName), color: "#d8dee9" },
+  { tag: t.self, color: "#83d6c5" },
+  { tag: t.inserted, color: "#a3be8c" },
+  { tag: t.deleted, color: "#bf616a" },
+  { tag: t.changed, color: "#efb080" },
+  { tag: t.invalid, color: "#bf616a" },
+  { tag: t.heading, color: "#699b87", fontWeight: "bold" },
+  { tag: t.strong, fontWeight: "bold" },
+  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.link, color: "#83d6c5", textDecoration: "underline" },
+  { tag: t.url, color: "#83d6c5" },
+  { tag: t.processingInstruction, color: "#6d6d6d" },
+  { tag: t.attributeValue, color: "#e394dc" },
+  { tag: t.meta, color: "#6d6d6d" },
+]);
+
+export const trmnl = [trmnlChrome, syntaxHighlighting(trmnlHighlight)];
+
+/** What the settings panel lists: label plus the token colours it shows as a
+ *  swatch strip — keyword, string, function, type, number, in that order. */
+export const EDITOR_THEME_CHOICES: { id: EditorTheme; label: string; swatch: string[] }[] = [
+  {
+    id: "dark-modern",
+    label: "Dark Modern",
+    swatch: ["#569cd6", "#ce9178", "#dcdcaa", "#4ec9b0", "#b5cea8"],
+  },
+  {
+    id: "trmnl",
+    label: "TRMNL",
+    swatch: ["#83d6c5", "#e394dc", "#efb080", "#87c3ff", "#ebc88d"],
+  },
+];
+
+function themeFor(id: EditorTheme): Extension {
+  return id === "trmnl" ? trmnl : darkModern;
+}
+
+/**
+ * The theme every editor should use: whatever settings say right now, and it
+ * follows along live when the settings panel changes it. One call per
+ * EditorView — the compartment addresses that view's state, and the plugin
+ * needs the view to dispatch the reconfigure into.
+ */
+export function editorTheme(): Extension {
+  const compartment = new Compartment();
+  const follow = ViewPlugin.define((view) => {
+    const unsub = onSettingsChange(() => {
+      view.dispatch({ effects: compartment.reconfigure(themeFor(getSettings().editorTheme)) });
+    });
+    return { destroy: unsub };
+  });
+  return [compartment.of(themeFor(getSettings().editorTheme)), follow];
+}
