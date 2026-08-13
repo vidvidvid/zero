@@ -35,10 +35,11 @@ back there would go stale with nothing to notice.
 
 The Homebrew cask lives in its own repository, `vidvidvid/homebrew-zero`, and
 pins both the version and the dmg's sha256. **It does not follow releases** —
-a new tag means editing the cask too, or `brew install --cask` goes on handing
-people the old dmg. The sha256 is printed in the release notes so you don't
-have to download the file to get it. (That repository doesn't exist yet; the
-cask is written and lint-clean but unpublished.)
+a new tag means bumping `version` and `sha256` in `Casks/zero.rb` and pushing
+that repository too, or `brew install --cask` goes on handing people the old
+dmg. The sha256 is printed in the release notes so you don't have to download
+the file to get it, and `brew fetch --cask vidvidvid/zero/zero` checks the two
+agree without installing anything.
 
 ## Building and installing locally
 
