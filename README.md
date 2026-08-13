@@ -335,8 +335,8 @@ Nothing is sent anywhere. There is no network code in this app.
 A repository can name programs for git to run in its own `.git/config`, and
 some of them fire on plain reads: `core.fsmonitor`, and a `filter.<n>.clean`
 selected by the repo's own `.gitattributes`, both execute during `git status`.
-The worktree panel is the default sidebar tab and polls status every three
-seconds, so opening a repository that arrived with a `.git` directory already
+The worktree panel is the default sidebar tab and polls status about once a
+second, so opening a repository that arrived with a `.git` directory already
 in it would otherwise be enough to run a stranger's command.
 
 So the commands that run on their own — `worktree list`, `status`, `rev-list`,
