@@ -46,6 +46,12 @@ non-official taps unless you name the tap on the command line — naming it *is*
 the consent signal (`Homebrew::Trust.explicitly_allowed?`). A shortened
 `brew tap` + `brew install --cask zero` makes users run `brew trust` first.
 
+The only real shortening is homebrew/cask itself — plain `brew install --cask
+zero`, no tap. Signing removed what used to disqualify zero (their criteria
+exclude apps that need Gatekeeper bypassed, which the xattr era was); what
+blocks it now is notability, which the maintainers judge from public interest.
+When the repo has real traction, it's one PR with roughly the existing cask.
+
 ## Signing — it happens in CI and nowhere else
 
 Released dmgs are signed with a Developer ID Application certificate and
