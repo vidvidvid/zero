@@ -89,6 +89,54 @@ export interface ReplaceTarget {
   nth?: number;
 }
 
+/** whether this machine can do memos at all — the OS is too old, or the helper
+ *  binary was never built. `message` is written for the panel to show verbatim. */
+export interface MemoProbe {
+  supported: boolean;
+  message: string | null;
+}
+
+/** One name per checkpoint in the pipeline. The two `_failed` ones are the only
+ *  states that wait for a person; every other stalled state resumes itself. */
+export type MemoStatus =
+  | "recording"
+  | "recorded"
+  | "transcribing"
+  | "transcribed"
+  | "cleaning"
+  | "ready"
+  | "transcribe_failed"
+  | "cleanup_failed";
+
+export interface Memo {
+  /** the filename stem — audio, raw transcript, cleaned memo and json share it */
+  id: string;
+  /** the cleaned memo's first line, once there is a cleaned memo */
+  title: string | null;
+  created: string;
+  duration_s: number;
+  status: MemoStatus;
+  /** the audio's filename: m4a normally, caf when conversion failed */
+  audio: string | null;
+  /** waiting its turn in the one global job queue — never written to disk */
+  queued: boolean;
+  /** how many follow-ups have been recorded on top of it, 0 for a memo said
+   *  once. Names the newest take's files, and says `merging…` for `cleaning…` */
+  takes: number;
+  /** While `recording`, when *this* recording started — the memo's own
+   *  `created` for a first one, the take's for a follow-up; null otherwise.
+   *  The elapsed timer counts from here, because a take's row would otherwise
+   *  count from the memo's age. */
+  recording_since: string | null;
+  /** The mic is held but not listening. Only meaningful while `recording`.
+   *  `recording_since` stays where it was for the length of a pause and the
+   *  backend rebases it on resume, so `now - recording_since` is always the
+   *  honest recorded time and never counts the silence — which is why this
+   *  side only has to stop the clock rather than keep books on it. */
+  paused: boolean;
+  error: string | null;
+}
+
 export const api = {
   claudeStatus: () => invoke<ClaudeStat[]>("claude_status"),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
@@ -121,6 +169,29 @@ export const api = {
   /** raw bytes, for files that aren't text — arrives as an ArrayBuffer */
   readBinary: (path: string) => invoke<ArrayBuffer>("read_binary", { path }),
   writeFile: (path: string, content: string) => invoke<void>("write_file", { path, content }),
+  memoProbe: () => invoke<MemoProbe>("memo_probe"),
+  /** also reconciles what's on disk and restarts any pipeline that stalled */
+  memoList: (root: string) => invoke<Memo[]>("memo_list", { root }),
+  /** resolves with the memo's id; the mic is one resource, so this fails while
+   *  any project is recording. `into` is a finished memo to record a follow-up
+   *  onto — the id that comes back is then that memo's, because a take is
+   *  another recording of it rather than a memo of its own */
+  memoRecordStart: (root: string, into?: string) =>
+    invoke<string>("memo_record_start", { root, into: into ?? null }),
+  memoRecordStop: () => invoke<void>("memo_record_stop"),
+  /* The mic is one resource, so the three below take no arguments: there is one
+     recording to act on and the backend already knows which it is. Same shape
+     as `memoRecordStop`, for the same reason. */
+  memoRecordPause: () => invoke<void>("memo_record_pause"),
+  memoRecordResume: () => invoke<void>("memo_record_resume"),
+  /** Throws the recording away: a first one goes with it, a follow-up leaves
+   *  the memo it was being said onto exactly as `ready` as it was. */
+  memoRecordCancel: () => invoke<void>("memo_record_cancel"),
+  /** re-runs exactly the stage that failed, from its surviving checkpoint */
+  memoRetry: (root: string, id: string) => invoke<void>("memo_retry", { root, id }),
+  memoDelete: (root: string, id: string) => invoke<void>("memo_delete", { root, id }),
+  /** creates the file with its seed if it isn't there yet */
+  memoVocabularyPath: (root: string) => invoke<string>("memo_vocabulary_path", { root }),
   ptyKillAll: () => invoke<void>("pty_kill_all"),
   ptySpawn: (id: string, cwd: string, cols: number, rows: number) =>
     invoke<void>("pty_spawn", { id, cwd, cols, rows }),

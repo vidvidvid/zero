@@ -80,7 +80,12 @@ function validTree(n: unknown, seen: Set<string>): TermNode | null {
 }
 
 /** Untitled buffers are deliberately not restorable: their contents live only
- *  in the editor, so a restored one would be an empty tab wearing its name. */
+ *  in the editor, so a restored one would be an empty tab wearing its name.
+ *
+ *  Every other kind has to be named here, and the trap is that forgetting one
+ *  looks like nothing: a shape this function doesn't recognise is dropped in
+ *  silence, so the only symptom is a tab that stops surviving relaunches. A new
+ *  kind in `View` is a new line in here. */
 function validViews(v: unknown): View[] {
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is View => {
@@ -90,6 +95,9 @@ function validViews(v: unknown): View[] {
     if (view.kind === "file") return typeof view.absPath === "string";
     if (view.kind === "diff")
       return typeof view.worktree === "string" && typeof view.relPath === "string";
+    // a memo thread is an id and the project it was stored under; whether that
+    // memo still exists is the thread's own business, and it says so quietly
+    if (view.kind === "memo") return typeof view.id === "string";
     return false;
   });
 }
@@ -102,7 +110,10 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     term: validTree(p.term, new Set()),
     focusedId: typeof p.focusedId === "string" ? p.focusedId : null,
     sidebarTab:
-      p.sidebarTab === "files" || p.sidebarTab === "scm" || p.sidebarTab === "search"
+      p.sidebarTab === "files" ||
+      p.sidebarTab === "scm" ||
+      p.sidebarTab === "search" ||
+      p.sidebarTab === "memos"
         ? p.sidebarTab
         : undefined,
     sidebarVisible: typeof p.sidebarVisible === "boolean" ? p.sidebarVisible : undefined,

@@ -1,36 +1,65 @@
+import { useEffect } from "react";
 import type { View } from "./Workspace";
 import { DiffView } from "./DiffView";
 import { FileView } from "./FileView";
 import { ImageView } from "./ImageView";
+import { MemoThread } from "./MemoThread";
 import { NewFileView } from "./NewFileView";
 import { isImage } from "../lib/imageFile";
 import { FileIconSpan } from "./FileIcon";
+import { memoLabel, memoPaths, type Memos } from "../lib/memos";
 import { useTabReorder } from "../lib/tabReorder";
 
-function viewLabel(v: View): string {
+function viewLabel(v: View, memos: Memos): string {
   if (v.kind === "new") return v.name;
+  // The memo's own title, live: a merge renames it, and the tab is where that
+  // name is said — the thread below draws no title of its own, precisely so
+  // this one isn't a second copy of it. Gone from the list and it is down to
+  // the id, which is still what its files are called.
+  if (v.kind === "memo") return memoLabel(memos.memos.find((m) => m.id === v.id), v.id);
   const p = v.kind === "diff" ? v.relPath : v.absPath;
   return p.split("/").pop() ?? p;
 }
 
-function viewAbs(v: View): string {
+function viewAbs(v: View, root: string): string {
   if (v.kind === "new") return v.name;
+  // a thread is a reading of a file, and this is the file — which is worth
+  // saying in the one line of chrome that says where you are
+  if (v.kind === "memo") return memoPaths(root, v.id).md;
   return v.kind === "diff" ? `${v.worktree}/${v.relPath}` : v.absPath;
 }
 
 // path shown in the breadcrumb: relative to the project when it lives inside it
 function viewPath(v: View, root: string): string {
-  const abs = viewAbs(v);
+  const abs = viewAbs(v, root);
   if (v.kind === "new") return abs;
   if (abs.startsWith(root + "/")) return abs.slice(root.length + 1);
   return abs.replace(/^\/Users\/[^/]+\//, "~/");
 }
 
-function Breadcrumb({ view, root }: { view: View; root: string }) {
+function Breadcrumb({
+  view,
+  root,
+  onOpenFile,
+}: {
+  view: View;
+  root: string;
+  onOpenFile: (abs: string) => void;
+}) {
+  const abs = viewAbs(view, root);
   const parts = viewPath(view, root).split("/");
   const name = parts.pop() ?? "";
+  // A thread is a reading of a file, and this line is the one place that says
+  // which file — so it is also the way to it. Every other view already *is* its
+  // file, and a path that opened the tab you are standing on would be a click
+  // that does nothing. Coming back is the thread's own tab, still open.
+  const open = view.kind === "memo" ? () => onOpenFile(abs) : undefined;
   return (
-    <div className="editor-path" title={viewAbs(view)}>
+    <div
+      className={`editor-path ${open ? "opens" : ""}`}
+      title={open ? `${abs} — open the file itself` : abs}
+      onClick={open}
+    >
       {parts.map((p, i) => (
         <span key={i} className="crumb">
           {p}
@@ -54,6 +83,7 @@ export function EditorPane({
   onOpenFile,
   onReorder,
   root,
+  memos,
 }: {
   views: View[];
   activeView: number;
@@ -63,8 +93,26 @@ export function EditorPane({
   onOpenFile: (abs: string, line?: number) => void;
   onReorder: (from: number, to: number) => void;
   root: string;
+  /** this project's memos — a memo tab reads its title, its status and its
+   *  record button off the same object the panel does */
+  memos: Memos;
 }) {
   const { stripRef, drag, start: startDrag, shift } = useTabReorder(".editor-tab", onReorder);
+
+  // The strip scrolls, and most of what activates a tab is somewhere else: a
+  // memo row, a search hit, ⌘P, a memo that came back and opened itself. With
+  // enough tabs open the one being activated sits past the right-hand edge, and
+  // a click that changes nothing you can see is a click that did nothing —
+  // which is exactly how "it doesn't take you to that tab" was reported.
+  //
+  // Not while dragging: mid-gesture the tabs are translated rather than moved,
+  // so their boxes lie about where they are, and a scroll would fight the hand.
+  useEffect(() => {
+    if (drag) return;
+    stripRef.current
+      ?.querySelector(".editor-tab.active")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeView, drag, stripRef]);
 
   if (views.length === 0) {
     return (
@@ -94,7 +142,7 @@ export function EditorPane({
           >
             <button className="editor-tab-name" onClick={() => onSelect(i)} title={v.key}>
               {v.kind === "diff" && <span className="editor-tab-diff">±</span>}
-              {viewLabel(v)}
+              {viewLabel(v, memos)}
             </button>
             <button
               className="editor-tab-close"
@@ -106,12 +154,16 @@ export function EditorPane({
           </div>
         ))}
       </div>
-      {views[activeView] && <Breadcrumb view={views[activeView]} root={root} />}
+      {views[activeView] && (
+        <Breadcrumb view={views[activeView]} root={root} onOpenFile={onOpenFile} />
+      )}
       <div className="editor-body">
         {views.map((v, i) => (
           <div key={v.key} className="editor-view" style={{ display: i === activeView ? "block" : "none" }}>
             {v.kind === "diff" ? (
               <DiffView worktree={v.worktree} relPath={v.relPath} visible={i === activeView} />
+            ) : v.kind === "memo" ? (
+              <MemoThread root={root} id={v.id} memos={memos} visible={i === activeView} />
             ) : v.kind === "new" ? (
               <NewFileView
                 root={root}

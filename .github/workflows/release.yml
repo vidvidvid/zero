@@ -13,8 +13,10 @@ jobs:
   dmg:
     # arm64. zero is Apple Silicon only, which is also the only thing this
     # builds for — a universal binary would double the download to serve
-    # machines the app doesn't claim to run on.
-    runs-on: macos-14
+    # machines the app doesn't claim to run on. macOS 26 rather than an older
+    # image because the build now compiles the voice helper against the
+    # macOS 26 SDK — SpeechAnalyzer doesn't exist in the ones before it.
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +48,8 @@ jobs:
       # script exits 64 when it can't reach Finder, so on a runner with no GUI
       # session it isn't a cosmetic difference, it's the difference between a
       # dmg and a failed build. The cost is a dmg window with no arranged
-      # icons. Xcode isn't needed — the icon ships compiled.
+      # icons. Xcode isn't needed for the icon — it ships compiled — but the
+      # voice helper wants swiftc, which the runner image carries.
       - run: npm run tauri build
 
       - name: Publish

@@ -5,6 +5,10 @@ import { Chevron } from "./Chevron";
 import { decorations, useGitStatus } from "../lib/gitStatus";
 import type { View } from "./Workspace";
 
+/** Audio goes to Finder rather than to the editor: QuickLook plays these with
+ *  a space bar, and the editor would open a memo as a wall of bytes. */
+const AUDIO = /\.(m4a|caf|wav|aiff|mp3)$/i;
+
 /** a file to walk to and light up — ⌘E. The counter is what makes pressing it
     twice work: the path alone wouldn't have changed. */
 export interface Reveal {
@@ -141,6 +145,12 @@ export function FileTree({
             style={pad}
             onClick={() => {
               setSelected(full);
+              // audio goes to Finder, where QuickLook plays it with a space
+              // bar; the editor would open a memo as a wall of bytes
+              if (AUDIO.test(entry.name)) {
+                api.revealPath(full).catch(() => {});
+                return;
+              }
               onOpenView({ kind: "file", key: `file:${full}`, absPath: full });
             }}
           >

@@ -3,6 +3,7 @@ mod git;
 mod links;
 #[cfg(target_os = "macos")]
 mod high_refresh;
+mod memos;
 mod pty;
 mod recents;
 mod search;
@@ -21,6 +22,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(PtyManager::default())
+        .manage(memos::MemoManager::default())
         .setup(|_app| {
             // the `zero` shell command comes with the app, so installing the
             // app is the whole install
@@ -76,6 +78,16 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            memos::memo_probe,
+            memos::memo_list,
+            memos::memo_record_start,
+            memos::memo_record_stop,
+            memos::memo_record_pause,
+            memos::memo_record_resume,
+            memos::memo_record_cancel,
+            memos::memo_retry,
+            memos::memo_delete,
+            memos::memo_vocabulary_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
