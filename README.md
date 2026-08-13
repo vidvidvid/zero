@@ -248,10 +248,10 @@ Running zero needs macOS on Apple Silicon and `git`, which the worktree panel
 and ⌘P both use. Nothing else.
 
 ```sh
-brew install --cask vidvidvid/zero/zero
+brew install --cask zero-editor/zero/zero
 ```
 
-Or [download the dmg](https://github.com/vidvidvid/zero/releases/latest/download/zero_aarch64.dmg)
+Or [download the dmg](https://github.com/zero-editor/zero/releases/latest/download/zero_aarch64.dmg)
 and drag zero to Applications.
 
 **The app isn't signed** — signing it properly needs an Apple Developer
@@ -344,14 +344,14 @@ makes `/releases/latest/download/zero_aarch64.dmg` a link that keeps working;
 the tagged URL carries the version instead.
 
 **The Homebrew cask doesn't follow releases.** It lives in
-[vidvidvid/homebrew-zero](https://github.com/vidvidvid/homebrew-zero) and pins
+[zero-editor/homebrew-zero](https://github.com/zero-editor/homebrew-zero) and pins
 both the version and the dmg's sha256, so a new tag means bumping `version` and
 `sha256` in its `Casks/zero.rb` and pushing that repository too — otherwise
 `brew install --cask` goes on handing people the old dmg. The sha256 is printed
 in the release notes, so you don't need to download the file to get it, and
 
 ```sh
-brew fetch --cask vidvidvid/zero/zero
+brew fetch --cask zero-editor/zero/zero
 ```
 
 checks the cask and the release agree without installing anything.

@@ -10,7 +10,7 @@ The only trigger is a tag. `.github/workflows/release.yml` runs on
 and attaches it as `zero_aarch64.dmg`. The public download —
 
 ```
-https://github.com/vidvidvid/zero/releases/latest/download/zero_aarch64.dmg
+https://github.com/zero-editor/zero/releases/latest/download/zero_aarch64.dmg
 ```
 
 — resolves to the newest **release**, which is the newest tag, not the newest
@@ -33,12 +33,12 @@ nothing reads it. The workflow checks the tag against `package.json` — and
 checks that `tauri.conf.json` still points at it, since a literal number put
 back there would go stale with nothing to notice.
 
-The Homebrew cask lives in its own repository, `vidvidvid/homebrew-zero`, and
+The Homebrew cask lives in its own repository, `zero-editor/homebrew-zero`, and
 pins both the version and the dmg's sha256. **It does not follow releases** —
 a new tag means bumping `version` and `sha256` in `Casks/zero.rb` and pushing
 that repository too, or `brew install --cask` goes on handing people the old
 dmg. The sha256 is printed in the release notes so you don't have to download
-the file to get it, and `brew fetch --cask vidvidvid/zero/zero` checks the two
+the file to get it, and `brew fetch --cask zero-editor/zero/zero` checks the two
 agree without installing anything.
 
 ## Building and installing locally
