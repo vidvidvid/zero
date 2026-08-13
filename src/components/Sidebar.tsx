@@ -4,9 +4,11 @@ import type { View } from "./Workspace";
 import { WorktreePanel } from "./WorktreePanel";
 import { FileTree } from "./FileTree";
 import { SearchPanel } from "./SearchPanel";
+import { MemoPanel } from "./MemoPanel";
 import type { Search } from "../lib/search";
+import type { Memos } from "../lib/memos";
 
-export type SidebarTab = "scm" | "files" | "search";
+export type SidebarTab = "scm" | "files" | "search" | "memos";
 
 // activity-bar glyphs, drawn to the same 16px / 1.2-stroke grid
 const ICONS: Record<SidebarTab, ReactElement> = {
@@ -36,12 +38,24 @@ const ICONS: Record<SidebarTab, ReactElement> = {
       <path d="M10.1 10.1 13.5 13.5" strokeLinecap="round" />
     </svg>
   ),
+  // capsule, cradle, stem — no base foot, and no waveform bars, which would
+  // promise playback this doesn't have. The cradle is a true semicircle so the
+  // glyph fills the same 1.5–14.5 the branch does; a mic is narrower than the
+  // other three by nature and pretending otherwise makes it a cartoon.
+  memos: (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
+      <rect x="6.3" y="2.1" width="3.4" height="6.4" rx="1.7" />
+      <path d="M4 7.4v1.1a4 4 0 0 0 8 0V7.4" strokeLinecap="round" />
+      <path d="M8 12.5v1.4" strokeLinecap="round" />
+    </svg>
+  ),
 };
 
 const TABS: { id: SidebarTab; title: string }[] = [
   { id: "files", title: "files (⌘⇧E)" },
   { id: "search", title: "search (⌘⇧F)" },
   { id: "scm", title: "changes (⌃⇧G)" },
+  { id: "memos", title: "memos (⌘⇧M)" },
 ];
 
 export function Sidebar({
@@ -52,6 +66,8 @@ export function Sidebar({
   active,
   width,
   search,
+  memos,
+  activeMemo,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -60,7 +76,23 @@ export function Sidebar({
   active: boolean;
   width: number;
   search: Search;
+  memos: Memos;
+  /** the memo whose thread is the view on screen, so its row can say so —
+   *  passed straight through, since the sidebar knows nothing about tabs */
+  activeMemo: string | null;
 }) {
+  // The memos tab is the only one that has anything to say while you're not
+  // looking at it, and this dot is all of it — no titlebar presence, no
+  // notifications, no sound. Red beats everything because a live mic may never
+  // be invisible; then work in progress; then a memo that came back unread.
+  const dot = memos.recording
+    ? "rec"
+    : memos.working
+      ? "busy"
+      : memos.unseenReady
+        ? "ready"
+        : "";
+
   return (
     <div className="sidebar" style={{ width }}>
       <div className="sidebar-tabs">
@@ -72,6 +104,7 @@ export function Sidebar({
             onClick={() => onTab(t.id)}
           >
             {ICONS[t.id]}
+            {t.id === "memos" && dot && <span className={`memo-tab-dot ${dot}`} />}
           </button>
         ))}
       </div>
@@ -80,6 +113,14 @@ export function Sidebar({
         {tab === "files" && <FileTree root={project.root} onOpenView={onOpenView} />}
         {tab === "search" && (
           <SearchPanel root={project.root} search={search} onOpenView={onOpenView} />
+        )}
+        {tab === "memos" && (
+          <MemoPanel
+            root={project.root}
+            memos={memos}
+            activeMemo={activeMemo}
+            onOpenView={onOpenView}
+          />
         )}
       </div>
     </div>

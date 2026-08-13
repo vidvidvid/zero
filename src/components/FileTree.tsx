@@ -4,6 +4,10 @@ import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
 import type { View } from "./Workspace";
 
+/** Audio goes to Finder rather than to the editor: QuickLook plays these with
+ *  a space bar, and the editor would open a memo as a wall of bytes. */
+const AUDIO = /\.(m4a|caf|wav|aiff|mp3)$/i;
+
 function Node({
   path,
   entry,
@@ -30,7 +34,11 @@ function Node({
       <button
         className={`tree-item file ${entry.ignored ? "ignored" : ""}`}
         style={{ paddingLeft: depth * 14 + 8 }}
-        onClick={() => onOpenView({ kind: "file", key: `file:${full}`, absPath: full })}
+        onClick={() =>
+          AUDIO.test(entry.name)
+            ? api.revealPath(full).catch(() => {})
+            : onOpenView({ kind: "file", key: `file:${full}`, absPath: full })
+        }
       >
         <FileIconSpan name={entry.name} />
         {entry.name}

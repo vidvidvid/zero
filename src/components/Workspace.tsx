@@ -7,11 +7,19 @@ import { QuickOpen } from "./QuickOpen";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { projectSession, saveProject } from "../lib/session";
 import { useSearch } from "../lib/search";
+import { useMemos } from "../lib/memos";
 
 export type View =
   | { kind: "diff"; key: string; worktree: string; relPath: string }
   | { kind: "file"; key: string; absPath: string; line?: number }
-  | { kind: "new"; key: string; name: string };
+  | { kind: "new"; key: string; name: string }
+  // A memo, opened as the thread it is rather than as the file it also is. No
+  // root on it: views belong to the workspace that holds them, and that
+  // workspace is the project the memo was recorded in. The files are still
+  // reachable — ⌥ on the row opens the raw as a file view, and the breadcrumb
+  // over the thread opens the document — which is what keeps this a reading of
+  // a memo rather than a second place it lives.
+  | { kind: "memo"; key: string; id: string };
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
@@ -22,6 +30,25 @@ function persisted(key: string, fallback: number): number {
 
 /** a pane's vertical padding — the part of the panel's height that isn't rows */
 const PANE_PAD_Y = 12;
+
+/**
+ * Everything in this window that a keystroke might belong to instead of to us.
+ *
+ * Every other shortcut here carries ⌘ or ⌃ and can be read off the key alone.
+ * The recording keys carry nothing — ⎋ and space, because a hand that is
+ * talking into a mic is not on a modifier — and a bare space is a letter to
+ * every text surface in the app: the commit message, the search fields, the
+ * quick-open box, CodeMirror's editor (which is a contenteditable), and the
+ * terminal, where it is also a letter to whatever is running in it. So the gate
+ * is the target rather than the key: if the event started anywhere you can
+ * type, the key was never ours. `contenteditable` is matched by presence
+ * rather than by `="true"`, because the attribute has several truthy spellings
+ * and only one false one.
+ */
+const TEXT_SURFACES = 'input, textarea, [contenteditable]:not([contenteditable="false"]), .xterm';
+
+const typing = (e: KeyboardEvent) =>
+  e.target instanceof Element && e.target.closest(TEXT_SURFACES) !== null;
 
 function startDrag(
   e: React.MouseEvent,
@@ -80,6 +107,15 @@ export const Workspace = memo(function Workspace({
   // held here rather than in the panel so a result list survives a look at the
   // file tree — the sidebar renders one tab at a time
   const search = useSearch(project.root);
+  // up here for the same reason, plus one of its own: the rail's dot is drawn
+  // by a tab you aren't on, about a recording that outlives every panel
+  const memos = useMemos(
+    project.root,
+    active && sidebarVisible && sidebarTab === "memos",
+    // a memo recorded here lands in the editor the moment it comes back ready,
+    // as the same thread its row opens
+    (id) => openView({ kind: "memo", key: `memo:${id}`, id })
+  );
 
   useEffect(() => {
     localStorage.setItem("zero-sidebar-w", String(sidebarWidth));
@@ -159,6 +195,28 @@ export const Workspace = memo(function Workspace({
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey;
       const ctrl = e.ctrlKey;
+      // The two keys that only exist while this project holds the mic: ⎋ throws
+      // the recording away, space stops and starts the listening. Nothing else
+      // in the app answers to either of them unmodified, and they last for the
+      // length of a recording — which is the only window in which reaching for
+      // a modifier is the wrong thing to ask of someone who is mid-sentence.
+      // `preventDefault` matters twice here: it keeps space from scrolling a
+      // panel, and it keeps space from pressing whichever of these buttons was
+      // clicked last and still has focus, which would otherwise toggle twice.
+      const rec = memosRef.current.recording;
+      if (rec && !meta && !ctrl && !e.altKey && !typing(e)) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          memosRef.current.cancel();
+          return;
+        }
+        if (e.code === "Space") {
+          e.preventDefault();
+          if (rec.paused) memosRef.current.resume();
+          else memosRef.current.pause();
+          return;
+        }
+      }
       if (meta && !e.shiftKey && e.key.toLowerCase() === "b") {
         e.preventDefault();
         setSidebarVisible((v) => !v);
@@ -183,6 +241,10 @@ export const Workspace = memo(function Workspace({
         e.preventDefault();
         setSidebarVisible(true);
         setSidebarTab("scm");
+      } else if (meta && e.shiftKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        setSidebarVisible(true);
+        setSidebarTab("memos");
       } else if ((ctrl && e.shiftKey && e.code === "Backquote") || (meta && !e.shiftKey && e.key.toLowerCase() === "t")) {
         e.preventDefault();
         setTerminalVisible(true);
@@ -211,6 +273,20 @@ export const Workspace = memo(function Workspace({
 
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
   const activeViewRefValue = useStateRef(activeView);
+  // and one for the memos, for a stronger version of the same reason: this
+  // object is rebuilt on every tick of the elapsed timer, so a handler that
+  // closed over it would be torn down and rebound twice a second for the whole
+  // of a recording — during the one gesture that has to stay responsive
+  const memosRef = useStateRef(memos);
+
+  // Which memo the list should draw as selected. Derived here rather than in the
+  // panel because "selected" means "this is the thread you are reading", and
+  // what you are reading is a fact about the editor's tabs — which the workspace
+  // owns and the sidebar has never been told about. The alternative was handing
+  // the panel the view list so it could work out the same answer, which is a
+  // panel that knows what a tab is in order to draw a background.
+  const shown = views[activeView];
+  const activeMemo = shown?.kind === "memo" ? shown.id : null;
 
   // this project's own row height. Scoped to the workspace rather than the
   // document because every project's panes are mounted at once, and an
@@ -247,6 +323,8 @@ export const Workspace = memo(function Workspace({
               active={active}
               width={sidebarWidth}
               search={search}
+              memos={memos}
+              activeMemo={activeMemo}
             />
             <div
               className="resizer-col"
@@ -264,6 +342,9 @@ export const Workspace = memo(function Workspace({
             onReorder={reorderViews}
             onOpenFile={openFile}
             root={project.root}
+            // a memo tab draws its own live title and records its own
+            // follow-ups, both of which are this object
+            memos={memos}
           />
         </div>
       </div>

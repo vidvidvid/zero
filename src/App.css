@@ -1416,6 +1416,909 @@ body.dragging-row {
   text-align: center;
 }
 
+/* ===== memos ===== */
+
+/* The list is the panel and everything you press is under it: a compose bar on
+   the floor, holding the record button with the vocabulary door beneath it.
+   Inverted from the search panel's skeleton on purpose — search is a thing you
+   type and then read the answer to, and this is a thing you read and then add
+   to. */
+.memo-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The pinned half. The hairline is the only thing saying so, and it has to say
+   it: without one the record button reads as the last row of the list and
+   scrolls in the eye even though it doesn't on screen.
+   A column of at most two things now — the notice, and the one row everything
+   you press is on. ZERO.md used to be a third, and a whole line of floor for a
+   door opened twice a week. */
+.memo-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* The floor's one row: the verb, taking everything, and the book on the end.
+   Centred rather than stretched, so the 24px square doesn't grow itself into a
+   24×31 slab beside a button that happens to be taller than it.
+   8px rather than the cluster's 5: while the mic is live this row holds three
+   controls about the recording and then one that opens a file, and at an even
+   spacing the book reads as a fourth thing you might press by mistake. The
+   extra three pixels are the whole of the sentence "and this one is different". */
+.memo-record-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* While the mic is live the cluster stands where the record button stood and
+   takes the same share of the row — the book keeps its 24px on the end, which
+   is small enough that the three controls beside it lose nothing worth having. */
+.memo-record-row .memo-controls {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* One button for both states, and the width of the row less the book. The thing
+   you press to start is the thing you press to stop, in the same place —
+   nothing moves out from under a finger that's already reaching for it. */
+.memo-record {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: left;
+}
+
+.memo-record:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* held by another project, or waiting on a call that hasn't come back */
+.memo-record:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* Idle: the hollow dot a record button has worn since tape decks. */
+.memo-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.2px solid currentColor;
+  transition: opacity 120ms ease-out;
+}
+
+/* Live: the light on the front of the machine, and nothing else. It used to
+   breathe with the mic and be dimmed by it, which made two indicators reading
+   the same number six pixels apart — so the room went to the bars, which can
+   actually draw it, and the dot went back to saying the one thing they don't:
+   tape is moving. A slow pulse, all of it in this rule, none of it a re-render.
+   The floor isn't zero, because a live mic may never be invisible. */
+.memo-dot.live {
+  border-color: transparent;
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(241, 76, 76, 0.5);
+  animation: memo-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes memo-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Paused: held still and held down. A blinking record light means something is
+   being written, and while this is up nothing is — the word beside it says so,
+   and this is the half of the message you catch without reading. */
+.memo-dot.live.paused {
+  animation: none;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+/* The room, at the far end of whichever button is holding the mic. Three bars
+   scaled by one number through three gains — middle tallest — which is what
+   keeps them a set rather than one bar drawn three times. Near silence rests
+   them on their bases, which are deliberately not zero: a live mic that draws
+   nothing is the one thing this indicator exists to prevent.
+   The 120ms turns the level events into a movement rather than a flicker: they
+   are the frames, at 8–12 a second, and the transition is the only animation
+   there is. */
+.memo-bars {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+}
+
+/* Centred rather than standing on a baseline: a level meter opens both ways,
+   and there is no floor drawn here for a bar chart to sit on.
+   White, not red. This theme distinguishes by brightness and keeps its one hue
+   for the two things that have to interrupt you — a failure, and the fact that
+   a mic is live, which is the dot's whole job six pixels away. A level meter
+   interrupts nobody; it is something you glance at, and glanceable here means
+   bright. */
+.memo-bars span {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--accent);
+  transform: scaleY(var(--bar, 0.16));
+  transition: transform 120ms ease-out;
+}
+
+.memo-bars span:nth-child(1) {
+  --bar: min(1, calc(0.16 + 0.5 * var(--level, 0)));
+}
+
+.memo-bars span:nth-child(2) {
+  --bar: min(1, calc(0.2 + 0.8 * var(--level, 0)));
+}
+
+.memo-bars span:nth-child(3) {
+  --bar: min(1, calc(0.16 + 0.42 * var(--level, 0)));
+}
+
+.memo-record-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- the mic, while it is live ----
+   Three controls in the space the record button had, in the order of how much
+   of the recording each one is about: `done` keeps the width and the position,
+   and the two that undo something are equal squares at the end, where nothing
+   lands by accident. Used on the floor of the panel and at the foot of a
+   thread, which is why it sets no width of its own — each of those bars tells
+   it below what share to take there. Stating one here would be read against
+   whichever axis it landed in and grow the cluster's height into the floor. */
+.memo-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* the record button's chip, one step brighter because it is the live one: what
+   the panel is doing reads from the corner of an eye without anyone having to
+   read the label */
+.memo-stop {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+}
+
+.memo-stop:hover:not(:disabled) {
+  background: var(--bg-raised);
+}
+
+.memo-stop:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* ---- one square, everywhere a glyph is the whole control ----
+   Pause and resume, the ✕ that scraps a recording, the ✕ that deletes a memo,
+   the book that opens ZERO.md, the triangle that plays a take. They were a
+   bordered word, a bare ✕, another bare ✕, a word in 10.5px and a word in
+   11.5px — five weights for five things that are all the same thing, which is a
+   picture you press.
+
+   24px, because the ✕ they replace was about seven pixels of glyph in eleven
+   pixels of box and nobody hits eleven pixels; 13px of drawing inside it,
+   because that is the size at which a 1.2 stroke on a 16-unit grid is still a
+   line. No border: the chip only appears under the pointer, which is what keeps
+   a row of these from reading as a toolbar. */
+.memo-icon-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-dim);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.memo-icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* The destructive ones. Identical in every other respect to their neighbour —
+   same box, same chip, same weight — because they are peers of it; red is the
+   one difference, and it is the only one that has ever needed saying. */
+.memo-icon-btn.scrap:hover:not(:disabled) {
+  color: var(--red);
+}
+
+/* The base is already the dim step, so unavailable has to be said with more
+   than colour or it isn't said at all */
+.memo-icon-btn:disabled {
+  color: var(--text-faint);
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* the drawing never shrinks under a flex parent, and sits on no baseline */
+.memo-glyph {
+  flex: none;
+  display: block;
+}
+
+/* mono and tabular, so the seconds tick in place instead of nudging the row */
+.memo-elapsed {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+/* mirrors .wt-notice — the same dismissable line, in a panel that needed one
+   for its own reasons. Margins come from the bar it sits in. */
+.memo-notice {
+  flex: none;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* A flex column so the empty line can take the middle of it. Rows opt out of
+   shrinking: a scrolling flex container will otherwise squash its children to
+   fit the height instead of letting them run past it. */
+.memo-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+
+.memo-empty {
+  margin: auto;
+  padding: 8px 16px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* Room to read. This was three pixels of padding on a line-height of nothing,
+   which packed a dozen memos into a paragraph — and what a memo is called is
+   the whole of what the row is for.
+
+   Pulled left to sit where the file tree sits. The tree insets its rows 8px and
+   then spends 16px of icon and 5px of gap before a filename, so a name in it
+   starts around 29px in — but every one of those rows has something drawn in
+   that column. This list's status slot is empty for most memos most of the
+   time, so the same arithmetic left the titles floating twenty pixels off an
+   edge with nothing between them and it. 6px of inset and a 6px gap put a title
+   at 22px, which is where the tree's folder names are, and the slot still has
+   its ten pixels for the times it has something to say. */
+.memo-row {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px 5px 6px;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: padding-right 0.12s ease;
+}
+
+/* Row eases open for ✕ rather than covering anything: one square's worth of
+   room, and what it must not cover is whatever the pipeline is saying, which
+   stays legible next to it for the whole hover. */
+.memo-row:hover {
+  background: var(--bg-raised);
+  padding-right: 34px;
+}
+
+/* The memo just recorded holds the hover treatment for as long as the pipeline
+   has it — the one row whose progress is actually being waited on — and lets
+   go when it opens itself, or stays if it failed and wants the retry click. */
+.memo-row.followed {
+  background: var(--bg-raised);
+}
+
+/* The memo whose thread is the view on screen. The same raised fill — this
+   window has one way of saying "this one", and a list of memos is not the place
+   to invent a second — plus the title at full brightness, which is what tells it
+   apart from the row a pointer happens to be resting on. It coexists with
+   `.followed` and takes the title: a memo can be the one being waited on and the
+   one being read at once, and when it is, being read is the larger fact. */
+.memo-row.active {
+  background: var(--bg-raised);
+}
+
+.memo-row.active .memo-title {
+  color: var(--text);
+}
+
+/* Fixed square whether or not there's anything in it, so titles line up down
+   the list and nothing shifts sideways when a job starts. */
+.memo-slot {
+  flex: none;
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* the claude ring at row scale, borrowed outright — a travelling arc already
+   means "working on it" everywhere else in this window */
+.memo-ring {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 250deg,
+    rgba(255, 255, 255, 0.45) 330deg,
+    #ffffff 358deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.2px), #000 calc(100% - 1.2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.2px), #000 calc(100% - 1.2px));
+  animation: claude-spin 1.5s linear infinite;
+}
+
+/* Failure spends the one hue this theme keeps for it. Same red as the live
+   dot: both mean look at me, and neither happens often enough to shout. */
+.memo-mark {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memo-dot.live,
+  .memo-ring {
+    animation: none;
+  }
+
+  /* a steady red dot rather than a pulsing one — the pulse was the sign of
+     life, and the light being on at all is the fact underneath it */
+  .memo-dot.live {
+    opacity: 1;
+  }
+
+  /* The bars stop dancing and become what they are underneath: three stubs that
+     brighten with the room. The reading survives, the movement doesn't — which
+     is the trade this query asks for, and the one thing that may not be traded
+     away is any sign that the mic is hearing something. */
+  .memo-bars span {
+    transform: scaleY(0.3);
+    transition: none;
+    opacity: calc(0.35 + 0.65 * var(--level, 0));
+  }
+}
+
+/* The row's whole width, less whatever the pipeline is currently saying. It
+   used to share the line with a duration that was always there, always four
+   characters wide, and always the first thing to push a title into an ellipsis
+   — for a number nobody was reading. The length of a memo is in its thread, on
+   the take it belongs to. */
+.memo-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* a timestamp is what a memo is called before the cleanup names it, so it
+   reads as the placeholder it is */
+.memo-title.stamp {
+  color: var(--text-dim);
+}
+
+/* One slot at the end of the row, holding what the pipeline is doing to this
+   memo and nothing else — no length, and nothing at all for a memo that is
+   simply ready, which is most of them most of the time. It takes only the width
+   of its word and yields nothing: the words are short and finite (`waiting`,
+   `merging…`, `failed — retry`), and a status truncated to `transcrib…` is a
+   status that has stopped being one. */
+.memo-meta {
+  flex: none;
+  max-width: 60%;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memo-meta.work {
+  color: var(--text-dim);
+}
+
+.memo-meta.fail {
+  color: var(--red);
+  opacity: 0.8;
+}
+
+.memo-meta.fail:hover {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ✕ fades into the space the row opened for it — the same choreography as the
+   file rows in the changes panel. The fill is the hover fill, so the chip is
+   invisible against the row it belongs to and the glyph never lands on top of
+   the duration. One action now: copying a memo is the thread's job, and a verb
+   that needs the whole memo has no business hiding behind a hover in a list. */
+.memo-acts {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.memo-row:hover .memo-acts {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The chip is already the hover fill, so the button's own would be a fill on
+   top of itself. Red is what the pointer gets here, and it is enough. */
+.memo-acts .memo-icon-btn:hover {
+  background: none;
+}
+
+/* The dot on the rail tab, sitting on the mic's top-right corner: the whole
+   ambient surface of this feature, 4px of it. Red while the mic is live, dim
+   while a job runs, the theme's full brightness for a memo that came back
+   while you were somewhere else — and nothing at all the rest of the time,
+   which is nearly always. Lives here rather than in the sidebar section
+   because it is about memos, not about tabs. */
+.memo-tab-dot {
+  position: absolute;
+  top: 2px;
+  left: calc(50% + 4px);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+
+.memo-tab-dot.rec {
+  background: var(--red);
+  box-shadow: 0 0 3px rgba(241, 76, 76, 0.7);
+}
+
+.memo-tab-dot.busy {
+  background: var(--text-faint);
+}
+
+.memo-tab-dot.ready {
+  background: var(--accent);
+  box-shadow: 0 0 3px rgba(255, 255, 255, 0.45);
+}
+
+/* ===== memo thread ===== */
+
+/* A memo opens as the exchange it was: what you said, what came back, oldest at
+   the top. The pane is as wide as the window and a line of text that runs the
+   whole of one is unreadable at any size, so the turns sit in a column of a
+   document's width, centred like a document. */
+.memo-thread {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* A word at rest rather than on hover: there is one memo here and nothing to
+   disambiguate it from. Sized to be hit rather than to be inconspicuous — a
+   word with 3px of padding around it is a 10px target, which is a target you
+   miss. One thing wears it now: `retry`, on a stage that failed. Everything
+   else in the thread that was a small word is a glyph on a square, and `retry`
+   isn't, because there is no picture of trying again. */
+.memo-thread-act {
+  flex: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.memo-thread-act:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.memo-thread-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* the top padding stands in for the strip that used to be above it — without it
+   the first take's header sits directly under the breadcrumb and reads as part
+   of the chrome rather than as the start of the thread */
+.memo-thread-col {
+  max-width: 68ch;
+  margin: 0 auto;
+  padding: 16px 18px 30px;
+  /* body turns selection off for the chrome; a memo is the opposite of chrome,
+     and taking a sentence out of one is most of what it's for */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+/* one recording and the document it produced, kept together so the pair reads
+   as an exchange rather than as two entries in a list */
+.memo-exchange + .memo-exchange {
+  margin-top: 22px;
+}
+
+.memo-turn.said + .memo-turn.doc {
+  margin-top: 14px;
+}
+
+/* What was said, in the shape of the side it came from: a card of its own,
+   narrower than the document and pulled to the right of the column. The
+   alternation is the point — scrolling a thread should tell you whose turn each
+   block is before you read a word of it, which one flat column of full-width
+   text never did. 48ch against the document's 68 keeps the two unmistakable at
+   any window width. */
+.memo-turn.said {
+  max-width: 48ch;
+  margin-left: auto;
+}
+
+/* The take's name — what it is, when, how long — above the card rather than
+   inside it, so the card is speech and nothing else.
+
+   One line, always. It was a flex row carrying a button, a hundred pixels of
+   waveform and a clock as well as its three facts, and in a narrow pane it
+   wrapped: `take 3 · aug 13,` on one line and `14:32 · 0:22` under it, which is
+   a date broken in half to make room for chrome. The chrome moved down a line
+   and this became what it says it is. If the pane is still too narrow, the
+   ellipsis eats the end of the date rather than the layout. */
+.memo-turn-head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+  padding-left: 2px;
+}
+
+/* Everything about listening, on its own line under the name: triangle, bars,
+   clock, left to right — which is the arrangement a voice message has worn
+   since voice messages, and it is worn here for the same reason it is worn
+   there. The clock only exists while this take is the one in the speaker.
+   The button is nudged left by the difference between its own centring and the
+   header's 2px, so the glyph sits under the `t` of `take` rather than three
+   pixels right of it. */
+.memo-play-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.memo-play-row .memo-play {
+  margin-left: -3px;
+}
+
+/* The take's shape, beside the triangle that plays it: 24 bars of envelope,
+   which is enough to see where the pauses were and far too few to be mistaken
+   for a scrubber — which it isn't, and must not look like, because it doesn't
+   seek. It is a second, larger target for the same play/pause the triangle is.
+   White, like the live bars and for the same reason: brightness is the axis,
+   and red is spent on the mic being on. */
+.memo-wave {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 13px;
+  cursor: pointer;
+}
+
+/* centred, like the live meter — an envelope opens both ways — and never quite
+   flat: a bar of pure silence still draws a hairline, so the shape reads as a
+   recording with a gap in it rather than as one that stopped */
+.memo-wave span {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.28;
+  transform: scaleY(max(0.1, var(--v, 0)));
+  transition: opacity 120ms ease-out;
+}
+
+/* passed by the playhead. It steps a bar at a time rather than sliding, which
+   is the honest resolution of the thing underneath it. */
+.memo-wave span.on {
+  opacity: 0.85;
+}
+
+.memo-wave:hover span {
+  opacity: 0.45;
+}
+
+.memo-wave:hover span.on {
+  opacity: 1;
+}
+
+/* `pre-wrap` because a transcript has the speaker's own line breaks in it and
+   nobody wrote them for effect */
+.memo-said {
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border-radius: 8px;
+  padding: 8px 11px;
+}
+
+/* what came back, at reading size */
+.memo-turn.doc {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.memo-turn.doc > * + * {
+  margin-top: 0.75em;
+}
+
+.memo-turn.doc h1 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.memo-turn.doc h2 {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-top: 1.2em;
+}
+
+.memo-turn.doc h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-top: 1.1em;
+}
+
+/* the reset above zeroes list padding, so the indent is stated here */
+.memo-turn.doc ul,
+.memo-turn.doc ol {
+  padding-left: 1.4em;
+}
+
+.memo-turn.doc li + li,
+.memo-turn.doc li > ul,
+.memo-turn.doc li > ol {
+  margin-top: 0.3em;
+}
+
+.memo-turn.doc code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-raised);
+}
+
+/* brightness is this theme's only axis, so that's what bold spends */
+.memo-turn.doc strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.memo-turn.doc blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 11px;
+  color: var(--text-dim);
+}
+
+.memo-turn.doc hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.3em 0;
+}
+
+/* the clock at the end of the bars, at the take line's size rather than the
+   record row's — it's a note on a take, not the headline the panel's timer is */
+.memo-play-row .memo-elapsed {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* The pipeline, as the turn that hasn't landed yet: the panel's `work` wording
+   in the panel's `work` colour, at the bottom where the next thing goes. On the
+   said side of the column and in the said side's card, because what is being
+   worked on is what you said — and because it is followed, when it finishes, by
+   a document that appears exactly where documents appear. Fitted rather than
+   filled: `transcribing…` is three words wide and a 48ch card around it would
+   be a box of nothing. The ring is the panel's too, and comes with the
+   reduced-motion rule the memos section already writes for it. */
+.memo-turn.pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: 48ch;
+  margin-top: 20px;
+  margin-left: auto;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.memo-turn.pending.fail {
+  color: var(--red);
+  opacity: 0.85;
+}
+
+.memo-thread-why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Everything you can do to a whole memo, on one bar at the end of it, aligned
+   to the column it is about. Both are the same bordered chip at the same
+   height — copy used to be a bare word next to one, the shape of a footnote
+   beside a headline, and it isn't a footnote: taking the text out of zero is
+   what a memo gets recorded for about as often as saying more into it.
+   They were equal halves while copy was a word. As a glyph it needs the width
+   of the longest thing it flashes back and not a pixel more, and the pixels it
+   gives up go to the only labels in this feature long enough to be ellipsised
+   — `record a follow-up`, `recording in <project>`. */
+.memo-thread-foot {
+  flex: none;
+  padding: 0 18px 14px;
+}
+
+.memo-thread-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 68ch;
+  margin: 0 auto;
+}
+
+/* The bordered chip this window uses for a thing you are actually meant to
+   press — the launcher's open button, the commit button — at the size the foot
+   of a document can carry two of.
+   Present in every state a memo has, and disabled with a reason in the ones the
+   follow-up can't be pressed in — it used to be absent while the pipeline was
+   still running, and a button that isn't there is one you conclude is broken
+   rather than busy. Which is also why the mic glyph goes in front of those
+   reasons rather than instead of them. */
+.memo-thread-btn {
+  /* `auto` rather than `0`: the basis is the label, which is what lets the two
+     chips shrink against each other when the pane gets narrower than the bar
+     wants to be. With a zero basis the copy chip's fixed width was taken off
+     the top and the follow-up got whatever was left — 26px of it, in a pane
+     narrow enough — which is a button that has stopped being one. */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 100px, which is what `couldn't copy` needs and three pixels more than it
+   takes: the chip holds a glyph nearly always and a word for fourteen hundred
+   milliseconds after a press, and a button that changes width to deliver a
+   message is a message you watch instead of read. It gives the width back only
+   when the pane is too narrow for both chips, and never grows — the space past
+   a hundred pixels belongs to the labels next door. */
+.memo-thread-btn.copy {
+  flex: 0 1 100px;
+  min-width: 34px;
+}
+
+.memo-thread-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* the mic is elsewhere, the pipeline still has this memo, or a call hasn't come
+   back yet — the title says which */
+.memo-thread-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.memo-btn-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* While this memo is the one being recorded, the cluster stands in the
+   follow-up's half and takes exactly it — the same half, so the bar doesn't
+   redraw itself around the fact that a mic is on. */
+.memo-thread-bar .memo-controls {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* deleted, from here or from the panel or with rm. Quiet, because it is the
+   normal end of a memo rather than a fault */
+.memo-thread-empty {
+  margin: auto;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 /* ===== main column ===== */
 
 .main-col {
@@ -1533,6 +2436,21 @@ body.dragging-row {
   background: var(--bg);
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* A memo thread's path is the way to the file the thread is a reading of, so
+   the line that names it is what you click. Nothing else needs this: every
+   other view already is its file. */
+.editor-path.opens {
+  cursor: pointer;
+}
+
+.editor-path.opens:hover {
+  color: var(--text-dim);
+}
+
+.editor-path.opens:hover .crumb.file {
+  color: var(--text);
 }
 
 .editor-path .crumb {
