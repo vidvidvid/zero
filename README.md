@@ -250,18 +250,65 @@ Nothing quarantines an app you built yourself, so this one just opens.
 Xcode isn't needed. The macOS 26 icon is a compiled asset catalog, and the
 compiled file is committed rather than built here — see below for why.
 
+### Working on it
+
+```sh
+npm install
+npm run tauri dev
+```
+
+The frontend hot-reloads; touching Rust rebuilds and relaunches. `npm run build`
+typechecks and bundles the frontend on its own, which is also what
+`tauri build` runs first, so a type error fails the release before it compiles
+anything.
+
+The Rust side has tests — 11 of them, in about a tenth of a second:
+
+```sh
+cd src-tauri && cargo test
+```
+
+Two are the hardening described below, and they come as a pair: one proves
+`git status` doesn't run a repository's own configured commands, and the other
+proves the same repository *does* run them without the guard, so the first can't
+quietly stop testing anything.
+
 ### Releases
 
-Pushing a tag is the release: `.github/workflows/release.yml` builds the dmg on
-a macOS runner and attaches it, so the file on the releases page is always the
-one that tag builds. It checks first that `package.json`, `tauri.conf.json` and
-`Cargo.toml` all agree with the tag, because three copies of a version number
-drift quietly.
+**Nothing on `main` reaches anyone.** The only trigger is a tag, and the
+download link resolves to the newest release, not the newest commit.
 
-The asset is named `zero_aarch64.dmg` with no version in it, which is what makes
-`/releases/latest/download/zero_aarch64.dmg` a link that keeps working. The
-Homebrew cask lives in [vidvidvid/homebrew-zero](https://github.com/vidvidvid/homebrew-zero)
-and points at the tagged URL.
+```sh
+npm version 0.2.0 -m "zero %s"   # bumps package.json, commits, tags v0.2.0
+git push origin main --follow-tags
+```
+
+`.github/workflows/release.yml` then builds the dmg on a macOS arm64 runner —
+about two minutes — and attaches it, so the file on the releases page is always
+the one that tag builds.
+
+`package.json` is the only copy of the version: `tauri.conf.json` names it as a
+path instead of repeating the number, and `Cargo.toml` sits at `0.0.0` because
+nothing reads it. The workflow checks the tag against `package.json`, and checks
+that `tauri.conf.json` still points at it — a literal number put back there
+would go stale with nothing to notice.
+
+The asset is named `zero_aarch64.dmg`, with no version in it, which is what
+makes `/releases/latest/download/zero_aarch64.dmg` a link that keeps working;
+the tagged URL carries the version instead.
+
+**The Homebrew cask doesn't follow releases.** It lives in
+[vidvidvid/homebrew-zero](https://github.com/vidvidvid/homebrew-zero) and pins
+both the version and the dmg's sha256, so a new tag means bumping `version` and
+`sha256` in its `Casks/zero.rb` and pushing that repository too — otherwise
+`brew install --cask` goes on handing people the old dmg. The sha256 is printed
+in the release notes, so you don't need to download the file to get it, and
+
+```sh
+brew fetch --cask vidvidvid/zero/zero
+```
+
+checks the cask and the release agree without installing anything.
 
 One thing that isn't obvious: a dmg built on a runner has no arranged icons in
 its window. Tauri's `bundle_dmg.sh` sets that up with an AppleScript that drives
