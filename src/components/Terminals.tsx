@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
 import { ptyBus } from "../lib/ptyBus";
+import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
 import { pathLinkProvider } from "../lib/termLinks";
 
@@ -249,6 +250,10 @@ export function Terminals({
   const [armed, setArmed] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  // app-wide rather than per-panel, and started from here because the panes
+  // are what it delivers to; calling it again is a no-op
+  useEffect(watchFileDrops, []);
+
   // Drag a divider to change how two neighbouring panes share their split.
   // Shares are recomputed from the sizes captured at mousedown, so a long
   // gesture can't accumulate rounding drift.
@@ -300,6 +305,8 @@ export function Terminals({
               <div
                 key={id}
                 className="term-abs"
+                // how a dropped file finds the pty it was dropped on
+                data-term-id={id}
                 style={{
                   left: `${rect.x}%`,
                   top: `${rect.y}%`,

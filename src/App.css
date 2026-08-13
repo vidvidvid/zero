@@ -2732,6 +2732,19 @@ body.dragging-row {
   background: var(--bg-panel);
 }
 
+/* the pane a dragged-in file would land in, lit while it's held over one.
+   An overlay rather than a border: a border on .term-abs would move the
+   terminal inside it by a pixel every time a drag passed over. */
+.term-abs.term-drop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px solid var(--text-faint);
+  background: rgb(255 255 255 / 4%);
+}
+
 /* the split line itself is the pane's border; this is just the hit area over
    it. Below .pane-actions so it never steals a click from the ✕. */
 .term-divider {
