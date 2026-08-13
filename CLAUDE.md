@@ -46,15 +46,20 @@ non-official taps unless you name the tap on the command line — naming it *is*
 the consent signal (`Homebrew::Trust.explicitly_allowed?`). A shortened
 `brew tap` + `brew install --cask zero` makes users run `brew trust` first.
 
-The only real shortening is homebrew/cask itself — plain `brew install --cask
-zero`, no tap. Signing removed what used to disqualify zero (their criteria
-exclude apps that need Gatekeeper bypassed, which the xattr era was); what
-blocks it now is notability, which the maintainers judge from public interest.
-When the repo has real traction, it's one PR with roughly the existing cask —
-submitted as `zero-editor`, not `zero`: a homebrew/core formula already owns
-`zero`, and `zero-editor` is free on both sides (measured: formulae.brew.sh
-404s for it as cask and formula). With no formula sharing the name, even bare
-`brew install zero-editor` resolves to the cask, no `--cask` needed.
+The only real shortening is homebrew/cask itself, and the gate is a number,
+not a judgment: `brew audit --cask --new --online zero-editor/tap/zero` is the
+audit their CI runs on submissions, and run against the real cask it fails on
+exactly one problem — "GitHub repository not notable enough (<30 forks, <30
+watchers and <75 stars)". Any one of the three clears it. Everything else
+already passes, so at 75 stars the submission is one PR whose CI outcome is
+known.
+
+Submit it as `zero-editor`, not `zero`: a homebrew/core formula already owns
+`zero` — another coding agent, actively installed — and bare `brew install`
+resolves formulae first, so that token would need `--cask` forever even if
+granted. `zero-editor` is free on both sides (measured: formulae.brew.sh 404s
+for it as cask and formula), and with no formula sharing the name, bare
+`brew install zero-editor` resolves to the cask, no flag needed.
 
 ## Signing — it happens in CI and nowhere else
 
