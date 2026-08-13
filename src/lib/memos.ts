@@ -185,16 +185,26 @@ const waves = new Map<string, Promise<number[] | null>>();
  *  as loudly as a shouted one, because what the shape is for is finding the
  *  silences and the sentences in it, and an absolute scale hides both. */
 async function decodeWave(path: string): Promise<number[] | null> {
+  // The read first, and a failed read forgotten rather than cached: the decode
+  // verdict below is about the bytes and deserves its permanence, but a read
+  // can fail for reasons of the moment, and one bad moment shouldn't cost a
+  // take its waveform for the rest of the session.
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await api.readBinary(path);
+  } catch {
+    waves.delete(path);
+    return null;
+  }
   // A context per decode, closed the moment it has answered. WebAudio is here
   // to read a file, not to play one — playback is an <audio> element, and an
   // open context left behind for every take in a thread is a hardware voice
-  // held for a picture. Opened after the read rather than before it, and inside
-  // the try: a file that isn't there costs no context at all, and a webview
-  // that refuses to give us one more is an answer of `null` like any other
-  // rather than a rejection nothing is waiting to catch.
+  // held for a picture. Opened only once there are bytes: a file that isn't
+  // there costs no context at all, and a webview that refuses to give us one
+  // more is an answer of `null` like any other rather than a rejection nothing
+  // is waiting to catch.
   let ctx: AudioContext | null = null;
   try {
-    const bytes = await api.readBinary(path);
     ctx = new AudioContext();
     const audio = await ctx.decodeAudioData(bytes);
     const pcm = audio.getChannelData(0); // one voice, one mic: channel 0 is all of it
@@ -562,18 +572,26 @@ export function useMemos(root: string, viewing: boolean, onReady?: (id: string) 
     [root, mark]
   );
 
+  // The list is what launch actually needs: the badge, and the reconcile-and-
+  // resume pass that picks a pipeline back up where the last quit dropped it —
+  // one IPC call that early-outs when the project has never recorded anything.
+  // The probe is neither of those. It spawns the helper, and a process at
+  // every cold open to answer a question only the panel's body asks is launch
+  // time spent on a tab that may never be looked at. So it waits for the tab.
   useEffect(() => {
+    void list(true);
+  }, [list]);
+
+  useEffect(() => {
+    if (!viewing || probe) return;
     let live = true;
     probeOnce().then((p) => {
-      if (!live) return;
-      setProbe(p);
-      // nothing to list on a machine that can't record in the first place
-      if (p.supported) void list(true);
+      if (live) setProbe(p);
     });
     return () => {
       live = false;
     };
-  }, [list]);
+  }, [viewing, probe]);
 
   useEffect(() => {
     ensureStarted();

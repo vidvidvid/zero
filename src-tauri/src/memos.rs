@@ -500,13 +500,17 @@ fn now_secs() -> i64 {
 
 /// Four hex characters of nothing in particular. Two memos started in the same
 /// minute need different names; that's the whole requirement, and a hash of
-/// the clock and the pid meets it without a dependency.
+/// the clock, the pid and a counter meets it without a dependency. The counter
+/// is what actually separates two calls in the same clock tick — an `elapsed()`
+/// of a fresh `Instant` used to stand here, and it hashed the same ~0 every
+/// time.
 fn hex4() -> String {
     use std::hash::{Hash, Hasher};
+    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     SystemTime::now().hash(&mut hasher);
     std::process::id().hash(&mut hasher);
-    Instant::now().elapsed().hash(&mut hasher);
+    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
     format!("{:04x}", hasher.finish() & 0xffff)
 }
 
@@ -515,6 +519,22 @@ fn hex4() -> String {
 /// dashes and hex, none of which can walk out of the memos directory.
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// Is this a stem [`new_stem`] could have minted — `YYYY-MM-DD-HHMM-hhhh`?
+///
+/// The reconciler asks before it sweeps. A `notes.md` someone dropped into the
+/// memos directory classifies as a memo with no audio, which is the shape of a
+/// stub — and a stub gets erased. Files are only ever swept under names this
+/// program invented; anything else in the directory is somebody's and stays.
+fn stem_is_ours(stem: &str) -> bool {
+    let b = stem.as_bytes();
+    b.len() == 20
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 | 10 | 15 => *c == b'-',
+            16.. => c.is_ascii_hexdigit(),
+            _ => c.is_ascii_digit(),
+        })
 }
 
 /// A stem no file in `dir` is using yet.
@@ -684,7 +704,9 @@ fn owning_memo(name: &str) -> Option<&str> {
 /// delete that missed them would leave recordings of yours on disk under a name
 /// nothing lists any more.
 fn remove_all(dir: &Path, id: &str) {
-    for ext in ["json", "caf", "m4a", "raw.txt", "md"] {
+    // `m4a.part` is the conversion's scratch name; a crash mid-encode is the
+    // only way one outlives the helper, and this is where such dust goes
+    for ext in ["json", "caf", "m4a", "m4a.part", "raw.txt", "md"] {
         let _ = std::fs::remove_file(dir.join(format!("{id}.{ext}")));
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -698,7 +720,7 @@ fn remove_all(dir: &Path, id: &str) {
 
 /// One take's files, and nothing else.
 fn remove_take_files(dir: &Path, id: &str, n: usize) {
-    for ext in ["caf", "m4a", "raw.txt"] {
+    for ext in ["caf", "m4a", "m4a.part", "raw.txt"] {
         let _ = std::fs::remove_file(dir.join(format!("{}.{ext}", take_stem(id, n))));
     }
     // and the document that take left, on the one path where there could be
@@ -908,6 +930,13 @@ fn glossary_lines(text: &str, cap: usize) -> Vec<String> {
 /// been deleted stops the whole thing: deleting it is a decision, and writing
 /// a headerless one back is not ours to make.
 fn append_terms(path: &Path, lines: &[String]) -> usize {
+    // Two writers can genuinely meet here — the README seed on its detached
+    // thread and a harvest on the worker, in a project's first minute — and
+    // read-modify-write under both means the slower one unwrites the faster
+    // one's lines. One lock for every append; the file is small and so is the
+    // wait.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+    let _guard = ONE_AT_A_TIME.lock().unwrap();
     let Ok(mut body) = std::fs::read_to_string(path) else { return 0 };
     let mut known: HashSet<String> =
         body.lines().filter_map(entry_term).map(str::to_lowercase).collect();
@@ -1040,7 +1069,10 @@ fn ensure_memos_ignored(root: &Path) -> bool {
         body.push('\n');
     }
     body.push_str("# zero: local voice memos\n.zero/memos/\n");
-    std::fs::write(&path, body).is_ok()
+    // atomically, like every other write — this one file is *theirs*, and a
+    // truncate-then-write that dies halfway would take their ignore rules with
+    // it, which is a worse trade than any memo is worth
+    write_atomic(&path, &body).is_ok()
 }
 
 /// Make `<root>/.zero/memos/`, and — only if it wasn't there a moment ago — do
@@ -1095,7 +1127,12 @@ fn helper_spawn(sub: &str, request: &serde_json::Value) -> Result<Child, String>
         .arg(sub)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        // Piped for the short subcommands, whose stderr is read after they
+        // exit and becomes their error message. Not for `record`: nothing
+        // reads that pipe for the possibly-half-hour life of a recording, and
+        // CoreAudio chatter filling a 64 KB buffer nobody drains would block
+        // the helper mid-take. Its protocol carries errors on stdout.
+        .stderr(if sub == "record" { Stdio::null() } else { Stdio::piped() })
         .spawn()
         .map_err(|e| e.to_string())?;
     {
@@ -1159,7 +1196,7 @@ fn probe_once() -> (MemoProbe, bool) {
     let mut definitive = false;
     let slot: Arc<ChildSlot> = Arc::new(Mutex::new(None));
     let run = run_child(&slot, child, PROBE_TIMEOUT, |line| {
-        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else { return };
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else { return None };
         match event["event"].as_str() {
             Some("probe") => {
                 let supported = event["supported"].as_bool().unwrap_or(false);
@@ -1178,13 +1215,17 @@ fn probe_once() -> (MemoProbe, bool) {
             }
             _ => {}
         }
+        None
     });
     match (verdict, run) {
         (Some(verdict), _) => (verdict, definitive),
         (None, Ok(run)) => (
             MemoProbe {
                 supported: false,
-                message: Some(if run.stderr.trim().is_empty() {
+                // On a Mac older than the helper's `minos`, the spawn succeeds
+                // and dyld aborts it on the way up — stderr full of missing
+                // symbols, which is the right verdict wearing the wrong words.
+                message: Some(if run.stderr.trim().is_empty() || run.stderr.contains("dyld") {
                     NEEDS_MACOS_26.to_string()
                 } else {
                     first_lines(&run.stderr, 3)
@@ -1229,11 +1270,16 @@ struct Run {
 /// Either way the child is collected before this returns. An uncollected child
 /// is a zombie, and `Child` has no `Drop` that does it for you — the rules are
 /// written out at `pty.rs::reap`.
+/// `on_line` may answer a line with a `Duration`, which restarts the clock:
+/// the deadline becomes that far from *now*. It exists for the one line that
+/// changes what the wait is — a helper announcing the OS is downloading its
+/// speech model is not a wedged transcription, and killing it mid-download
+/// punishes a slow connection for being honest about it.
 fn run_child(
     slot: &Arc<ChildSlot>,
     mut child: Child,
     timeout: Duration,
-    mut on_line: impl FnMut(&str),
+    mut on_line: impl FnMut(&str) -> Option<Duration>,
 ) -> Result<Run, String> {
     let stdout = child.stdout.take().ok_or("child has no stdout")?;
     let stderr = child.stderr.take();
@@ -1271,10 +1317,12 @@ fn run_child(
     }
     *slot.lock().unwrap() = Some(child);
 
-    let deadline = Instant::now() + timeout;
+    let mut deadline = Instant::now() + timeout;
     let exit = loop {
         while let Ok(line) = rx.try_recv() {
-            on_line(&line);
+            if let Some(more) = on_line(&line) {
+                deadline = Instant::now() + more;
+            }
         }
         // try_wait collects the child itself when it reports one has exited
         let exited = slot.lock().unwrap().as_mut().and_then(|c| c.try_wait().ok().flatten());
@@ -1295,9 +1343,10 @@ fn run_child(
         }
     }
     // whatever was still in the pipe; the reader hangs up at EOF, which is
-    // what ends this loop
+    // what ends this loop. Nothing here can buy time any more — the child has
+    // already exited or been killed — so the answer is read and dropped.
     while let Ok(line) = rx.recv_timeout(DRAIN_GRACE) {
-        on_line(&line);
+        let _ = on_line(&line);
     }
     let stderr = erx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     Ok(Run {
@@ -1411,9 +1460,18 @@ fn worker(shared: Arc<Shared>, app: tauri::AppHandle) {
         };
 
         let ctx = JobCtx { app: &app, shared: &shared, slot: &slot, cancelled: &cancelled };
-        match job.stage {
+        // A panicking job must not take the thread with it: this is the one
+        // worker there is, `worker_started` says it exists, and its death would
+        // leave a `running` entry nothing will clear — the queue dead for the
+        // rest of the session, silently. The memo itself is safe either way;
+        // its checkpoints are on disk, and the panic is worth no more than a
+        // failed stage was.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job.stage {
             Stage::Transcribe => transcribe_job(&ctx, &job.root, &job.id),
             Stage::Cleanup => cleanup_job(&ctx, &job.root, &job.id),
+        }));
+        if outcome.is_err() {
+            println!("[memos] a {:?} job panicked; the queue lives on", job.stage);
         }
         shared.state.lock().unwrap().running = None;
     }
@@ -1463,15 +1521,24 @@ fn transcribe_job(ctx: &JobCtx, root: &str, id: &str) {
         Ok(mut child) => {
             drop(child.stdin.take());
             run_child(ctx.slot, child, TRANSCRIBE_TIMEOUT, |line| {
-                let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else { return };
+                let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else { return None };
                 match event["event"].as_str() {
                     // Apple's models are OS-managed and usually already there;
-                    // when they aren't, the wait needs a reason attached
-                    Some("assets_installing") => notice(
-                        ctx.app,
-                        root,
-                        "downloading the system speech model — this happens once",
-                    ),
+                    // when they aren't, the wait needs a reason attached — and
+                    // a fresh clock: the helper starts its own ten minutes
+                    // *after* the download on purpose, and a parent counting
+                    // the download against that same budget would kill the one
+                    // first run that was going to make every later one work.
+                    // Ten minutes to fetch, ten more to transcribe.
+                    Some("assets_installing") => {
+                        notice(
+                            ctx.app,
+                            root,
+                            "downloading the system speech model — this happens once",
+                        );
+                        return Some(TRANSCRIBE_TIMEOUT);
+                    }
+                    Some("assets_installed") => return Some(TRANSCRIBE_TIMEOUT),
                     Some("error") => {
                         failure = Some(MemoError {
                             stage: "transcribe".into(),
@@ -1481,6 +1548,7 @@ fn transcribe_job(ctx: &JobCtx, root: &str, id: &str) {
                     }
                     _ => {}
                 }
+                None
             })
         }
         Err(e) => Err(e),
@@ -1549,7 +1617,23 @@ fn cleanup_job(ctx: &JobCtx, root: &str, id: &str) {
         Some(take) => dir.join(&take.raw),
         None => dir.join(format!("{id}.raw.txt")),
     };
-    let transcript = std::fs::read_to_string(&raw).unwrap_or_default();
+    // An unreadable transcript is not a silent one. Silence has consequences —
+    // it files a base memo as `(no speech detected)` and it *deletes* a
+    // follow-up's recording — and an I/O error must not be allowed to spend
+    // them. `unwrap_or_default` stood here once and would have.
+    let transcript = match std::fs::read_to_string(&raw) {
+        Ok(text) => text,
+        Err(e) => {
+            memo.status = CLEANUP_FAILED.to_string();
+            memo.error = Some(MemoError {
+                stage: "cleanup".into(),
+                code: "raw_unreadable".into(),
+                message: format!("could not read the transcript: {e}"),
+            });
+            ctx.publish(root, &dir, &memo);
+            return;
+        }
+    };
 
     // nobody said anything: there is nothing for an LLM to be concise about,
     // and the call would cost tokens to produce an empty document
@@ -1769,6 +1853,7 @@ fn run_claude(req: ClaudeRun) -> Result<String, String> {
     let run = run_child(req.slot, child, req.timeout, |line| {
         out.push_str(line);
         out.push('\n');
+        None
     })?;
 
     if run.timed_out {
@@ -2103,10 +2188,8 @@ fn scan(dir: &Path) -> BTreeMap<String, Artifacts> {
             // recording, so it can never be the reason a take exists.
             "version" => {}
             // m4a wins over caf: conversion succeeded and the caf is a leftover
-            _ if len > 0 => {
-                if art.audio.is_none() || name.ends_with(".m4a") {
-                    art.audio = Some(name.clone());
-                }
+            _ if len > 0 && (art.audio.is_none() || name.ends_with(".m4a")) => {
+                art.audio = Some(name.clone());
             }
             _ => {}
         }
@@ -2304,7 +2387,10 @@ fn reconcile_dir(dir: &Path, live: &HashSet<String>) -> Vec<MemoFile> {
                 }
                 memos.push(memo);
             }
-            None => remove_all(dir, &stem),
+            // only names this program minted are its to sweep — a foreign file
+            // that classified as an audioless stub is left exactly where it is
+            None if stem_is_ours(&stem) => remove_all(dir, &stem),
+            None => {}
         }
     }
     memos
@@ -2746,6 +2832,12 @@ impl RecordReader {
     }
 
     fn stopped(&self, event: &serde_json::Value) {
+        // the same disown guard as `cancelled`, for the same race: a delete
+        // that landed between the stop and this event already took the files,
+        // and writing the memo back would raise it from the dead
+        if self.disowned() {
+            return;
+        }
         let Some(mut memo) = load_memo(&self.dir, &self.id) else { return };
         let audio = event["audio"]
             .as_str()
@@ -3056,6 +3148,17 @@ mod tests {
         // a stem already taken is not handed out again
         write(&dir, &format!("{stem}.json"), "{}");
         assert_ne!(new_stem(&dir), stem);
+        // two stems minted in the same clock tick still differ — the counter's
+        // whole job
+        assert_ne!(hex4(), hex4());
+
+        // what the sweep recognises as a name of ours: exactly what new_stem
+        // mints, and none of the things a person would call their own files
+        assert!(stem_is_ours(&stem));
+        assert!(stem_is_ours("2026-08-13-1432-ab12"));
+        for foreign in ["notes", "stub-empty", "2026-08-13-1432-ab1", "2026-08-13-1432-ab123", "aaaa-bb-cc-ddee-ffff"] {
+            assert!(!stem_is_ours(foreign), "{foreign} is not a minted name");
+        }
 
         // ids come back over IPC and become filenames, so retry and delete
         // check them rather than believing them
@@ -3331,10 +3434,16 @@ Here are the terms I corrected:
         write(&dir, "crash-clean.raw.txt", "a transcript long enough to count");
         save(&memo("crash-clean", CLEANING));
 
-        // a recording that captured nothing, and a json with no files at all
-        save(&memo("stub-empty", RECORDING));
-        write(&dir, "stub-empty.caf", "");
-        save(&memo("stub-alone", RECORDED));
+        // A recording that captured nothing, and a json with no files at all.
+        // Both wear the minted shape, because the sweep now checks: only names
+        // this program invented are its to delete.
+        save(&memo("2026-01-02-0930-aaaa", RECORDING));
+        write(&dir, "2026-01-02-0930-aaaa.caf", "");
+        save(&memo("2026-01-02-0930-bbbb", RECORDED));
+
+        // and the same audioless shape under a name that is somebody's, not
+        // ours — dropped into the directory by hand, and not ours to sweep
+        write(&dir, "notes.md", "# a person's notes, not a memo\n");
 
         // corrupt json, and a `.md` deleted by hand afterwards
         audio("corrupt");
@@ -3404,9 +3513,11 @@ Here are the terms I corrected:
         assert_eq!(status("crash-transcribe"), Some(RECORDED));
         assert_eq!(status("crash-clean"), Some(TRANSCRIBED));
 
-        assert_eq!(status("stub-empty"), None, "a recording of nothing is not a memo");
-        assert!(!dir.join("stub-empty.json").exists(), "and its files go with it");
-        assert_eq!(status("stub-alone"), None);
+        assert_eq!(status("2026-01-02-0930-aaaa"), None, "a recording of nothing is not a memo");
+        assert!(!dir.join("2026-01-02-0930-aaaa.json").exists(), "and its files go with it");
+        assert_eq!(status("2026-01-02-0930-bbbb"), None);
+        assert_eq!(status("notes"), None, "a foreign file is nobody's memo");
+        assert!(dir.join("notes.md").exists(), "and nobody's to sweep");
 
         assert_eq!(status("corrupt"), Some(TRANSCRIBED), "rebuilt from the files");
         assert_eq!(status("demote"), Some(TRANSCRIBED), "ready is a claim the md has to back");
@@ -3640,11 +3751,12 @@ Here are the terms I corrected:
         write(&dir, "stale-version.2.md", "# A document that outlived its take\n\nbody");
         save(&memo("stale-version", READY));
 
-        // takes with no memo left to belong to are not a memo of their own
-        save(&memo("gone", READY));
-        audio("gone.2");
-        raw("gone.2");
-        write(&dir, "gone.1.md", "# A document with no memo\n\nbody");
+        // takes with no memo left to belong to are not a memo of their own —
+        // under the minted shape, since a sweep only touches names it minted
+        save(&memo("2026-01-03-1200-dddd", READY));
+        audio("2026-01-03-1200-dddd.2");
+        raw("2026-01-03-1200-dddd.2");
+        write(&dir, "2026-01-03-1200-dddd.1.md", "# A document with no memo\n\nbody");
 
         let found: BTreeMap<String, MemoFile> = reconcile_dir(&dir, &none)
             .into_iter()
@@ -3698,10 +3810,13 @@ Here are the terms I corrected:
         assert_eq!(takes("stale-version"), Some(0), "a document never spawns the take it names");
         assert!(dir.join("stale-version.2.md").exists(), "and is left exactly where it is");
 
-        assert_eq!(status("gone"), None);
-        assert!(!dir.join("gone.2.m4a").exists(), "and the orphaned takes go too");
-        assert!(!dir.join("gone.2.raw.txt").exists());
-        assert!(!dir.join("gone.1.md").exists(), "with the documents nobody can reach any more");
+        assert_eq!(status("2026-01-03-1200-dddd"), None);
+        assert!(!dir.join("2026-01-03-1200-dddd.2.m4a").exists(), "and the orphaned takes go too");
+        assert!(!dir.join("2026-01-03-1200-dddd.2.raw.txt").exists());
+        assert!(
+            !dir.join("2026-01-03-1200-dddd.1.md").exists(),
+            "with the documents nobody can reach any more"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

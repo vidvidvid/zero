@@ -26,3 +26,4 @@
 - swiftc — "Swift C", "Swift see"; the compiler, not the language
 - macOS — misheard as: macro I said (suggested)
 - Dynamic Island — misheard as: dynamic island (suggested)
+- VS Code — misheard as: views code (suggested)

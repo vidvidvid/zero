@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { api, type Memo } from "../lib/api";
 import {
   clock,
@@ -50,6 +50,17 @@ interface Thread {
 }
 
 const readText = (path: string) => api.readFile(path).catch(() => null);
+
+/**
+ * One document turn, parsed once per text rather than once per render. The
+ * thread re-renders on every whole second of playback and every half-second of
+ * a recording's timer, and re-walking every turn's markdown each time to build
+ * the same elements was the largest cost in it — the parser is cheap, but not
+ * four-times-a-second-for-every-turn cheap.
+ */
+const MemoDoc = memo(function MemoDoc({ text }: { text: string }) {
+  return <div className="memo-turn doc">{miniMarkdown(text)}</div>;
+});
 
 /**
  * Everything about listening to a take, on one line under its header: the
@@ -188,30 +199,49 @@ export function MemoThread({
   // read yet look identical on screen, and only one of them is worth saying
   // something about
   const [thread, setThread] = useState<Thread | null>(null);
-  const visibleRef = useRef(visible);
-  visibleRef.current = visible;
 
   useEffect(() => {
     let disposed = false;
+    // Loads overlap — one per memo-update, and the pipeline publishes in
+    // bursts — so each one takes a number, and only the newest is believed:
+    // a slow read from before a take landed must not overwrite the read that
+    // saw it land.
+    let gen = 0;
     const load = async () => {
+      const g = ++gen;
       const next = await readThread(root, id, takes, answered);
-      if (!disposed) setThread(next);
+      if (!disposed && g === gen) setThread(next);
     };
     void load();
     // every step of the pipeline publishes, and every step is a file landing —
     // the transcript of a take, the document it merged into
     const stop = subscribeMemos(root, () => void load());
-    // The document is also a file in the editor, and Claude Code edits files
-    // while we watch. Same 2s poll as FileView, same guards: a hidden window
-    // and a tab you aren't looking at read nothing. Only the current `.md` is
-    // polled — a snapshot is written once and never again, so re-reading the
-    // whole thread on a timer would be IPC spent on files that cannot change.
+    return () => {
+      disposed = true;
+      stop();
+    };
+    // `takes` adds a turn, `answered` moves the document from one to the next,
+    // and `present` is the memo leaving the list — a delete emits no update of
+    // its own, so this is what notices one
+  }, [root, id, takes, answered, present]);
+
+  // The document is also a file in the editor, and Claude Code edits files
+  // while we watch. Same 2s poll as FileView, same guards — but the interval
+  // itself only exists while the tab is on screen, so a hidden thread costs
+  // nothing at all rather than a no-op tick. Only the current `.md` is polled:
+  // a snapshot is written once and never again, so re-reading the whole thread
+  // on a timer would be IPC spent on files that cannot change.
+  useEffect(() => {
+    if (!visible || answered < 1) return;
+    let disposed = false;
     const iv = window.setInterval(async () => {
-      if (answered < 1 || document.hidden || !visibleRef.current) return;
+      if (document.hidden) return;
       const md = await readText(memoPaths(root, id).md);
       if (disposed) return;
       setThread((prev) => {
-        if (!prev || prev.docs[answered - 1] === md) return prev;
+        // a read that failed is a bad moment, not a blank document — the last
+        // turn must not flash empty for two seconds over one
+        if (!prev || md === null || prev.docs[answered - 1] === md) return prev;
         const docs = [...prev.docs];
         docs[answered - 1] = md;
         return { ...prev, docs };
@@ -219,13 +249,9 @@ export function MemoThread({
     }, 2000);
     return () => {
       disposed = true;
-      stop();
       window.clearInterval(iv);
     };
-    // `takes` adds a turn, `answered` moves the document from one to the next,
-    // and `present` is the memo leaving the list — a delete emits no update of
-    // its own, so this is what notices one
-  }, [root, id, takes, answered, present]);
+  }, [visible, root, id, answered]);
 
   // The elapsed timer, derived from when this recording started rather than
   // counted from a mount — the panel's rule, for the panel's reason: this
@@ -295,10 +321,14 @@ export function MemoThread({
     };
   }, []);
 
+  // which call to `hear` is the newest — a read or a play() that settles after
+  // another take has taken the speaker must not speak for it
+  const hearGen = useRef(0);
   const hear = useCallback(
     async (k: number) => {
       const el = audioRef.current;
       if (!el) return;
+      const gen = ++hearGen.current;
       // The take already in the speaker is a pause and a resume rather than a
       // stop and a reload: the playhead stays where the ear left it, the bars
       // stay lit up to it, and the clock goes on saying where in the take you
@@ -319,24 +349,45 @@ export function MemoThread({
         return;
       }
       el.pause();
+      let buf: ArrayBuffer;
       try {
-        const buf = await api.readBinary(memoTakeAudio(root, id, k));
-        const next = URL.createObjectURL(new Blob([buf], { type: "audio/mp4" }));
-        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-        urlRef.current = next;
-        el.src = next;
-        setAt(0);
-        setLen(0);
-        setStep(0);
-        await el.play();
-        setHeard(k);
-        setSounding(true);
+        buf = await api.readBinary(memoTakeAudio(root, id, k));
       } catch {
-        // no such file, or nothing here can decode it: the button was a promise
-        // this take can't keep, so it stops making it
-        setSilent((prev) => (prev.includes(k) ? prev : [...prev, k]));
-        setHeard(null);
-        setSounding(false);
+        // No file, which is the one verdict that outlives the click: the
+        // button was a promise this take can't keep, so it stops making it.
+        // Only the read earns that — the old shape caught the play() below in
+        // the same net, and a take whose playback was merely interrupted by
+        // clicking the next one lost its play row for the session.
+        if (gen === hearGen.current) {
+          setSilent((prev) => (prev.includes(k) ? prev : [...prev, k]));
+          setHeard(null);
+          setSounding(false);
+        }
+        return;
+      }
+      // a newer click took the speaker while the bytes were in flight; the
+      // element is theirs now
+      if (gen !== hearGen.current) return;
+      const next = URL.createObjectURL(new Blob([buf], { type: "audio/mp4" }));
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = next;
+      el.src = next;
+      setAt(0);
+      setLen(0);
+      setStep(0);
+      try {
+        await el.play();
+        if (gen === hearGen.current) {
+          setHeard(k);
+          setSounding(true);
+        }
+      } catch {
+        // an interrupted or refused play is a moment, not a verdict — the take
+        // stays offered
+        if (gen === hearGen.current) {
+          setHeard(null);
+          setSounding(false);
+        }
       }
     },
     [heard, id, root]
@@ -492,7 +543,7 @@ export function MemoThread({
                     <div className="memo-said">{said}</div>
                   </div>
                 )}
-                {answer && <div className="memo-turn doc">{miniMarkdown(answer)}</div>}
+                {answer && <MemoDoc text={answer} />}
               </div>
             );
           })}

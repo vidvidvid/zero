@@ -41,6 +41,8 @@ func emit(_ event: [String: Any]) {
         var sent = 0
         while sent < raw.count {
             let n = write(1, base.advanced(by: sent), raw.count - sent)
+            if n < 0 && errno == EINTR { continue }  // a signal landed, not an answer —
+            // giving up here would leave half a line for the next event to finish
             if n <= 0 { break }  // parent's gone; the work still finishes
             sent += n
         }
@@ -487,32 +489,47 @@ final class Recorder: @unchecked Sendable {
     /// is told so.
     private func encode(caf: URL) -> URL? {
         let m4a = Recorder.m4aURL(for: caf)
+        // Encoded under a scratch name and renamed only after the writer has
+        // closed. AVAudioFile writes the m4a's header when it closes, so a
+        // crash mid-encode would otherwise leave a headerless file already
+        // wearing the name every reader prefers over the caf it was made from
+        // — an unplayable corpse shadowing a perfectly good recording. The
+        // rename is the statement that the file is whole.
+        let part = m4a.appendingPathExtension("part")
         do {
+            try? FileManager.default.removeItem(at: part)
             let source = try AVAudioFile(forReading: caf)
             let format = source.processingFormat
-            let out = try AVAudioFile(
-                forWriting: m4a,
-                settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: format.sampleRate,
-                    AVNumberOfChannelsKey: format.channelCount,
-                    AVEncoderBitRateKey: 64_000,
-                ])
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16384) else {
-                throw RecorderError.disk("could not allocate a conversion buffer")
+            // an autoreleasepool so the writer is provably deallocated — and
+            // its header provably on disk — before the rename that publishes it
+            try autoreleasepool {
+                let out = try AVAudioFile(
+                    forWriting: part,
+                    settings: [
+                        AVFormatIDKey: kAudioFormatMPEG4AAC,
+                        AVSampleRateKey: format.sampleRate,
+                        AVNumberOfChannelsKey: format.channelCount,
+                        AVEncoderBitRateKey: 64_000,
+                    ])
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16384) else {
+                    throw RecorderError.disk("could not allocate a conversion buffer")
+                }
+                // Bounded by framePosition, not by a short read: AVAudioFile throws
+                // when asked to read at the end of a file rather than handing back
+                // zero frames, so a `while true` here would turn every successful
+                // conversion into a failure on its last lap.
+                while source.framePosition < source.length {
+                    try source.read(into: buffer)
+                    if buffer.frameLength == 0 { break }
+                    try out.write(from: buffer)
+                }
             }
-            // Bounded by framePosition, not by a short read: AVAudioFile throws
-            // when asked to read at the end of a file rather than handing back
-            // zero frames, so a `while true` here would turn every successful
-            // conversion into a failure on its last lap.
-            while source.framePosition < source.length {
-                try source.read(into: buffer)
-                if buffer.frameLength == 0 { break }
-                try out.write(from: buffer)
-            }
+            try? FileManager.default.removeItem(at: m4a)
+            try FileManager.default.moveItem(at: part, to: m4a)
             return m4a
         } catch {
             note("m4a conversion failed, keeping the caf: \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: part)
             try? FileManager.default.removeItem(at: m4a)
             return nil
         }
@@ -693,6 +710,9 @@ func transcribe(_ req: [String: Any]) async {
                 "the \(tag) speech model isn't installed and couldn't be downloaded: \(error.localizedDescription)"
             )
         }
+        // the other end of that wait — the parent gave the download a clock of
+        // its own, and this is what hands the transcription a fresh one
+        emit(["event": "assets_installed"])
     }
 
     // The clock starts after the download, not before: a first-run model fetch on

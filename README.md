@@ -34,9 +34,9 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 | Memory, one project | **354 MB** | 687 MB | 1.9× |
 | Idle CPU | **1.10%** of a core | 2.66% | |
 
-Measured before voice memos landed, which add a ~1 MB compiled Swift helper and
-a fifth file to the bundle. The numbers above will be re-measured rather than
-adjusted on paper.
+Measured before voice memos landed, which add a ~175 KB compiled Swift helper
+and a fifth file to the bundle. The numbers above will be re-measured rather
+than adjusted on paper.
 
 Memory is `phys_footprint` — what Activity Monitor shows. Summed RSS would
 have said 256 MB against 2,057 MB, but it counts a shared framework page once
