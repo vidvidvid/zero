@@ -21,6 +21,7 @@ fn debug_log(msg: String) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_liquid_glass::init())
         // in-app updates. The updater fetches and verifies; `process` is what
         // relaunches afterwards, and the two are separate plugins because
         // relaunching is the part that costs something here — see the restart

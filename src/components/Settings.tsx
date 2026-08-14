@@ -3,12 +3,13 @@ import { EDITOR_THEME_CHOICES } from "../lib/cmTheme";
 import { updateSettings, useSettings } from "../lib/settings";
 
 /**
- * App settings, ⌘, — one overlay for the whole app, not per project. There is
- * exactly one setting so far; the shape is a labelled group per setting so the
- * next one is an append, not a redesign.
+ * App settings, ⌘, — one overlay for the whole app, not per project. The
+ * shape is a labelled group per setting so the next one is an append, not a
+ * redesign.
  *
- * Picking a theme applies it on the spot: every open editor follows the
- * settings store live, so the code behind the overlay is the preview.
+ * Picking anything applies it on the spot: every open editor follows the
+ * settings store live, and the window itself re-glasses under the overlay,
+ * so the app behind the overlay is the preview.
  */
 export function Settings({ onClose }: { onClose: () => void }) {
   const settings = useSettings();
@@ -47,6 +48,27 @@ export function Settings({ onClose }: { onClose: () => void }) {
                     <i key={color} style={{ background: color }} />
                   ))}
                 </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="settings-group">
+          <div className="settings-label">window</div>
+          {(
+            [
+              { id: true, label: "liquid glass" },
+              { id: false, label: "solid" },
+            ] as const
+          ).map((c) => {
+            const on = settings.glass === c.id;
+            return (
+              <button
+                key={c.label}
+                className={`settings-choice ${on ? "on" : ""}`}
+                onClick={() => updateSettings({ glass: c.id })}
+              >
+                <span className="settings-dot" aria-hidden />
+                <span className="settings-choice-name">{c.label}</span>
               </button>
             );
           })}

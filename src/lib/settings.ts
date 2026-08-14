@@ -15,10 +15,14 @@ export type EditorTheme = (typeof EDITOR_THEMES)[number];
 
 export interface Settings {
   editorTheme: EditorTheme;
+  /** Liquid Glass behind every surface (macOS 26+). Off means solid — the
+   *  app exactly as it looks where glass doesn't exist. */
+  glass: boolean;
 }
 
 const DEFAULTS: Settings = {
   editorTheme: "dark-modern",
+  glass: true,
 };
 
 // The stored blob survives across versions of zero, so anything unrecognised
@@ -35,6 +39,7 @@ function parse(raw: string | null): Settings {
     editorTheme: EDITOR_THEMES.includes(blob.editorTheme as EditorTheme)
       ? (blob.editorTheme as EditorTheme)
       : DEFAULTS.editorTheme,
+    glass: typeof blob.glass === "boolean" ? blob.glass : DEFAULTS.glass,
   };
 }
 

@@ -207,6 +207,42 @@ load-bearing:
 - **Show it in `npm run tauri dev` first**, and wait for an explicit go-ahead
   before building, installing or pushing. Praise for the plan isn't it.
 
+## Two zeros run at once — verify which one you're looking at
+
+While `npm run tauri dev` is up there are two running copies: the installed
+`/Applications/zero.app` (the last release) and `target/debug/zero` (the work).
+Same bundle id, same window size, pixel-identical chrome, and they share the
+session file, so both show the same project and tabs. A screenshot of one is
+indistinguishable from the other, and agents have now verified "the dev build"
+against the installed app more than once — including driving the installed
+app's UI by mistake.
+
+So: **never screenshot, click or type at a zero window without first proving
+the dev copy owns it.** The z-order is checkable without accessibility access
+— `CGWindowListCopyWindowInfo([.optionOnScreenOnly], …)` returns windows front
+to back, so the first zero-owned entry is the window a click would land on:
+
+```sh
+DEV=$(pgrep -f target/debug/zero)
+TOP=$(swift - <<'EOF'
+import CoreGraphics
+let wins = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
+for w in wins where (w["kCGWindowOwnerName"] as? String) == "zero"
+    && (w["kCGWindowLayer"] as? Int) == 0 {
+    print(w["kCGWindowOwnerPID"] as? Int ?? 0); break
+}
+EOF
+)
+[ "$TOP" = "$DEV" ] && echo "dev window on top" || echo "STOP: installed app on top"
+```
+
+If the installed app is on top, stop. `osascript`/System Events can't front the
+dev window (no assistive access), so ask Vid to click the dev window forward —
+never drive whatever happens to be on top, and never quit the installed app to
+get it out of the way. A feature visible in one copy and not the other is
+another usable tell (the settings overlay is the easy place to look), but the
+pid check is the one that can't be fooled.
+
 ## Numbers in the docs are measured, not estimated
 
 README and BENCHMARKS quote bundle sizes, file counts and timings. If a change

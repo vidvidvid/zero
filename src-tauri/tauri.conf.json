@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "zero",
@@ -19,7 +20,8 @@
         "minHeight": 500,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "backgroundColor": "#181818"
+        "transparent": true,
+        "theme": "Dark"
       }
     ],
     "security": {

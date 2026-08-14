@@ -138,6 +138,8 @@ export interface Memo {
 }
 
 export const api = {
+  /** print to the stdout of `tauri dev` — the webview console isn't forwarded */
+  debugLog: (msg: string) => invoke<void>("debug_log", { msg }),
   claudeStatus: () => invoke<ClaudeStat[]>("claude_status"),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
   addRecent: (path: string) => invoke<void>("add_recent", { path }),

@@ -9,6 +9,7 @@
     "dialog:default",
     "core:window:allow-start-dragging",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "liquid-glass:default"
   ]
 }
