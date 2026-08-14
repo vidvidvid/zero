@@ -48,6 +48,43 @@ body {
   cursor: default;
 }
 
+/* ===== liquid glass (macOS 26+) =====
+   App.tsx adds `glass` to <html> only after a real NSGlassEffectView is in
+   place behind the webview. Glass spans the whole window; every surface shows
+   it through a translucent version of the color it always had. The alphas are
+   the readability dial: glass is behind everything, but zero's theme is dark
+   with no light mode, so the scrim has to carry legibility over a white
+   desktop by itself. */
+
+html.glass {
+  --bg: rgba(31, 31, 31, 0.66);
+  --bg-panel: rgba(24, 24, 24, 0.58);
+}
+
+html.glass,
+html.glass body {
+  background: transparent;
+}
+
+/* these two had no background of their own — the body's showed through */
+html.glass .main-col,
+html.glass .launcher {
+  background: var(--bg);
+}
+
+/* the editor and the terminal paint themselves from JS themes, opaquely and
+   in whatever color the chosen syntax theme says — under glass they go clear
+   and the pane behind them (.main-col / .term-panel) carries the one scrim
+   layer, so every theme glasses the same way */
+html.glass .cm-editor,
+html.glass .cm-gutters,
+html.glass .term-abs,
+html.glass .term-pane .xterm-viewport,
+html.glass .term-pane .xterm-screen,
+html.glass .term-pane .xterm canvas {
+  background: transparent !important;
+}
+
 /* WKWebView honours only the prefixed property on these — without it a drag
    along a tab strip selects the labels as it passes them. Scoped to the
    strips: the editor and the terminal need real selection. */

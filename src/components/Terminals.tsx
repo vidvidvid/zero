@@ -439,8 +439,14 @@ function TerminalPane({
     const el = hostRef.current;
     if (!el) return;
 
+    // under glass the panel behind the terminal carries the scrim, so the
+    // terminal itself must not paint. Read once at construction — if this
+    // pane wins the race against the glass IPC and bakes in the opaque
+    // theme, the html.glass !important override in App.css still clears it
+    const glass = document.documentElement.classList.contains("glass");
     const term = new Terminal({
-      theme: TERM_THEME,
+      theme: glass ? { ...TERM_THEME, background: "#18181800" } : TERM_THEME,
+      allowTransparency: glass,
       fontFamily: '"SF Mono", "Menlo", "Monaco", monospace',
       fontSize: 12.5,
       lineHeight: 1.25,

@@ -9,6 +9,8 @@ import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { moveItem, movedIndex } from "./lib/tabReorder";
 import { restoreSession, saveProjects } from "./lib/session";
+import { useSettings } from "./lib/settings";
+import { isGlassSupported, setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
 import "./App.css";
 
 export interface Project {
@@ -19,6 +21,32 @@ export interface Project {
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
+
+  // Liquid Glass sits behind the whole webview, not behind any one element —
+  // the CSS under `html.glass` turns every surface's background translucent
+  // so the one pane shows through everywhere. The class and the pane move
+  // together, in the order that never leaves a see-through frame: pane first
+  // when enabling, class off first when disabling. On macOS < 26 (and
+  // everywhere else) `isGlassSupported` says no and the setting is inert.
+  const { glass } = useSettings();
+  useEffect(() => {
+    let live = true;
+    isGlassSupported()
+      .then(async (ok) => {
+        if (!ok || !live) return;
+        if (glass) {
+          await setLiquidGlassEffect({ variant: GlassMaterialVariant.Regular });
+          if (live) document.documentElement.classList.add("glass");
+        } else {
+          document.documentElement.classList.remove("glass");
+          await setLiquidGlassEffect({ enabled: false });
+        }
+      })
+      .catch((e) => api.debugLog(`[glass] failed: ${e}`).catch(() => {}));
+    return () => {
+      live = false;
+    };
+  }, [glass]);
 
   // Nothing renders until this has settled, and the ordering is the reason.
   // The reap kills every shell the Rust side is still holding, and React runs
