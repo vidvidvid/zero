@@ -27,6 +27,7 @@ Needs rsvg-convert, ImageMagick and iconutil:  brew install librsvg imagemagick
 import json
 import os
 import subprocess
+import sys
 
 W = 1024                      # the canvas every size is resampled from
 BOX, INSET = 824, 100         # the square the artwork occupies, and its margin
@@ -132,6 +133,27 @@ def layer_svg():
 </svg>"""
 
 
+def web_svg():
+    """the mark alone, cropped to itself, for the launcher to wear.
+
+    Cropped rather than centred on the full canvas so the UI can size it by
+    its own height without carrying most of a square of air around with it,
+    and painted flat black because the launcher uses it as a CSS mask — only
+    the alpha is read, and the colour comes from the theme. Same path as the
+    icons, from the same numbers: the mark is drawn once, here.
+    """
+    k = W / BOX
+    r = lambda v: round(v * k)
+    rx, ry, cy = r(RX), r(RY), W / 2 - r(RISE)
+    x, y, w, h = CX - rx, cy - ry, 2 * rx, 2 * ry
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+        f'viewBox="{x} {y} {w} {h}">'
+        f"{mark(rx, ry, r(SIDE), r(TOP), cy, fill='#000')}"
+        "</svg>\n"
+    )
+
+
 def render(svg, out, size=W):
     """rsvg writes no metadata, so these are byte-stable across runs"""
     src = out + ".svg"
@@ -144,8 +166,21 @@ def run(*args):
     subprocess.run(args, check=True, cwd=HERE)
 
 
+WEB_MARK = os.path.join(HERE, "..", "..", "src", "assets", "mark.svg")
+
+
 def main():
     os.chdir(HERE)
+
+    # first, and on its own, because it needs none of the tools below: the
+    # launcher's copy of the mark. `python3 zero-icon.py mark` stops here,
+    # which is the whole of what a machine without rsvg and ImageMagick can
+    # redraw — and all the frontend ever needs.
+    open(WEB_MARK, "w").write(web_svg())
+    print("drew src/assets/mark.svg")
+    if len(sys.argv) > 1 and sys.argv[1] == "mark":
+        return
+
     render(legacy_svg(), "flat.png")
 
     # macOS icons carry their own shadow — the Dock doesn't add one. Measured

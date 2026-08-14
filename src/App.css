@@ -92,6 +92,19 @@ kbd {
   gap: 24px;
 }
 
+/* the app's own mark, drawn by src-tauri/icons/zero-icon.py and worn as a
+   mask so the fill is the theme's rather than the icon's white. Sized off the
+   height, since the glyph is taller than it is wide; the width follows from
+   the svg's own aspect. */
+.launcher-mark {
+  height: 46px;
+  aspect-ratio: 562 / 770;
+  margin: 0 auto -8px;
+  background: var(--text-dim);
+  -webkit-mask: url("./assets/mark.svg") center / contain no-repeat;
+  mask: url("./assets/mark.svg") center / contain no-repeat;
+}
+
 .launcher-logo {
   font-family: var(--font-mono);
   font-size: 28px;
@@ -105,7 +118,7 @@ kbd {
 /* pulled up under the wordmark, out of the 24px the inner column puts between
    everything else — the two read as one mark rather than as two rows */
 .launcher-version {
-  margin-top: -20px;
+  margin-top: -16px;
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.18em;
