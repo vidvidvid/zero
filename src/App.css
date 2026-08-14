@@ -102,6 +102,18 @@ kbd {
   margin-left: 0.35em;
 }
 
+/* pulled up under the wordmark, out of the 24px the inner column puts between
+   everything else — the two read as one mark rather than as two rows */
+.launcher-version {
+  margin-top: -20px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-align: center;
+  margin-left: 0.18em;
+  color: var(--text-faint);
+}
+
 .launcher-recents {
   display: flex;
   flex-direction: column;
@@ -1550,6 +1562,15 @@ body.dragging-row {
 
 .settings-group {
   padding: 6px 0 8px;
+}
+
+/* a footer, mirroring the title's rule at the other end of the box */
+.settings-version {
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
 }
 
 .settings-label {

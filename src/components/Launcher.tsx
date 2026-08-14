@@ -18,6 +18,10 @@ export function Launcher({
     <div className="launcher" data-tauri-drag-region>
       <div className="launcher-inner">
         <h1 className="launcher-logo">zero</h1>
+        {/* under the wordmark rather than in a corner: it reads as part of the
+            mark, which is the one place a version can sit without ever being
+            in the way of something */}
+        <div className="launcher-version">{__APP_VERSION__}</div>
         <div className="launcher-recents">
           {recents.map((r) => (
             <button key={r.path} className="launcher-item" onClick={() => onOpen(r.path)}>

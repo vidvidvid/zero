@@ -51,6 +51,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
             );
           })}
         </div>
+        {/* the other half of where a version belongs: the launcher is where
+            you see it, this is where you go to look it up */}
+        <div className="settings-version">zero {__APP_VERSION__}</div>
       </div>
     </div>
   );
