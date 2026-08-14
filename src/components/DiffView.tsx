@@ -7,15 +7,28 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
+import { diffRuler } from "../lib/scrollRuler";
 import { pokeGit } from "../lib/gitStatus";
 
+/**
+ * One of git's two diffs, and which one is the whole point of `staged`.
+ *
+ * A row under "changes" is the working tree against the *index*, not against
+ * HEAD: stage half a file, edit it again, and a diff against HEAD would show
+ * the staged half over again as though it were still to do. A row under
+ * "staged" is the other half — HEAD against the index, which is exactly what
+ * committing now would record, and read-only because the index isn't a file
+ * you can type into.
+ */
 export function DiffView({
   worktree,
   relPath,
+  staged = false,
   visible,
 }: {
   worktree: string;
   relPath: string;
+  staged?: boolean;
   visible: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -35,11 +48,13 @@ export function DiffView({
     const langLater = lazyLangFor(relPath);
 
     const load = async () => {
-      const [head, current] = await Promise.all([
-        api.headFile(worktree, relPath),
-        api.readFile(absPath).catch(() => ""), // deleted files
+      const [a, b] = await Promise.all([
+        staged ? api.headFile(worktree, relPath) : api.indexFile(worktree, relPath),
+        staged
+          ? api.indexFile(worktree, relPath)
+          : api.readFile(absPath).catch(() => ""), // deleted files
       ]);
-      return { a: head, b: current };
+      return { a, b };
     };
 
     const save = (view: EditorView) => {
@@ -75,11 +90,16 @@ export function DiffView({
             basicSetup,
             EditorView.lineWrapping,
             editorTheme(),
+            diffRuler(),
             langB.of(langFor(relPath)),
-            EditorView.updateListener.of((u) => {
-              if (u.docChanged) dirtyRef.current = true;
-            }),
-            keymap.of([indentWithTab, { key: "Mod-s", run: save }]),
+            ...(staged
+              ? [EditorView.editable.of(false), EditorState.readOnly.of(true)]
+              : [
+                  EditorView.updateListener.of((u) => {
+                    if (u.docChanged) dirtyRef.current = true;
+                  }),
+                  keymap.of([indentWithTab, { key: "Mod-s", run: save }]),
+                ]),
           ],
         },
         gutter: true,
@@ -121,7 +141,7 @@ export function DiffView({
       mergeRef.current?.destroy();
       mergeRef.current = null;
     };
-  }, [worktree, relPath]);
+  }, [worktree, relPath, staged]);
 
   return <div className="cm-host" ref={hostRef} />;
 }

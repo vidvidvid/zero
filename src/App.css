@@ -407,6 +407,35 @@ body.dragging-tab .editor-tab * {
   color: var(--text);
 }
 
+/* pinned like the gear and for the same reason — out of the flex row, so its
+   width never joins the spacer math and pulls the tabs off the window axis.
+   Sits to the gear's left, and since it only exists while an update is
+   waiting, nothing shifts when it appears or goes. */
+.titlebar-update {
+  position: absolute;
+  right: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-hover, rgb(255 255 255 / 6%));
+  white-space: nowrap;
+}
+
+.titlebar-update:hover {
+  color: var(--text);
+}
+
+/* armed: the next click restarts, so it stops looking like the rest of the
+   bar. Amber rather than red — this is a choice being confirmed, not damage
+   being reported */
+.titlebar-update.armed {
+  color: #1c1c1c;
+  background: #e2b341;
+}
+
 /* ===== workspace ===== */
 
 .workspaces {
@@ -739,6 +768,17 @@ body.dragging-row {
 }
 
 .wt-section:hover button {
+  opacity: 1;
+}
+
+/* stage-all / unstage-all is the one action here you go looking for, so it
+   doesn't wait for a hover to exist — a button you have to find by sweeping
+   the mouse over the header is a button that isn't there */
+.wt-section button.wt-section-all {
+  opacity: 0.6;
+}
+
+.wt-section:hover button.wt-section-all {
   opacity: 1;
 }
 
@@ -2567,6 +2607,10 @@ body.dragging-row {
   font-size: 11px;
 }
 
+.editor-tab-diff.staged {
+  color: var(--green);
+}
+
 .editor-tab-close {
   height: 100%;
   padding: 0 8px 0 4px;
@@ -2781,24 +2825,27 @@ body.dragging-row {
 }
 
 /* the same marks against the whole file, in the lane beside the scrollbar:
-   the gutter tells you about the screen, this tells you about the file */
+   the gutter tells you about the screen, this tells you about the file.
+   Click or drag it to go there — the lane is 10px so there's something to hit,
+   and it stops short of the 8px scrollbar so the thumb still drags. */
 .cm-host .cm-changeRuler {
   position: absolute;
   top: 0;
   bottom: 0;
   right: 8px;
-  width: 4px;
-  pointer-events: none;
+  width: 10px;
+  cursor: pointer;
   z-index: 3;
 }
 
 .cm-host .cm-changeTick {
   position: absolute;
-  left: 0;
   right: 0;
+  width: 4px;
   min-height: 2px;
   border-radius: 1px;
   opacity: 0.85;
+  pointer-events: none;
 }
 
 .cm-host .cm-changeTick.cm-change-del {

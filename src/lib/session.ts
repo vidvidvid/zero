@@ -93,8 +93,14 @@ function validViews(v: unknown): View[] {
     const view = x as View;
     if (typeof view.key !== "string") return false;
     if (view.kind === "file") return typeof view.absPath === "string";
+    // `staged` may be absent — sessions predating it are working-tree diffs,
+    // which is what `undefined` already means
     if (view.kind === "diff")
-      return typeof view.worktree === "string" && typeof view.relPath === "string";
+      return (
+        typeof view.worktree === "string" &&
+        typeof view.relPath === "string" &&
+        (view.staged === undefined || typeof view.staged === "boolean")
+      );
     // a memo thread is an id and the project it was stored under; whether that
     // memo still exists is the thread's own business, and it says so quietly
     if (view.kind === "memo") return typeof view.id === "string";

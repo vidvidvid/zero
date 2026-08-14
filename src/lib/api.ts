@@ -158,6 +158,8 @@ export const api = {
   gitPush: (worktree: string) => invoke<string>("git_push", { worktree }),
   branchInfo: (worktree: string) => invoke<BranchInfo>("git_branch_info", { worktree }),
   headFile: (worktree: string, path: string) => invoke<string>("git_head_file", { worktree, path }),
+  /** the staged copy — the base a working-tree diff is measured against */
+  indexFile: (worktree: string, path: string) => invoke<string>("git_index_file", { worktree, path }),
   gitBaseline: (path: string) => invoke<Baseline>("git_baseline", { path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   projectFiles: (root: string) => invoke<string[]>("list_project_files", { root }),

@@ -11,7 +11,10 @@ import { useSearch } from "../lib/search";
 import { useMemos } from "../lib/memos";
 
 export type View =
-  | { kind: "diff"; key: string; worktree: string; relPath: string }
+  // `staged` picks which of git's two diffs this is: HEAD→index when set, and
+  // index→working tree when not. Optional because sessions written before it
+  // existed have no such field, and the working-tree diff is what they were.
+  | { kind: "diff"; key: string; worktree: string; relPath: string; staged?: boolean }
   | { kind: "file"; key: string; absPath: string; line?: number }
   | { kind: "new"; key: string; name: string }
   // A memo, opened as the thread it is rather than as the file it also is. No

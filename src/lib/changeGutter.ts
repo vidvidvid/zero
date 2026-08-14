@@ -1,11 +1,13 @@
 import { EditorView, GutterMarker, ViewPlugin, ViewUpdate, gutter } from "@codemirror/view";
 import { Extension, RangeSet, RangeSetBuilder, StateEffect, StateField, Text } from "@codemirror/state";
 import { Chunk } from "@codemirror/merge";
+import { Tick, scrollRuler } from "./scrollRuler";
 
 /**
  * VS Code's "dirty diff": a bar in the gutter against every line that differs
  * from the committed file, and the same marks again in a ruler down the right
- * edge so a change you've scrolled past is still findable.
+ * edge so a change you've scrolled past is still findable — and clickable, so
+ * finding it is one press rather than a scroll hunt. See scrollRuler.ts.
  *
  * The diff is against HEAD rather than the index, so staging a file doesn't
  * make its bars disappear — the changes panel goes on listing a staged file,
@@ -130,13 +132,6 @@ const changeGutterExt = gutter({
   markers: (view) => view.state.field(marks),
 });
 
-/** A run of changed lines, in the ruler's own fraction-of-the-document terms. */
-interface Tick {
-  kind: Kind;
-  top: number;
-  bottom: number;
-}
-
 /** Enough to map a file; past it the ruler is a solid block anyway and the
     only thing more ticks buy is DOM. */
 const MAX_TICKS = 400;
@@ -164,41 +159,8 @@ function ticks(view: EditorView): Tick[] {
   return out;
 }
 
-const ruler = ViewPlugin.fromClass(
-  class {
-    dom: HTMLElement;
-    constructor(readonly view: EditorView) {
-      this.dom = document.createElement("div");
-      this.dom.className = "cm-changeRuler";
-      // outside the scroller on purpose: it maps the whole document, so it
-      // must not move when the document does
-      view.dom.appendChild(this.dom);
-      this.draw();
-    }
-    update(u: ViewUpdate) {
-      if (
-        u.docChanged ||
-        u.geometryChanged ||
-        u.transactions.some((tr) => tr.effects.some((e) => e.is(setMarks)))
-      ) {
-        this.draw();
-      }
-    }
-    draw() {
-      const next = document.createDocumentFragment();
-      for (const t of ticks(this.view)) {
-        const el = document.createElement("div");
-        el.className = `cm-changeTick cm-change-${t.kind}`;
-        el.style.top = `${t.top * 100}%`;
-        el.style.height = `${(t.bottom - t.top) * 100}%`;
-        next.appendChild(el);
-      }
-      this.dom.replaceChildren(next);
-    }
-    destroy() {
-      this.dom.remove();
-    }
-  }
+const ruler = scrollRuler(ticks, (u) =>
+  u.transactions.some((tr) => tr.effects.some((e) => e.is(setMarks)))
 );
 
 export function changeGutter(): Extension {

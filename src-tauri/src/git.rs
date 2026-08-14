@@ -288,6 +288,20 @@ pub async fn git_head_file(worktree: String, path: String) -> String {
     run_git(&worktree, &["show", &format!("HEAD:{}", path)]).unwrap_or_default()
 }
 
+/// File content on the index side — what a commit right now would record.
+///
+/// This is the base a working-tree diff has to be measured against, not HEAD:
+/// once part of a file is staged, HEAD is two edits behind and the diff shows
+/// the staged hunks over again. For a file with nothing staged the index and
+/// HEAD hold the same bytes, so this is the right base either way.
+///
+/// Empty for a path the index doesn't have — never added, or staged as a
+/// deletion — which is the same all-added diff a new file gets.
+#[tauri::command]
+pub async fn git_index_file(worktree: String, path: String) -> String {
+    run_git(&worktree, &["show", &format!(":{}", path)]).unwrap_or_default()
+}
+
 #[derive(Serialize)]
 pub struct Baseline {
     /// the file as it was committed

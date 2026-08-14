@@ -141,7 +141,13 @@ export function EditorPane({
             }}
           >
             <button className="editor-tab-name" onClick={() => onSelect(i)} title={v.key}>
-              {v.kind === "diff" && <span className="editor-tab-diff">±</span>}
+              {/* the two diffs of one file are two tabs, so the marker has to
+                  tell them apart — ✓ is the staged one, already accounted for */}
+              {v.kind === "diff" && (
+                <span className={`editor-tab-diff ${v.staged ? "staged" : ""}`}>
+                  {v.staged ? "✓" : "±"}
+                </span>
+              )}
               {viewLabel(v, memos)}
             </button>
             <button
@@ -161,7 +167,12 @@ export function EditorPane({
         {views.map((v, i) => (
           <div key={v.key} className="editor-view" style={{ display: i === activeView ? "block" : "none" }}>
             {v.kind === "diff" ? (
-              <DiffView worktree={v.worktree} relPath={v.relPath} visible={i === activeView} />
+              <DiffView
+                worktree={v.worktree}
+                relPath={v.relPath}
+                staged={v.staged}
+                visible={i === activeView}
+              />
             ) : v.kind === "memo" ? (
               <MemoThread root={root} id={v.id} memos={memos} visible={i === activeView} />
             ) : v.kind === "new" ? (

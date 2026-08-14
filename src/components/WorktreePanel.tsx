@@ -143,10 +143,13 @@ export function WorktreePanel({
                 absPath: `${wt.path}/${c.path}`,
               })
             : onOpenView({
+                // the two sides are two views of one file, so two tabs — a
+                // staged row shows what's staged, a changes row what isn't
                 kind: "diff",
-                key: `diff:${wt.path}:${c.path}`,
+                key: staged ? `diff:staged:${wt.path}:${c.path}` : `diff:${wt.path}:${c.path}`,
                 worktree: wt.path,
                 relPath: c.path,
+                staged,
               })
         }
       >
@@ -233,7 +236,11 @@ export function WorktreePanel({
               <>
                 <div className="wt-section">
                   <span>staged</span>
-                  <button title="unstage all" onClick={() => unstage(wt, staged.map((c) => c.path))}>
+                  <button
+                    className="wt-section-all"
+                    title={`unstage all ${staged.length}`}
+                    onClick={() => unstage(wt, staged.map((c) => c.path))}
+                  >
                     −
                   </button>
                 </div>
@@ -243,14 +250,18 @@ export function WorktreePanel({
 
             {open && unstaged.length > 0 && (
               <>
-                {staged.length > 0 && (
-                  <div className="wt-section">
-                    <span>changes</span>
-                    <button title="stage all" onClick={() => stage(wt, unstaged.map((c) => c.path))}>
-                      ＋
-                    </button>
-                  </div>
-                )}
+                {/* the header carries stage-all, so it shows whenever there is
+                    anything to stage — not only once something already is */}
+                <div className="wt-section">
+                  <span>changes</span>
+                  <button
+                    className="wt-section-all"
+                    title={`stage all ${unstaged.length}`}
+                    onClick={() => stage(wt, unstaged.map((c) => c.path))}
+                  >
+                    ＋
+                  </button>
+                </div>
                 {unstaged.map((c) => fileRow(wt, c, false))}
               </>
             )}
