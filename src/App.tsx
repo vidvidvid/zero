@@ -9,7 +9,8 @@ import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { moveItem, movedIndex } from "./lib/tabReorder";
 import { restoreSession, saveProjects } from "./lib/session";
-import { useSettings } from "./lib/settings";
+import { resolvedAppearance, useSettings } from "./lib/settings";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isGlassSupported, setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
 import "./App.css";
 
@@ -28,7 +29,21 @@ export default function App() {
   // together, in the order that never leaves a see-through frame: pane first
   // when enabling, class off first when disabling. On macOS < 26 (and
   // everywhere else) `isGlassSupported` says no and the setting is inert.
-  const { glass } = useSettings();
+  const { glass, appearance } = useSettings();
+
+  // Appearance is two changes that must agree: the `light` class drives every
+  // CSS token, and the NSWindow's own theme drives what CSS can't reach — the
+  // titlebar, the traffic lights, and which way the glass material renders.
+  // `resolved` is read each render because a macOS flip under `system`
+  // re-renders without changing `appearance`.
+  const resolved = resolvedAppearance();
+  useEffect(() => {
+    document.documentElement.classList.toggle("light", resolved === "light");
+    getCurrentWindow()
+      .setTheme(appearance === "system" ? null : appearance)
+      .catch(() => {});
+  }, [appearance, resolved]);
+
   useEffect(() => {
     let live = true;
     isGlassSupported()

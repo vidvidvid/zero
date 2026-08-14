@@ -243,6 +243,15 @@ get it out of the way. A feature visible in one copy and not the other is
 another usable tell (the settings overlay is the easy place to look), but the
 pid check is the one that can't be fooled.
 
+The check alone is not enough when the two windows overlap: a click at
+coordinates read off an earlier screenshot can land in the installed window's
+titlebar and raise it — the layout moves between check and click, and a passed
+check says nothing about where you're about to click. So take the dev window's
+`kCGWindowBounds` from the same `CGWindowListCopyWindowInfo` call and click
+only inside a region the dev window owns and the installed window doesn't
+cover; when the installed window is on top, its bounds tell you which strip of
+the dev window is still exposed and clickable.
+
 ## Numbers in the docs are measured, not estimated
 
 README and BENCHMARKS quote bundle sizes, file counts and timings. If a change

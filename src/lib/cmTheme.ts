@@ -3,7 +3,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 import { constNames } from "./constNames";
-import { EditorTheme, getSettings, onSettingsChange } from "./settings";
+import { EditorTheme, getSettings, onSettingsChange, resolvedAppearance } from "./settings";
 
 // VS Code / Cursor "Dark Modern" (Dark+) — editor chrome
 const darkModernChrome = EditorView.theme(
@@ -97,6 +97,94 @@ const darkModernHighlight = HighlightStyle.define([
 ]);
 
 export const darkModern = [darkModernChrome, syntaxHighlighting(darkModernHighlight), constNames];
+
+// VS Code / Cursor "Light Modern" (Light+) — the same port, in daylight
+const lightModernChrome = EditorView.theme(
+  {
+    "&": {
+      backgroundColor: "#ffffff",
+      color: "#3b3b3b",
+    },
+    ".cm-content": {
+      caretColor: "#000000",
+    },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "#000000",
+    },
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, ::selection": {
+      backgroundColor: "#add6ff",
+    },
+    ".cm-selectionBackground": {
+      backgroundColor: "#add6ff80",
+    },
+    ".cm-activeLine": {
+      backgroundColor: "#00000008",
+    },
+    ".cm-gutters": {
+      backgroundColor: "#ffffff",
+      color: "#237893",
+      border: "none",
+    },
+    ".cm-activeLineGutter": {
+      backgroundColor: "transparent",
+      color: "#0b216f",
+    },
+    ".cm-lineNumbers .cm-gutterElement": {
+      minWidth: "3.2ch",
+    },
+    ".cm-matchingBracket": {
+      backgroundColor: "#0064001a",
+      outline: "1px solid #b9b9b9",
+    },
+    ".cm-searchMatch": {
+      backgroundColor: "#ea5c0055",
+      outline: "1px solid #b89500",
+    },
+    ".cm-selectionMatch": {
+      backgroundColor: "#e8e8e8",
+    },
+  },
+  { dark: false }
+);
+
+// Light+ token colors
+const lightModernHighlight = HighlightStyle.define([
+  { tag: [t.keyword, t.bool, t.null, t.atom, t.self], color: "#0000ff" },
+  {
+    tag: [t.controlKeyword, t.moduleKeyword, t.operatorKeyword],
+    color: "#af00db",
+  },
+  { tag: [t.string, t.special(t.string), t.character], color: "#a31515" },
+  { tag: [t.number, t.integer, t.float], color: "#098658" },
+  { tag: [t.comment, t.blockComment, t.lineComment], color: "#008000" },
+  {
+    tag: [
+      t.function(t.variableName),
+      t.function(t.definition(t.variableName)),
+      t.function(t.propertyName),
+      t.macroName,
+    ],
+    color: "#795e26",
+  },
+  { tag: [t.typeName, t.className, t.namespace], color: "#267f99" },
+  { tag: [t.variableName, t.propertyName, t.definition(t.variableName), t.attributeName], color: "#001080" },
+  { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: "#0070c1" },
+  { tag: [t.operator, t.punctuation, t.separator, t.bracket], color: "#3b3b3b" },
+  { tag: [t.regexp], color: "#811f3f" },
+  { tag: [t.escape, t.special(t.character)], color: "#ee0000" },
+  { tag: [t.standard(t.tagName)], color: "#800000" },
+  { tag: [t.tagName], color: "#267f99" },
+  { tag: [t.angleBracket], color: "#800000" },
+  { tag: [t.heading], color: "#0000ff", fontWeight: "bold" },
+  { tag: [t.link, t.url], color: "#006ab1" },
+  { tag: [t.emphasis], fontStyle: "italic" },
+  { tag: [t.strong], fontWeight: "bold" },
+  { tag: [t.strikethrough], textDecoration: "line-through" },
+  { tag: [t.meta, t.processingInstruction], color: "#808080" },
+  { tag: [t.invalid], color: "#cd3131" },
+]);
+
+export const lightModern = [lightModernChrome, syntaxHighlighting(lightModernHighlight), constNames];
 
 // TRMNL — the theme from trmnl.com's JSON editor, dark variant. Ported as
 // written except for the font: the source pins Space Mono at 0.75rem, but
@@ -215,6 +303,121 @@ const trmnlHighlight = HighlightStyle.define([
 
 export const trmnl = [trmnlChrome, syntaxHighlighting(trmnlHighlight)];
 
+// TRMNL, light variant — same source file as the dark one (trmnl.com's JSON
+// editor, codemirror_trmnl_theme.js), ported under the same rules: the font
+// pinning stays out, the colors come through as written.
+const trmnlLightChrome = EditorView.theme(
+  {
+    "&": {
+      color: "#2b2b2b",
+      backgroundColor: "#f2f0ed",
+    },
+    ".cm-content": {
+      caretColor: "#2b2b2b",
+    },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "#2b2b2b",
+    },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
+      backgroundColor: "rgba(13,122,107,0.15)",
+    },
+    ".cm-activeLine": {
+      backgroundColor: "rgba(0,0,0,0.04)",
+    },
+    ".cm-gutters": {
+      backgroundColor: "#f2f0ed",
+      color: "#6b7280",
+      borderRight: "1px solid #e5e2dd",
+    },
+    ".cm-activeLineGutter": {
+      backgroundColor: "rgba(0,0,0,0.06)",
+    },
+    ".cm-lineNumbers .cm-gutterElement": {
+      minWidth: "3.2ch",
+    },
+    ".cm-foldPlaceholder": {
+      backgroundColor: "#e5e2dd",
+      color: "#6b7280",
+      border: "none",
+    },
+    ".cm-tooltip": {
+      backgroundColor: "#f2f0ed",
+      border: "1px solid #e5e2dd",
+      color: "#2b2b2b",
+    },
+    ".cm-tooltip .cm-tooltip-arrow::before": {
+      borderTopColor: "#e5e2dd",
+      borderBottomColor: "#e5e2dd",
+    },
+    ".cm-tooltip .cm-tooltip-arrow::after": {
+      borderTopColor: "#f2f0ed",
+      borderBottomColor: "#f2f0ed",
+    },
+    ".cm-tooltip-autocomplete": {
+      "& > ul > li[aria-selected]": {
+        backgroundColor: "rgba(13,122,107,0.12)",
+        color: "#2b2b2b",
+      },
+    },
+    ".cm-searchMatch": {
+      backgroundColor: "rgba(13,122,107,0.2)",
+      outline: "1px solid rgba(13,122,107,0.4)",
+    },
+    ".cm-searchMatch.cm-searchMatch-selected": {
+      backgroundColor: "rgba(13,122,107,0.35)",
+    },
+    ".cm-panels": {
+      backgroundColor: "#f2f0ed",
+      color: "#2b2b2b",
+    },
+    ".cm-panels.cm-panels-top": {
+      borderBottom: "1px solid #e5e2dd",
+    },
+    ".cm-panels.cm-panels-bottom": {
+      borderTop: "1px solid #e5e2dd",
+    },
+  },
+  { dark: false }
+);
+
+const trmnlLightHighlight = HighlightStyle.define([
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "#6b7280", fontStyle: "italic" },
+  {
+    tag: [t.punctuation, t.bracket, t.squareBracket, t.paren, t.brace, t.angleBracket],
+    color: "#525252",
+  },
+  { tag: t.tagName, color: "#2d5243" },
+  { tag: t.attributeName, color: "#5b4dbf", fontStyle: "italic" },
+  { tag: [t.string, t.special(t.string)], color: "#a03d8f" },
+  { tag: [t.number, t.integer, t.float], color: "#9a5a1a" },
+  {
+    tag: [t.keyword, t.operatorKeyword, t.moduleKeyword, t.controlKeyword],
+    color: "#0d7a6b",
+  },
+  { tag: t.function(t.variableName), color: "#9a5a1a" },
+  { tag: [t.propertyName, t.special(t.propertyName)], color: "#0d7a6b" },
+  { tag: [t.className, t.typeName, t.namespace], color: "#1d4ed8" },
+  { tag: t.operator, color: "#0d7a6b" },
+  { tag: [t.bool, t.literal, t.null, t.atom], color: "#4b5563" },
+  { tag: [t.variableName, t.regexp], color: "#a03d8f" },
+  { tag: t.definition(t.variableName), color: "#2b2b2b" },
+  { tag: t.self, color: "#0d7a6b" },
+  { tag: t.inserted, color: "#15803d" },
+  { tag: t.deleted, color: "#991b1b" },
+  { tag: t.changed, color: "#9a5a1a" },
+  { tag: t.invalid, color: "#991b1b" },
+  { tag: t.heading, color: "#2d5243", fontWeight: "bold" },
+  { tag: t.strong, fontWeight: "bold" },
+  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.link, color: "#0d7a6b", textDecoration: "underline" },
+  { tag: t.url, color: "#0d7a6b" },
+  { tag: t.processingInstruction, color: "#6b7280" },
+  { tag: t.attributeValue, color: "#a03d8f" },
+  { tag: t.meta, color: "#6b7280" },
+]);
+
+export const trmnlLight = [trmnlLightChrome, syntaxHighlighting(trmnlLightHighlight)];
+
 /** What the settings panel lists: label plus the token colours it shows as a
  *  swatch strip — keyword, string, function, type, number, in that order. */
 export const EDITOR_THEME_CHOICES: { id: EditorTheme; label: string; swatch: string[] }[] = [
@@ -231,7 +434,9 @@ export const EDITOR_THEME_CHOICES: { id: EditorTheme; label: string; swatch: str
 ];
 
 function themeFor(id: EditorTheme): Extension {
-  return id === "trmnl" ? trmnl : darkModern;
+  const light = resolvedAppearance() === "light";
+  if (id === "trmnl") return light ? trmnlLight : trmnl;
+  return light ? lightModern : darkModern;
 }
 
 /**

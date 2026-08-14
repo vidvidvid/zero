@@ -8,6 +8,7 @@
     "core:webview:allow-set-webview-zoom",
     "dialog:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
     "updater:default",
     "process:allow-restart",
     "liquid-glass:default"
