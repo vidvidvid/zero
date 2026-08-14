@@ -30,6 +30,37 @@ pub fn run() {
         .manage(PtyManager::default())
         .manage(memos::MemoManager::default())
         .setup(|_app| {
+            // zero → Preferences…, the mouse path to the settings overlay. The
+            // menu is the stock one with a single item slotted into Apple's
+            // spot for it (after About and its separator); everything else in
+            // the default is already right. The accelerator shown is ⌘,, but
+            // the webview's own keydown handler consumes that press before it
+            // reaches the menu — here it is the printed hint, and clicking is
+            // what emits.
+            {
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+                let handle = _app.handle();
+                let menu = Menu::default(handle)?;
+                if let Some(app_menu) = menu.items()?.first().and_then(|i| i.as_submenu().cloned())
+                {
+                    let prefs = MenuItem::with_id(
+                        handle,
+                        "preferences",
+                        "Preferences…",
+                        true,
+                        Some("Cmd+,"),
+                    )?;
+                    app_menu.insert_items(&[&prefs, &PredefinedMenuItem::separator(handle)?], 2)?;
+                }
+                _app.set_menu(menu)?;
+                _app.on_menu_event(|app, event| {
+                    if event.id().as_ref() == "preferences" {
+                        use tauri::Emitter;
+                        let _ = app.emit("open-settings", ());
+                    }
+                });
+            }
+
             // the `zero` shell command comes with the app, so installing the
             // app is the whole install
             match cli::install_command() {

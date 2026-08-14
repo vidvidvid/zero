@@ -1559,6 +1559,10 @@ body.dragging-row {
   display: flex;
   flex-direction: column;
   width: min(400px, 88vw);
+  /* the backdrop is a flex row, and its default is stretch — without this the
+     box runs the full height of the window no matter how little is in it */
+  align-self: flex-start;
+  max-height: 70vh;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 10px;

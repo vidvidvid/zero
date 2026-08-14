@@ -156,7 +156,7 @@ export function Titlebar({
       {/* outside the spacers: the gear sits in the bar's right inset — the
           78px the tabs never enter — so it can be pinned to the corner without
           entering the centring math that keeps the tabs on the window axis */}
-      <button className="titlebar-gear" title="settings (⌘,)" onClick={onSettings}>
+      <button className="titlebar-gear" title="preferences (⌘,)" onClick={onSettings}>
         {/* drawn like the tab close ×: a cog glyph from a font sits off-centre
             in its em box and half of them render as emoji */}
         <svg width="16" height="16" viewBox="0 0 14 14">

@@ -114,6 +114,14 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
 
+  // zero → Preferences… in the menu bar; the keyboard path is ⌘, below
+  useEffect(() => {
+    const stop = listen("open-settings", () => setShowSettings(true));
+    return () => {
+      stop.then((off) => off()).catch(() => {});
+    };
+  }, []);
+
   // Global keys: cmd+` / cmd+shift+` cycle projects, cmd+shift+O / cmd+shift+N
   // open a project, cmd+/-/0 zoom, cmd+, settings
   useEffect(() => {

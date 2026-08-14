@@ -29,7 +29,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   return (
     <div className="quick-backdrop" onMouseDown={onClose}>
       <div className="settings-box" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="settings-title">settings</div>
+        <div className="settings-title">preferences</div>
         <div className="settings-group">
           <div className="settings-label">syntax theme</div>
           {EDITOR_THEME_CHOICES.map((c) => {
