@@ -18,13 +18,20 @@ jobs:
     # macOS 26 SDK — SpeechAnalyzer doesn't exist in the ones before it.
     runs-on: macos-26
 
-    # The three that aren't secret-shaped, needed by more than one step: the
-    # certificate's name, and the two halves of the App Store Connect key that
-    # aren't the key itself. tauri reads all three from the environment.
+    # Everything more than one step needs, in the one scope every step shares.
+    # The first three aren't secret-shaped — the certificate's name and the two
+    # halves of the App Store Connect key that aren't the key itself. The
+    # updater's signing key is, and it lives here anyway, because the step that
+    # checks a secret is present has to be in the same scope as the step that
+    # uses it. Declared on the check step alone, as they were in 0.4.2, the
+    # check passes and `tauri build` finds no key: proof of nothing, collected
+    # carefully. tauri reads all five from the environment.
     env:
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -59,8 +66,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -eu
           # Check every one of them before the build rather than during it.
