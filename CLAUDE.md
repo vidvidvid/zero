@@ -27,6 +27,9 @@ npm version 0.2.0 -m "zero %s"   # bumps package.json, commits, tags v0.2.0
 git push origin main --follow-tags
 ```
 
+That is the release, but not the end of it — the cask block below has to run
+too, or brew users stay on whatever the last bumped version was.
+
 `package.json` is the only copy of the version. `tauri.conf.json` names it as a
 path rather than repeating the number, and `Cargo.toml` sits at `0.0.0` because
 nothing reads it. The workflow checks the tag against `package.json` — and
@@ -40,6 +43,33 @@ that repository too, or `brew install --cask` goes on handing people the old
 dmg. The sha256 is printed in the release notes so you don't have to download
 the file to get it, and `brew fetch --cask zero-editor/tap/zero` checks the two
 agree without installing anything.
+
+**The tag is half a release. Run this before calling one done** — it waits for
+the build, reads the sha256 out of the release notes, and bumps the cask. It is
+idempotent, so run it whenever the two might have drifted:
+
+```sh
+V=$(node -p "require('./package.json').version")
+gh run watch --exit-status \
+  "$(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+SHA=$(gh release view "v$V" --repo zero-editor/zero --json body -q .body | awk '/sha256/{print $2}')
+TAP=$(brew --repository zero-editor/tap)   # or clone zero-editor/homebrew-tap
+git -C "$TAP" pull --ff-only
+sed -i '' -e "s/^  version \".*\"/  version \"$V\"/" \
+          -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$TAP/Casks/zero.rb"
+git -C "$TAP" commit -am "zero $V" && git -C "$TAP" push
+brew fetch --cask zero-editor/tap/zero     # ✔︎ only if the dmg matches the sha256
+```
+
+Nothing enforces this — no CI watches the tap — so it is only ever as reliable
+as running it. 0.4.0 shipped without it and brew went on installing 0.3.1, with
+every check green, because none of them look. The `brew fetch` line is the one
+that would have caught it: it is the only step that compares the cask against
+the file people actually download.
+
+The same question goes to anything else pinning a version or a checksum. Today
+that is the cask and nothing else, so this is the whole list — but the way it
+gets missed is assuming it still is.
 
 Always write the install command fully qualified. Homebrew refuses casks from
 non-official taps unless you name the tap on the command line — naming it *is*
