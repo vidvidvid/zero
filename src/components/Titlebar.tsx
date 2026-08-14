@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Project } from "../App";
 import { useClaudeStatus } from "../lib/claudeStatus";
 import { useTabReorder } from "../lib/tabReorder";
+import { useUpdate } from "../lib/update";
 
 const sameSet = (a: Set<string>, b: Set<string>) =>
   a.size === b.size && [...a].every((v) => b.has(v));
@@ -42,6 +43,17 @@ export function Titlebar({
   }, [claude, projects, activeRoot]);
 
   const { stripRef, drag, start: startDrag, shift } = useTabReorder(".titlebar-tab", onReorder);
+
+  const { ready, restart } = useUpdate();
+  const [armed, setArmed] = useState(false);
+  // every claude the restart would take with it, working or waiting — the
+  // status poll already knows, so this costs nothing extra
+  const live = Object.values(claude).reduce((n, c) => n + c.working + c.done, 0);
+  useEffect(() => {
+    if (!armed) return;
+    const t = window.setTimeout(() => setArmed(false), 5000);
+    return () => window.clearTimeout(t);
+  }, [armed]);
 
   return (
     <div className="titlebar" data-tauri-drag-region>
@@ -121,6 +133,26 @@ export function Titlebar({
           ＋
         </button>
       </div>
+      {/* Only ever here when the new version is already downloaded, so this
+          says restart and not update — the wait is over by the time you see
+          it. Clicking arms rather than fires: restarting closes every terminal
+          in the window, and a terminal here can be holding a Claude session
+          mid-task, so the second click is the one that agrees to that and the
+          count is what it costs. It disarms itself, because a button that
+          stays armed is one an unrelated click lands on later. */}
+      {ready && (
+        <button
+          className={`titlebar-update ${armed ? "armed" : ""}`}
+          title={`zero ${ready} is downloaded — restart to run it`}
+          onClick={() => (armed ? void restart() : setArmed(true))}
+        >
+          {!armed
+            ? `update ${ready}`
+            : live === 0
+              ? "restart now"
+              : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
+        </button>
+      )}
       {/* outside the spacers: the gear sits in the bar's right inset — the
           78px the tabs never enter — so it can be pinned to the corner without
           entering the centring math that keeps the tabs on the window axis */}

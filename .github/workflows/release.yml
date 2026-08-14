@@ -59,6 +59,8 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -eu
           # Check every one of them before the build rather than during it.
@@ -66,7 +68,8 @@ jobs:
           # anyway, so half a configuration doesn't fail — it quietly produces
           # a dmg that only the people downloading it find out about.
           for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_P8 \
-                   APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER; do
+                   APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER \
+                   TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             [ -n "$(printenv "$v" || true)" ] || { echo "::error::secret $v is missing or empty"; exit 1; }
           done
 
@@ -143,6 +146,51 @@ jobs:
           # zero-voice invalidates the app around it.
           codesign --verify --deep --strict --verbose=2 "$app"
 
+      # The updater installs this tarball, never the dmg, so it earns the same
+      # scrutiny the dmg gets above. tauri bundles it last — after it has
+      # signed, notarized and stapled the .app — so it should hold the same
+      # bundle the disk image does. "Should" is doing work in that sentence:
+      # tauri downgrades missing notarization credentials to a warning and
+      # bundles anyway, and this is the artifact that installs itself onto a
+      # machine with no download prompt in front of it.
+      - name: The update has to pass what the download passes
+        run: |
+          set -eu
+          out="$RUNNER_TEMP/updater"
+          mkdir -p "$out"
+          tar xzf src-tauri/target/release/bundle/macos/zero.app.tar.gz -C "$out"
+          xcrun stapler validate "$out/zero.app"
+          spctl -a -t exec -vv "$out/zero.app"
+          codesign --verify --deep --strict --verbose=2 "$out/zero.app"
+          rm -rf "$out"
+
+      - name: The manifest the app polls
+        run: |
+          set -eu
+          cp src-tauri/target/release/bundle/macos/zero.app.tar.gz zero.app.tar.gz
+          # The endpoint is /releases/latest/download/latest.json, so this file
+          # is always read as the newest release's — but the URL inside it is
+          # the tagged one, not another `latest`. A manifest should install the
+          # build it was written for, including in the minutes after the next
+          # tag when the two disagree about what "latest" means.
+          node -e '
+            const fs = require("fs");
+            const [version, tag, sig] = process.argv.slice(1);
+            fs.writeFileSync("latest.json", JSON.stringify({
+              version,
+              notes: `zero ${version}`,
+              pub_date: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+              platforms: {
+                "darwin-aarch64": {
+                  signature: fs.readFileSync(sig, "utf8").trim(),
+                  url: `https://github.com/zero-editor/zero/releases/download/${tag}/zero.app.tar.gz`,
+                },
+              },
+            }, null, 2) + "\n");
+          ' "${GITHUB_REF_NAME#v}" "$GITHUB_REF_NAME" \
+            src-tauri/target/release/bundle/macos/zero.app.tar.gz.sig
+          cat latest.json
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -156,7 +204,10 @@ jobs:
             "" \
             "    sha256  $sha")
           # --notes is prepended to the changelog --generate-notes writes
-          gh release create "$GITHUB_REF_NAME" zero_aarch64.dmg \
+          # the tarball and the manifest are the updater's half of the release:
+          # the dmg is what a new user downloads, these are what an installed
+          # copy reads and installs without one
+          gh release create "$GITHUB_REF_NAME" zero_aarch64.dmg zero.app.tar.gz latest.json \
             --title "$GITHUB_REF_NAME" \
             --verify-tag \
             --generate-notes \

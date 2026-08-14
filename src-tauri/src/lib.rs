@@ -21,6 +21,12 @@ fn debug_log(msg: String) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // in-app updates. The updater fetches and verifies; `process` is what
+        // relaunches afterwards, and the two are separate plugins because
+        // relaunching is the part that costs something here — see the restart
+        // button in Titlebar, which never fires it without asking.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(PtyManager::default())
         .manage(memos::MemoManager::default())
         .setup(|_app| {
