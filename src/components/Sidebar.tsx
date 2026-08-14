@@ -68,6 +68,7 @@ export function Sidebar({
   search,
   memos,
   activeMemo,
+  activeKey,
   reveal,
 }: {
   project: Project;
@@ -81,6 +82,9 @@ export function Sidebar({
   /** the memo whose thread is the view on screen, so its row can say so —
    *  passed straight through, since the sidebar knows nothing about tabs */
   activeMemo: string | null;
+  /** the shown view's key, for the same reason: the changes row whose diff or
+   *  file is on screen marks itself */
+  activeKey: string | null;
   reveal: Reveal | null;
 }) {
   // The memos tab is the only one that has anything to say while you're not
@@ -111,7 +115,14 @@ export function Sidebar({
         ))}
       </div>
       <div className="sidebar-body">
-        {tab === "scm" && <WorktreePanel project={project} onOpenView={onOpenView} active={active} />}
+        {tab === "scm" && (
+          <WorktreePanel
+            project={project}
+            onOpenView={onOpenView}
+            active={active}
+            activeKey={activeKey}
+          />
+        )}
         {tab === "files" && (
           <FileTree
             root={project.root}

@@ -21,10 +21,13 @@ export function WorktreePanel({
   project,
   onOpenView,
   active,
+  activeKey,
 }: {
   project: Project;
   onOpenView: (v: View) => void;
   active: boolean;
+  /** the shown view's key — the row it belongs to marks itself */
+  activeKey: string | null;
 }) {
   // the same sweep the file tree reads, so switching sidebar tabs doesn't cost
   // a fresh round of git processes — and so the two never disagree
@@ -109,6 +112,29 @@ export function WorktreePanel({
   const unstage = (wt: WtState, paths: string[]) =>
     run(`unstage:${wt.path}`, () => api.gitUnstage(wt.path, paths));
 
+  // the one action in this panel that destroys work, so it is also the one
+  // that asks first — and for untracked files "discard" means delete, which
+  // the question says outright rather than leaving to be discovered
+  const discard = async (wt: WtState, files: FileChange[]) => {
+    const untracked = files.filter((c) => c.status === "U").map((c) => c.path);
+    const tracked = files.filter((c) => c.status !== "U").map((c) => c.path);
+    const what =
+      files.length === 1
+        ? untracked.length
+          ? `Delete untracked file ${files[0].path}?`
+          : `Discard changes to ${files[0].path}?`
+        : `Discard all changes to ${files.length} files?` +
+          (untracked.length
+            ? ` ${untracked.length} untracked file${untracked.length === 1 ? "" : "s"} will be deleted.`
+            : "");
+    const ok = await confirm(`${what}\n\nThis cannot be undone.`, {
+      title: "Discard changes",
+      kind: "warning",
+    });
+    if (!ok) return;
+    run(`discard:${wt.path}`, () => api.gitDiscard(wt.path, tracked, untracked));
+  };
+
   const commit = async (wt: WtState, staged: FileChange[], unstaged: FileChange[]) => {
     const msg = (messages[wt.path] ?? "").trim();
     if (!msg) return;
@@ -128,8 +154,16 @@ export function WorktreePanel({
 
   if (error) return <div className="panel-error">not a git repo?<br />{error}</div>;
 
-  const fileRow = (wt: WtState, c: FileChange, staged: boolean) => (
-    <div key={`${wt.path}:${staged ? "s" : "w"}:${c.path}`} className="wt-file">
+  const fileRow = (wt: WtState, c: FileChange, staged: boolean) => {
+    const fileKey = `file:${wt.path}/${c.path}`;
+    const diffKey = staged ? `diff:staged:${wt.path}:${c.path}` : `diff:${wt.path}:${c.path}`;
+    // lit whichever way it was opened — its diff, or the file via ↗
+    const on = activeKey !== null && (activeKey === diffKey || activeKey === fileKey);
+    return (
+    <div
+      key={`${wt.path}:${staged ? "s" : "w"}:${c.path}`}
+      className={`wt-file ${on ? "on" : ""} ${staged ? "" : "wt-file-unstaged"}`}
+    >
       <button
         className="wt-file-name"
         title={c.path}
@@ -139,14 +173,14 @@ export function WorktreePanel({
           c.status === "U"
             ? onOpenView({
                 kind: "file",
-                key: `file:${wt.path}/${c.path}`,
+                key: fileKey,
                 absPath: `${wt.path}/${c.path}`,
               })
             : onOpenView({
                 // the two sides are two views of one file, so two tabs — a
                 // staged row shows what's staged, a changes row what isn't
                 kind: "diff",
-                key: staged ? `diff:staged:${wt.path}:${c.path}` : `diff:${wt.path}:${c.path}`,
+                key: diffKey,
                 worktree: wt.path,
                 relPath: c.path,
                 staged,
@@ -157,6 +191,15 @@ export function WorktreePanel({
         <span className={`wt-file-base ${STATUS_CLASS[c.status] ?? "mod"}`}>{c.path.split("/").pop()}</span>
         <span className="wt-file-dir">{c.path.includes("/") ? c.path.slice(0, c.path.lastIndexOf("/")) : ""}</span>
       </button>
+      {!staged && (
+        <button
+          className="wt-file-act wt-file-discard"
+          title={c.status === "U" ? "discard (deletes the untracked file)" : "discard changes"}
+          onClick={() => discard(wt, [c])}
+        >
+          ↺
+        </button>
+      )}
       <button
         className="wt-file-act"
         title={staged ? "unstage" : "stage"}
@@ -178,7 +221,8 @@ export function WorktreePanel({
         ↗
       </button>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="wt-panel">
@@ -254,6 +298,13 @@ export function WorktreePanel({
                     anything to stage — not only once something already is */}
                 <div className="wt-section">
                   <span>changes</span>
+                  <button
+                    className="wt-section-all"
+                    title={`discard all ${unstaged.length}`}
+                    onClick={() => discard(wt, unstaged)}
+                  >
+                    ↺
+                  </button>
                   <button
                     className="wt-section-all"
                     title={`stage all ${unstaged.length}`}

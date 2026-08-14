@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
-import { MergeView } from "@codemirror/merge";
+import { getChunks, MergeView } from "@codemirror/merge";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import { editorTheme } from "../lib/cmTheme";
+import { charDiff } from "../lib/diffChars";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
 import { diffRuler } from "../lib/scrollRuler";
@@ -81,6 +82,7 @@ export function DiffView({
             EditorState.readOnly.of(true),
             EditorView.lineWrapping,
             editorTheme(),
+            charDiff(() => mergeRef.current?.b.state.doc ?? null),
             langA.of(langFor(relPath)),
           ],
         },
@@ -91,22 +93,44 @@ export function DiffView({
             EditorView.lineWrapping,
             editorTheme(),
             diffRuler(),
+            charDiff(() => mergeRef.current?.a.state.doc ?? null),
             langB.of(langFor(relPath)),
             ...(staged
               ? [EditorView.editable.of(false), EditorState.readOnly.of(true)]
               : [
                   EditorView.updateListener.of((u) => {
                     if (u.docChanged) dirtyRef.current = true;
+                    // a chunk revert is a deliberate act on the file, not
+                    // typing — persist it now rather than waiting for ⌘S
+                    if (u.transactions.some((tr) => tr.isUserEvent("revert"))) save(u.view);
                   }),
                   keymap.of([indentWithTab, { key: "Mod-s", run: save }]),
                 ]),
           ],
         },
         gutter: true,
-        // show only the edited regions, VS Code style: 3 lines of context,
-        // longer unchanged stretches become a click-to-expand band
-        collapseUnchanged: { margin: 3, minSize: 4 },
+        // stock char highlighting paints whole added lines and grows changes
+        // to word boundaries; charDiff above replaces it with VS Code's read
+        highlightChanges: false,
+        // the per-chunk arrow, Cursor style — pull the old side back over the
+        // working tree. Meaningless on a staged diff, whose B side is the
+        // index, not a file
+        revertControls: staged ? undefined : "a-to-b",
+        // the whole file, no collapsed bands — Cursor's way: everything is
+        // there to scroll, and where you land is the first change
       });
+
+      // the charDiff plugins were built while mergeRef was still null and
+      // couldn't see across; now both sides exist, have them look again
+      mergeRef.current.a.dispatch({});
+      mergeRef.current.b.dispatch({});
+
+      const first = getChunks(mergeRef.current.b.state)?.chunks[0];
+      if (first) {
+        mergeRef.current.b.dispatch({
+          effects: EditorView.scrollIntoView(first.fromB, { y: "center" }),
+        });
+      }
 
       langLater.then((ext) => {
         if (disposed || !ext || !mergeRef.current) return;

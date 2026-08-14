@@ -338,6 +338,7 @@ export const Workspace = memo(function Workspace({
               search={search}
               memos={memos}
               activeMemo={activeMemo}
+              activeKey={shown?.key ?? null}
               reveal={reveal}
             />
             <div

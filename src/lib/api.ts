@@ -153,6 +153,9 @@ export const api = {
   gitStatus: (worktree: string) => invoke<FileChange[]>("git_status", { worktree }),
   gitStage: (worktree: string, paths: string[]) => invoke<void>("git_stage", { worktree, paths }),
   gitUnstage: (worktree: string, paths: string[]) => invoke<void>("git_unstage", { worktree, paths }),
+  /** tracked paths return to the index's copy; untracked ones are deleted */
+  gitDiscard: (worktree: string, tracked: string[], untracked: string[]) =>
+    invoke<void>("git_discard", { worktree, tracked, untracked }),
   gitCommit: (worktree: string, message: string) =>
     invoke<string>("git_commit", { worktree, message }),
   gitPush: (worktree: string) => invoke<string>("git_push", { worktree }),

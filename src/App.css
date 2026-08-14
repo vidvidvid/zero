@@ -774,6 +774,7 @@ body.dragging-row {
 
 /* "staged" / "changes" section labels with a stage-all action */
 .wt-section {
+  position: relative;
   display: flex;
   align-items: center;
   padding: 5px 10px 2px 14px;
@@ -783,27 +784,30 @@ body.dragging-row {
   color: var(--text-faint);
 }
 
+/* pinned to the same slots the file rows use — 6px and 24px — so the
+   header's icons sit in one column with the rows' below them */
 .wt-section button {
-  margin-left: auto;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   padding: 0 4px;
-  font-size: 11px;
-  color: var(--text-faint);
+  font-size: 13px;
+  /* the header's uppercase tracking must not leak into the icons, and a
+     pinned line-height keeps their boxes — and so their centring — the same
+     as the file rows' */
+  letter-spacing: normal;
+  line-height: 1;
+  color: var(--text-dim);
   opacity: 0;
   transition: opacity 0.12s;
 }
 
+.wt-section button:nth-last-of-type(2) {
+  right: 24px;
+}
+
 .wt-section:hover button {
-  opacity: 1;
-}
-
-/* stage-all / unstage-all is the one action here you go looking for, so it
-   doesn't wait for a hover to exist — a button you have to find by sweeping
-   the mouse over the header is a button that isn't there */
-.wt-section button.wt-section-all {
-  opacity: 0.6;
-}
-
-.wt-section:hover button.wt-section-all {
   opacity: 1;
 }
 
@@ -811,15 +815,18 @@ body.dragging-row {
   color: var(--text);
 }
 
-/* stage / unstage, sitting left of the ↗ in the space the row opens up */
+/* The row's buttons, reading left to right in the order you'd use them:
+   open the file, revert it, stage it — so stage/unstage holds the innermost
+   slot and ↗ the outermost. */
 .wt-file-act {
   position: absolute;
-  right: 24px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   padding: 0 4px;
-  font-size: 11px;
-  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-dim);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s;
@@ -832,6 +839,11 @@ body.dragging-row {
 
 .wt-file-act:hover {
   color: var(--text);
+}
+
+/* discard takes the middle slot, in the same fade-in choreography */
+.wt-file-discard {
+  right: 24px;
 }
 
 .wt-notice {
@@ -889,11 +901,34 @@ body.dragging-row {
   transition: padding-right 0.12s ease;
 }
 
-/* row eases open to make room for ↗ instead of overlaying the path */
+/* row eases open to make room for its buttons instead of overlaying the
+   path — far enough that none of them sits on text: two on a staged row,
+   three on an unstaged one */
 .wt-file:hover {
   background: var(--bg-raised);
-  padding-right: 26px;
+  padding-right: 46px;
 }
+
+.wt-file-unstaged:hover {
+  padding-right: 66px;
+}
+
+/* the row whose diff or file is the view on screen */
+.wt-file.on {
+  background: var(--bg-raised);
+}
+
+/* squeezed for the buttons, the path fades out at the edge and a too-long
+   name clips clean — an … in every hovered row said nothing the shortened
+   text doesn't. (Only the path gets the fade: its box grows into the slack,
+   so the fade sits over empty space until it's truly truncated. The name's
+   box hugs its text, where the same mask would eat the tail of every name.) */
+.wt-file:hover .wt-file-dir {
+  text-overflow: clip;
+  mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+}
+
 
 .wt-file-name {
   flex: 1;
@@ -906,14 +941,16 @@ body.dragging-row {
   overflow: hidden;
 }
 
-/* name wins the space it needs, then clips with an ellipsis at the row edge */
+/* name wins the space it needs, and on the rare squeeze past that it clips
+   clean — never an ellipsis, which otherwise flashes into every row for the
+   0.12s the un-hover padding takes to ease back */
 .wt-file-base {
   flex: 0 1 auto;
   min-width: 0;
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 
 /* Cursor-style git colors on the file names themselves */
@@ -931,27 +968,35 @@ body.dragging-row {
 }
 
 .wt-file-dir {
-  flex: 1 1 auto;
+  /* the huge shrink factor means squeezing the row eats the directory first,
+     down to nothing, before the file name gives up a pixel */
+  flex: 1 1000 auto;
   min-width: 0;
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ↗ fades in over the freed space, same choreography as the worktree ✕ */
+/* ↗ leads the row: outermost-left of the buttons, so it comes first when
+   reading — one slot in on staged rows, which have no discard */
 .wt-file-open {
   position: absolute;
-  right: 6px;
+  right: 24px;
   top: 50%;
   transform: translateY(-50%);
-  padding: 0 5px;
-  font-size: 11px;
-  color: var(--text-faint);
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-dim);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s;
+}
+
+.wt-file-unstaged .wt-file-open {
+  right: 44px;
 }
 
 .wt-file:hover .wt-file-open {
@@ -2721,6 +2766,9 @@ body.dragging-row {
 
 .cm-host {
   height: 100%;
+  /* the diff's overview ruler mounts directly on the host (see
+     scrollRuler.ts) and positions against it */
+  position: relative;
 }
 
 /* body sets user-select:none for the chrome — code is text, let it be selected */
@@ -2791,8 +2839,11 @@ body.dragging-row {
 /* exact VS Code / Cursor defaults, read out of the compiled colour registry
    (the Dark Modern theme json doesn't set these, they're built in):
    removedLineBackground rgba(255,0,0,.2), insertedLineBackground
-   rgba(155,185,85,.2), and the char-level highlights #ff000033 / #9ccc2c33
-   which VS Code paints ON TOP of the line — composited here into one alpha */
+   rgba(155,185,85,.2), and the char-level marks #ff000033 / #9ccc2c33 painted
+   ON TOP of the line wash — kept at their own alpha here too, so the browser
+   composites them exactly as VS Code does. The marks come from diffChars.ts,
+   which only puts them on modified lines, never across whole added or
+   removed ones */
 .cm-merge-a .cm-changedLine,
 .cm-deletedChunk {
   background: rgba(255, 0, 0, 0.2) !important;
@@ -2800,25 +2851,37 @@ body.dragging-row {
 
 .cm-merge-a .cm-changedText,
 .cm-deletedChunk .cm-deletedText {
-  background: rgba(255, 0, 0, 0.36) !important;
+  background: #ff000033 !important;
 }
+
 
 .cm-merge-b .cm-changedLine {
   background: rgba(155, 185, 85, 0.2) !important;
 }
 
 .cm-merge-b .cm-changedText {
-  background: rgba(156, 196, 60, 0.36) !important;
+  background: #9ccc2c33 !important;
 }
 
-/* matching change bars in the gutter (merge ships bright #fa9 / #8f8) */
+/* the gutter runs the same wash as its line, the way VS Code tints the
+   margin (merge ships bright #fa9 / #8f8 bars instead) */
 .cm-merge-a .cm-changedLineGutter,
 .cm-deletedLineGutter {
-  background: rgba(255, 0, 0, 0.5) !important;
+  background: rgba(255, 0, 0, 0.2) !important;
 }
 
 .cm-merge-b .cm-changedLineGutter {
-  background: rgba(155, 185, 85, 0.6) !important;
+  background: rgba(155, 185, 85, 0.2) !important;
+}
+
+/* per-chunk revert, the arrow between the panes */
+.cm-host .cm-merge-revert button {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.cm-host .cm-merge-revert button:hover {
+  color: var(--text);
 }
 
 /* ===== change bars (see changeGutter.ts) ===== */
@@ -2880,7 +2943,10 @@ body.dragging-row {
   position: absolute;
   right: 0;
   width: 4px;
-  min-height: 2px;
+  /* heights are fractions of the document, and now that a diff holds the
+     whole file a small change would be sub-pixel — the floor keeps every
+     tick a visible, clickable mark, the way Cursor's overview strips are */
+  min-height: 5px;
   border-radius: 1px;
   opacity: 0.85;
   pointer-events: none;
@@ -2888,6 +2954,75 @@ body.dragging-row {
 
 .cm-host .cm-changeTick.cm-change-del {
   background: #94151b;
+}
+
+/* In a diff the lane becomes Cursor's overview ruler: a visible full-height
+   track, like a scrollbar's, whose marks place the changes in the file —
+   an empty stretch of track says "nothing changed here" as loudly as a
+   mark says something did. The muted olive/blue/red above is the
+   source-control palette for a plain editor against HEAD; a diff's whole
+   subject is its changes, so its marks get the diff colours: green for
+   changed chunks, red for the seams pure deletions closed over. */
+/* no track chrome — Cursor's ruler is just the marks against the editor,
+   two half-columns: removed in the left half, added in the right, and a
+   modified chunk shows both side by side */
+.cm-host > .cm-changeRuler {
+  right: 0;
+  width: 20px;
+}
+
+/* the strip is the diff's scrollbar: the native one under it says nothing
+   the thumb doesn't, so it's hidden rather than doubled */
+.cm-host .cm-mergeView {
+  scrollbar-width: none;
+}
+
+.cm-host .cm-mergeView::-webkit-scrollbar {
+  display: none;
+}
+
+.cm-host > .cm-changeRuler .cm-changeTick {
+  left: 0;
+  right: 0;
+  width: auto;
+  border-radius: 0;
+  opacity: 1;
+}
+
+.cm-host > .cm-changeRuler .cm-change-add {
+  left: 50%;
+  background: rgba(88, 124, 12, 0.8);
+}
+
+.cm-host > .cm-changeRuler .cm-change-del {
+  right: 50%;
+  background: rgba(148, 21, 27, 0.8);
+}
+
+.cm-host > .cm-changeRuler .cm-change-mod {
+  background: linear-gradient(
+    to right,
+    rgba(148, 21, 27, 0.8) 0 50%,
+    rgba(88, 124, 12, 0.8) 50% 100%
+  );
+}
+
+/* where you are in the file — the scrollbar-thumb rectangle, over the marks */
+.cm-host > .cm-changeRuler .cm-changeRulerThumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 8px;
+  /* it IS the scrollbar thumb now, so it carries a thumb's weight —
+     a plain borderless square of it */
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+/* folding is an editing affordance; in a diff pane it only made the right
+   side's gutter fatter than the left's, and the halves read as unequal */
+.cm-merge-b .cm-foldGutter {
+  display: none;
 }
 
 /* oneDark paints its own #282c34 — pin editor surfaces to the theme bg */

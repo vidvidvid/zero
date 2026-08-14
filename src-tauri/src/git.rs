@@ -230,6 +230,31 @@ pub async fn git_unstage(worktree: String, paths: Vec<String>) -> Result<(), Str
     Ok(())
 }
 
+/// Discard working-tree changes. Tracked paths go back to what the *index*
+/// holds — the same base the "changes" diff is measured against — and
+/// untracked paths, which have no earlier self to restore, are deleted.
+/// `git clean` rather than a plain remove because an untracked *directory* is
+/// one status entry, and clean is the tool that knows what's inside it is
+/// also untracked. The frontend confirms before calling; nothing here asks.
+#[tauri::command]
+pub async fn git_discard(
+    worktree: String,
+    tracked: Vec<String>,
+    untracked: Vec<String>,
+) -> Result<(), String> {
+    if !tracked.is_empty() {
+        let mut args = vec!["restore", "--worktree", "--"];
+        args.extend(tracked.iter().map(|s| s.as_str()));
+        run_git_trusted(&worktree, &args)?;
+    }
+    if !untracked.is_empty() {
+        let mut args = vec!["clean", "-fdq", "--"];
+        args.extend(untracked.iter().map(|s| s.as_str()));
+        run_git_trusted(&worktree, &args)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn git_commit(worktree: String, message: String) -> Result<String, String> {
     if message.trim().is_empty() {
