@@ -2964,6 +2964,10 @@ body.dragging-row .term-divider.col::after {
   overflow: hidden;
 }
 
+/* hangs from the bottom edge: applySize() replaces `top` with an explicit
+   height, so the block's top edge moves only when a row is painted and not
+   when the pane it sits in changes size. `top: 0` here is just the stretch it
+   starts in, before there is a row to measure a height against. */
 .term-scroll {
   position: absolute;
   left: 0;

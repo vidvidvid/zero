@@ -484,37 +484,126 @@ function TerminalPane({
     // row while you drag. Every version of that was visible and annoying.
     //
     // So the remainder goes above the first row and the block hangs from the
-    // bottom edge instead. Every row then keeps a fixed offset from the bottom,
-    // which is the whole trick: the gap at the top grows as you drag and not
-    // one line of text moves, at any granularity. When the gap reaches a full
-    // row the count ticks up and a new row appears in it.
+    // bottom edge instead: `bottom: 0` and an explicit height of exactly the
+    // rows it holds, never `top: 0` and a stretch. That difference is the
+    // whole thing. Stretched, the block's top edge is the clip's top edge, so
+    // the instant the divider drag makes the panel a row taller every line of
+    // text rides up with it — a plain layout change, no JS, nothing to be in
+    // time for — and then drops back one frame later, when the ResizeObserver
+    // finally gets us to term.resize() and the buffer scrolls a row down to
+    // fill the new one. Up, then down, once per row crossed, which is the
+    // bounce; drag the other way and it is down, then up. Hanging from the
+    // bottom, the top edge moves only when the height does, and the height
+    // moves only where it is set below.
     //
-    // `floor`, not `ceil`. `ceil` leaves no gap at all and gives flat padding
-    // on every side, but it pays for that by slicing the top row where the clip
-    // cuts it — and a half-visible first line is worse than an uneven gap, as
-    // anyone who has lost the top of a "Restored session" line will tell you.
-    // So the sides stay a flat 6px and the top runs to a row more than that.
+    // The other half is timing, and it is worth knowing which way round it
+    // goes, because the plausible guess is backwards: xterm rewrites the row
+    // text *synchronously* inside term.resize() — the buffer scrolls, the row
+    // elements are added or removed, and the new text is in the DOM before the
+    // call returns. Nothing waits for the next repaint. So the height has to
+    // be set in the same breath as the resize, and deferring it to onRender
+    // (or to a rAF) buys exactly the bounce it was meant to remove, one frame
+    // later and in the other direction. Measured, both ways round, per frame.
+    //
+    // The gap this leaves at the top is one row at most, and only while a drag
+    // is between snap points — the divider snaps to whole rows (see startDrag
+    // in Workspace), so at rest it is usually nothing. `floor`, not `ceil`:
+    // `ceil` closes the gap but pays for it by slicing the top row where the
+    // clip cuts it, and a half-visible first line is worse than an uneven gap,
+    // as anyone who has lost the top of a "Restored session" line will tell
+    // you. So the sides stay a flat 6px and the top runs to a row more.
+    let painted = 0;
+
+    /** a divider is under the mouse — the body class both drag handlers set */
+    const dragging = () =>
+      document.body.classList.contains("dragging-row") ||
+      document.body.classList.contains("dragging-col");
+
+    /**
+     * How many rows the terminal can give up without losing anything.
+     *
+     * xterm makes room for a shrink by deleting lines *below the cursor*, so
+     * what a lost row costs depends entirely on what is down there. Blank ones
+     * are free. A session that hasn't filled the pane yet is all blanks below
+     * its last line, and a session that has is Claude Code's mode and status
+     * lines, drawn under an input box that holds the cursor. Counting the
+     * blanks tells the two apart without knowing anything about either.
+     */
+    const spareRows = () => {
+      const buf = term.buffer.active;
+      const cursor = buf.baseY + buf.cursorY;
+      let n = 0;
+      for (let y = buf.baseY + term.rows - 1; y > cursor; y--) {
+        if (buf.getLine(y)?.translateToString(true).trim()) break;
+        n++;
+      }
+      return n;
+    };
+
+    const applyBlock = () => {
+      // one row element, never the block's height divided by term.rows: that
+      // height is the thing this is about to set, so dividing the old one by
+      // the new count is circular and comes out short
+      const row = el.querySelector<HTMLElement>(".xterm-rows > div");
+      const cell = row?.getBoundingClientRect().height ?? 0;
+      if (!(cell > 1)) return;
+      painted = term.rows;
+      // `top` has to go: with all three of top, height and bottom set, CSS
+      // drops `bottom` and the block is top-anchored again — the very thing
+      // this is here to avoid
+      el.style.top = "auto";
+      el.style.height = `${painted * cell}px`;
+    };
+
     const applySize = () => {
       const clip = el.parentElement;
-      // one row element, never the whole block divided by term.rows: rows
-      // update synchronously but the renderer repaints on the next frame, so
-      // mid-resize that division yields a cell height far too short
       const row = el.querySelector<HTMLElement>(".xterm-rows > div");
       const cell = row?.getBoundingClientRect().height ?? 0;
       const dims = fit.proposeDimensions();
-      // before the first paint there is no row to measure; fit() does the same
-      // arithmetic against the host, and the rAF below redoes this properly
+      // before the first paint there is no row to measure. Hand the stretch
+      // back for that one case: fit() sizes the terminal from the host, and a
+      // host already holding an explicit height would just re-propose the row
+      // count it was given and freeze there
       if (!clip || !dims || !(cell > 1)) {
+        el.style.top = "0";
+        el.style.height = "auto";
         fit.fit();
         return;
       }
       // measured against the clip, never the host: the host's own height is
-      // what this adjusts, and reading it back would oscillate
-      const room = clip.clientHeight;
-      const rows = Math.max(1, Math.floor(room / cell));
-      if (term.cols !== dims.cols || term.rows !== rows) term.resize(dims.cols, rows);
-      el.style.top = `${room - rows * cell}px`;
+      // what this sets, and reading it back would be that same feedback loop
+      const rows = Math.max(1, Math.floor(clip.clientHeight / cell));
+      // Grow with the drag; shrink only as far as it costs nothing, and leave
+      // the rest until the mouse comes up. Losing a row is not the mirror
+      // image of gaining one — xterm fills a new row from scrollback, but it
+      // makes room for a lost one by deleting a line below the cursor (see
+      // spareRows) — and the two ends of that behave differently on purpose:
+      //
+      // - a session with room to spare gives up its blank rows, so the text
+      //   stays where it is against the pane's top edge and follows the drag
+      //   down, the space underneath closing as it goes;
+      // - a session that has run out stops. The block then overhangs the top
+      //   of the clip by the rows that no longer fit, which get clipped rather
+      //   than deleted, and Claude Code's status lines stay pinned to the
+      //   bottom edge where they were.
+      //
+      // The changeover happens exactly when the content reaches the bottom of
+      // the pane, because that is the same moment the blanks run out.
+      const next =
+        dragging() && rows < term.rows ? Math.max(rows, term.rows - spareRows()) : rows;
+      if (term.cols !== dims.cols || term.rows !== next) {
+        term.resize(dims.cols, next);
+        // in the same frame as the text the resize just moved, never after it
+        applyBlock();
+      } else if (painted !== term.rows) applyBlock();
     };
+
+    // only for the resize that lands before the first paint, when there is no
+    // row to measure a height against and applyBlock() above did nothing
+    const rendered = term.onRender(() => {
+      if (painted !== term.rows) applyBlock();
+    });
+
     applySize();
     // once more after the first paint, for the case where the renderer hasn't
     // put any rows in the DOM yet at this point
@@ -561,9 +650,31 @@ function TerminalPane({
 
     // fit visually every frame during drags (debouncing leaves the exposed
     // strip showing the cleared canvas = black flash); only the pty notify
-    // is debounced
+    // is debounced.
+    //
+    // And it waits for the mouse to come up, not just for 50ms of quiet.
+    // Telling the pty is a SIGWINCH, and a full-screen program answers one by
+    // redrawing everything it has on screen — for Claude Code that is its
+    // whole UI. A drag pauses longer than 50ms between snap points more often
+    // than not, so a debounce alone hands it one redraw per row, and every one
+    // of them moves the text. Whatever the drag is worth seeing, ten reflows
+    // of someone else's layout is not it: the size the shell is told is the
+    // size you let go at. The rows on screen are still right the whole way —
+    // only the program's idea of them lags, and only until you release.
     let resizeTimer = 0;
     let resizeRaf = 0;
+    const notifyPty = () => {
+      if (dragging()) {
+        resizeTimer = window.setTimeout(notifyPty, 30);
+        return;
+      }
+      // the shrink applySize held back while the mouse was down, and the
+      // SIGWINCH that tells the program to redraw for it, back to back
+      applySize();
+      if (term.cols > 0 && term.rows > 0) {
+        api.ptyResize(id, term.cols, term.rows).catch(() => {});
+      }
+    };
     const observer = new ResizeObserver(() => {
       if (resizeRaf) return;
       resizeRaf = window.requestAnimationFrame(() => {
@@ -573,11 +684,7 @@ function TerminalPane({
         applySize();
         if (term.rows > 0) term.refresh(0, term.rows - 1);
         window.clearTimeout(resizeTimer);
-        resizeTimer = window.setTimeout(() => {
-          if (term.cols > 0 && term.rows > 0) {
-            api.ptyResize(id, term.cols, term.rows).catch(() => {});
-          }
-        }, 50);
+        resizeTimer = window.setTimeout(notifyPty, 50);
       });
     });
     // watch the clip, not the host: applySize() resizes the host, and observing
@@ -595,6 +702,7 @@ function TerminalPane({
       window.cancelAnimationFrame(resizeRaf);
       window.cancelAnimationFrame(sizeRaf);
       smooth.dispose();
+      rendered.dispose();
       links.dispose();
       ptyBus.off(id);
       api.ptyKill(id).catch(() => {});
