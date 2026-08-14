@@ -21,6 +21,86 @@
   --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
 }
 
+/* ===== light appearance =====
+   App.tsx puts `light` on <html> when the appearance setting resolves light;
+   dark stays the bare default, so nothing above changes meaning. The values
+   are Light Modern's — the same VS Code source the dark tokens came from.
+   The brightness axis flips with the theme: what stood out by being lighter
+   now stands out by being darker, which is why --accent inverts. */
+html.light {
+  --bg: #ffffff;
+  --bg-panel: #f8f8f8;
+  --bg-raised: #e8e8e8;
+  --bg-hover: #e8e8e8;
+  --border: #e5e5e5;
+  --text: #3b3b3b;
+  --text-dim: #616161;
+  --text-faint: #a5a5a5;
+  --accent: #1f1f1f;
+  --green: #388a34;
+  --red: #cd3131;
+  --yellow: #b89500;
+}
+
+/* the colors that aren't tokens, in the same roles Light Modern gives them */
+html.light .tree-item.selected {
+  background: #d0e2f2;
+}
+
+html.light .tree-item.selected:hover {
+  background: #c0d8ee;
+}
+
+html.light .image-stage {
+  background-color: #f0f0f0;
+  background-image:
+    linear-gradient(45deg, #e2e2e2 25%, transparent 25%, transparent 75%, #e2e2e2 75%),
+    linear-gradient(45deg, #e2e2e2 25%, transparent 25%, transparent 75%, #e2e2e2 75%);
+}
+
+html.light .cm-host .cm-const-name,
+html.light .cm-host .cm-const-name * {
+  color: #0070c1 !important;
+}
+
+html.light .cm-host .cm-fn-name,
+html.light .cm-host .cm-fn-name * {
+  color: #795e26 !important;
+}
+
+html.light .cm-host .cm-mod-link,
+html.light .cm-host .cm-mod-link * {
+  color: #006ab1 !important;
+}
+
+html.light .cm-host .cm-change-add {
+  background: #48985d;
+}
+
+html.light .cm-host .cm-change-mod {
+  background: #2090d3;
+}
+
+html.light .cm-host .cm-changeGutter .cm-change-del::before,
+html.light .cm-host .cm-changeTick.cm-change-del {
+  background: #e51400;
+}
+
+html.light .pane-actions .pane-close:hover {
+  color: #cd3131;
+}
+
+/* glass in daylight: the scrim flips to frosted white, same alphas doing the
+   same legibility work */
+html.light.glass {
+  --bg: rgba(248, 248, 248, 0.58);
+  --bg-panel: rgba(248, 248, 248, 0.58);
+}
+
+html.light.glass .settings-box {
+  background: rgba(248, 248, 248, 0.4);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

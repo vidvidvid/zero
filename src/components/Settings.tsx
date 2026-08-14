@@ -53,6 +53,22 @@ export function Settings({ onClose }: { onClose: () => void }) {
           })}
         </div>
         <div className="settings-group">
+          <div className="settings-label">appearance</div>
+          {(["light", "dark", "system"] as const).map((a) => {
+            const on = settings.appearance === a;
+            return (
+              <button
+                key={a}
+                className={`settings-choice ${on ? "on" : ""}`}
+                onClick={() => updateSettings({ appearance: a })}
+              >
+                <span className="settings-dot" aria-hidden />
+                <span className="settings-choice-name">{a}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="settings-group">
           <div className="settings-label">window</div>
           {(
             [

@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
+import { getSettings, onSettingsChange, resolvedAppearance } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
@@ -411,6 +412,42 @@ const TERM_THEME = {
   brightWhite: "#e5e5e5",
 };
 
+// the same palette from VS Code's light theme — panel bg to match --bg-panel
+const TERM_THEME_LIGHT = {
+  background: "#f8f8f8",
+  foreground: "#3b3b3b",
+  cursor: "#3b3b3b",
+  selectionBackground: "#add6ff",
+  black: "#000000",
+  red: "#cd3131",
+  green: "#00bc00",
+  yellow: "#949800",
+  blue: "#0451a5",
+  magenta: "#bc05bc",
+  cyan: "#0598bc",
+  white: "#555555",
+  brightBlack: "#666666",
+  brightRed: "#cd3131",
+  brightGreen: "#14ce14",
+  brightYellow: "#b5ba00",
+  brightBlue: "#0451a5",
+  brightMagenta: "#bc05bc",
+  brightCyan: "#0598bc",
+  brightWhite: "#a5a5a5",
+};
+
+/* Appearance picks the palette, the glass setting blanks the background so
+   the panel's scrim shows instead. Both read from the settings store, not the
+   DOM: store listeners fire before React has moved the html classes, and the
+   store is never behind. A transparent background with glass off (or
+   unsupported) is invisible anyway — .term-abs paints the same color opaquely
+   right behind it. */
+function termTheme() {
+  const s = getSettings();
+  const base = resolvedAppearance() === "light" ? TERM_THEME_LIGHT : TERM_THEME;
+  return s.glass ? { ...base, background: `${base.background}00` } : base;
+}
+
 function TerminalPane({
   id,
   cwd,
@@ -439,14 +476,9 @@ function TerminalPane({
     const el = hostRef.current;
     if (!el) return;
 
-    // under glass the panel behind the terminal carries the scrim, so the
-    // terminal itself must not paint. Read once at construction — if this
-    // pane wins the race against the glass IPC and bakes in the opaque
-    // theme, the html.glass !important override in App.css still clears it
-    const glass = document.documentElement.classList.contains("glass");
     const term = new Terminal({
-      theme: glass ? { ...TERM_THEME, background: "#18181800" } : TERM_THEME,
-      allowTransparency: glass,
+      theme: termTheme(),
+      allowTransparency: true,
       fontFamily: '"SF Mono", "Menlo", "Monaco", monospace',
       fontSize: 12.5,
       lineHeight: 1.25,
@@ -701,7 +733,13 @@ function TerminalPane({
     el.addEventListener("focusin", onFocusIn);
     term.focus();
 
+    // live theme: appearance and glass both arrive as settings-store events
+    const unTheme = onSettingsChange(() => {
+      term.options.theme = termTheme();
+    });
+
     return () => {
+      unTheme();
       el.removeEventListener("focusin", onFocusIn);
       observer.disconnect();
       window.clearTimeout(resizeTimer);
