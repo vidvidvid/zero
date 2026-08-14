@@ -57,7 +57,9 @@ body {
    desktop by itself. */
 
 html.glass {
-  --bg: rgba(31, 31, 31, 0.66);
+  /* one tone for every pane — under glass the editor/panel split reads as
+     two different windows, so the distinction is left to borders alone */
+  --bg: rgba(24, 24, 24, 0.58);
   --bg-panel: rgba(24, 24, 24, 0.58);
 }
 
@@ -83,6 +85,17 @@ html.glass .term-pane .xterm-viewport,
 html.glass .term-pane .xterm-screen,
 html.glass .term-pane .xterm canvas {
   background: transparent !important;
+}
+
+/* The preferences modal floats above app content, which the window's glass
+   pane — behind the whole webview — can never blur. backdrop-filter is the
+   DOM's own glass: it frosts what's under the box, and the window pane
+   frosts the desktop under that, so the modal reads as a second sheet of
+   the same material rather than a solid card on a glass window. */
+html.glass .settings-box {
+  background: rgba(24, 24, 24, 0.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
 }
 
 /* WKWebView honours only the prefixed property on these — without it a drag
