@@ -34,8 +34,12 @@ html.light {
   --bg-hover: #e8e8e8;
   --border: #e5e5e5;
   --text: #3b3b3b;
-  --text-dim: #616161;
-  --text-faint: #a5a5a5;
+  /* Not the dark values mirrored: those were tuned against near-black, and
+     the same distance from white lands short of legible — especially through
+     glass, which lightens whatever it frosts. Both steps sit darker than
+     symmetry would put them. */
+  --text-dim: #555555;
+  --text-faint: #7a7a7a;
   --accent: #1f1f1f;
   --green: #388a34;
   --red: #cd3131;
@@ -97,8 +101,10 @@ html.light.glass {
   --bg-panel: rgba(248, 248, 248, 0.58);
 }
 
+/* more scrim than the dark modal carries: white glass brightens what's
+   behind it, so at equal alpha the light box washes toward its own text */
 html.light.glass .settings-box {
-  background: rgba(248, 248, 248, 0.4);
+  background: rgba(248, 248, 248, 0.68);
 }
 
 * {
