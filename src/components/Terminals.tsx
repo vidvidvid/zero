@@ -561,21 +561,99 @@ function TerminalPane({
      * How many rows the terminal can give up without losing anything.
      *
      * xterm makes room for a shrink by deleting lines *below the cursor*, so
-     * what a lost row costs depends entirely on what is down there. Blank ones
-     * are free. A session that hasn't filled the pane yet is all blanks below
-     * its last line, and a session that has is Claude Code's mode and status
-     * lines, drawn under an input box that holds the cursor. Counting the
-     * blanks tells the two apart without knowing anything about either.
+     * what a lost row costs depends entirely on what is down there. A session
+     * that hasn't filled the pane yet is all blanks below its last line, and
+     * those are free. A session that has is Claude Code's mode and status
+     * lines, drawn under an input box that holds the cursor — and under those,
+     * one blank row that is just as much part of the layout as the rest of it.
+     * Counting the blanks alone tells the two apart, but it hands over that
+     * last row: the status line ends up flush against the bottom edge for the
+     * length of the drag, a row lower than it sits at rest.
+     *
+     * So the question isn't how many blanks there are, it's whose they are.
+     * Anything written below the cursor means a full-screen program drew the
+     * bottom of this pane, and the blank rows under it are its spacing, not
+     * our slack. A shell never writes below its cursor, so this costs it
+     * nothing.
      */
     const spareRows = () => {
       const buf = term.buffer.active;
       const cursor = buf.baseY + buf.cursorY;
       let n = 0;
       for (let y = buf.baseY + term.rows - 1; y > cursor; y--) {
-        if (buf.getLine(y)?.translateToString(true).trim()) break;
+        if (buf.getLine(y)?.translateToString(true).trim()) return 0;
         n++;
       }
       return n;
+    };
+
+    /**
+     * xterm's own buffer, which `term.buffer.active` is only a reader for.
+     * Undefined if the internals ever move; every caller falls back.
+     */
+    const coreBuffer = () =>
+      (
+        term as unknown as {
+          _core?: { buffers?: { active?: { y: number; ybase: number; lines: { length: number } } } };
+        }
+      )._core?.buffers?.active;
+
+    /**
+     * term.resize(), except that growing reveals scrollback instead of
+     * pushing the screen up.
+     *
+     * Given a taller viewport xterm fills the new rows one of two ways. It
+     * pulls a line back out of scrollback — `ybase--` — which leaves every
+     * line already on screen exactly where it was and brings history down into
+     * the space that opened above them. Or it pushes a blank line onto the end
+     * of the buffer, which slides the whole screen up a row against a block
+     * hanging from the bottom edge. It chooses by asking whether anything is
+     * written below the cursor (Buffer.resize), and for a shell nothing ever
+     * is, so the first is the behaviour anyone has seen. Claude Code parks its
+     * cursor in the input box with its status line beneath, so it always gets
+     * the second: drag a pane taller and the session climbs with the divider
+     * instead of standing still while its own transcript comes back.
+     *
+     * That condition reads the cursor and nothing else, so the cursor is the
+     * one thing to lie about. Put it on the last row for the length of the
+     * call and xterm takes the scrollback path — the same path, the same code,
+     * that a shell in the same pane would get — then put it back afterwards,
+     * moved down by however many lines were really pulled, which is precisely
+     * what xterm does to a real cursor on that path. The absolute line the
+     * cursor sits on never changes, which is all the program on the other end
+     * knows about. Nothing repaints in between either: row text is rendered
+     * from the buffer on the next animation frame, and by then the buffer
+     * holds the truth again.
+     *
+     * When the scrollback runs out xterm goes back to pushing blanks by itself
+     * and the session does climb — which is the right answer, because at that
+     * point there is nothing left above it to reveal.
+     *
+     * Skipped when the width changes too: a reflow reads the cursor for real,
+     * and a vertical drag never changes cols anyway. Skipped on the alternate
+     * screen for the plainer reason that it has no scrollback to pull from.
+     */
+    const resizeTerm = (cols: number, rows: number) => {
+      const buf = coreBuffer();
+      if (
+        !buf ||
+        rows <= term.rows ||
+        cols !== term.cols ||
+        term.buffer.active.type !== "normal" ||
+        // nothing below the cursor: xterm already does the right thing
+        buf.lines.length <= buf.ybase + buf.y + 1
+      ) {
+        term.resize(cols, rows);
+        return;
+      }
+      const y = buf.y;
+      const base = buf.ybase;
+      buf.y = term.rows - 1;
+      try {
+        term.resize(cols, rows);
+      } finally {
+        buf.y = Math.min(rows - 1, y + (base - buf.ybase));
+      }
     };
 
     const applyBlock = () => {
@@ -613,9 +691,10 @@ function TerminalPane({
       const rows = Math.max(1, Math.floor(clip.clientHeight / cell));
       // Grow with the drag; shrink only as far as it costs nothing, and leave
       // the rest until the mouse comes up. Losing a row is not the mirror
-      // image of gaining one — xterm fills a new row from scrollback, but it
-      // makes room for a lost one by deleting a line below the cursor (see
-      // spareRows) — and the two ends of that behave differently on purpose:
+      // image of gaining one — a new row is filled from scrollback (see
+      // resizeTerm, which is what makes that true here), but room for a lost
+      // one is made by deleting a line below the cursor (see spareRows) — and
+      // the two ends of that behave differently on purpose:
       //
       // - a session with room to spare gives up its blank rows, so the text
       //   stays where it is against the pane's top edge and follows the drag
@@ -630,7 +709,7 @@ function TerminalPane({
       const next =
         dragging() && rows < term.rows ? Math.max(rows, term.rows - spareRows()) : rows;
       if (term.cols !== dims.cols || term.rows !== next) {
-        term.resize(dims.cols, next);
+        resizeTerm(dims.cols, next);
         // in the same frame as the text the resize just moved, never after it
         applyBlock();
       } else if (painted !== term.rows) applyBlock();
