@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
-import { getSettings, onSettingsChange, resolvedAppearance } from "../lib/settings";
+import { onSettingsChange, resolvedAppearance } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
@@ -313,8 +313,6 @@ export function Terminals({
                   top: `${rect.y}%`,
                   width: `${rect.w}%`,
                   height: `${rect.h}%`,
-                  borderLeft: rect.x > 0 ? "1px solid var(--border)" : "none",
-                  borderTop: rect.y > 0 ? "1px solid var(--border)" : "none",
                 }}
                 onMouseMove={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
@@ -436,16 +434,18 @@ const TERM_THEME_LIGHT = {
   brightWhite: "#a5a5a5",
 };
 
-/* Appearance picks the palette, the glass setting blanks the background so
-   the panel's scrim shows instead. Both read from the settings store, not the
-   DOM: store listeners fire before React has moved the html classes, and the
-   store is never behind. A transparent background with glass off (or
-   unsupported) is invisible anyway — .term-abs paints the same color opaquely
-   right behind it. */
+/* Appearance picks the palette; the background is blanked in all of them.
+   The terminal has no panel of its own any more — it sits on the window's
+   field, or on glass — so a background here would be the one thing painting a
+   pane behind text that is meant to have none. The palette keeps its own
+   background value for the cases that derive from it (xterm inverts it for
+   the selection and the cursor), which is why this blanks the alpha rather
+   than dropping the key.
+   Read from the settings store, not the DOM: store listeners fire before
+   React has moved the html classes, and the store is never behind. */
 function termTheme() {
-  const s = getSettings();
   const base = resolvedAppearance() === "light" ? TERM_THEME_LIGHT : TERM_THEME;
-  return s.glass ? { ...base, background: `${base.background}00` } : base;
+  return { ...base, background: `${base.background}00` };
 }
 
 function TerminalPane({

@@ -4,6 +4,12 @@
   /* Dark Modern (VS Code / Cursor default) */
   --bg: #1f1f1f; /* editor.background */
   --bg-panel: #181818; /* sideBar / panel / titleBar background */
+  /* The window's own surface, behind everything that floats on it. It has to
+     be darker than both panel tones or the cards read as holes cut in the
+     window rather than panels lying on it — the shadow says "above" and the
+     tone has to agree. macOS does the same thing the other way up in light:
+     a grey window, panels lighter than it. */
+  --bg-field: #141414;
   --bg-raised: #2a2d2e; /* list.hoverBackground */
   --bg-hover: #2a2d2e;
   --border: #2b2b2b;
@@ -19,6 +25,11 @@
   --yellow: #e2c08d;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
+  /* how far a floating panel stands off the window edge and its neighbours.
+     One number, because the look only holds while every gap around the card
+     is the same one — the resizer between the sidebar and the editor makes up
+     half of its own gap, which is why it is this divided by two. */
+  --float-gap: 8px;
 }
 
 /* ===== light appearance =====
@@ -30,6 +41,9 @@
 html.light {
   --bg: #ffffff;
   --bg-panel: #f8f8f8;
+  /* the standard macOS window grey, which is what makes a white panel on it
+     read as a panel */
+  --bg-field: #ececec;
   --bg-raised: #e8e8e8;
   --bg-hover: #e8e8e8;
   --border: #e5e5e5;
@@ -101,6 +115,12 @@ html.light.glass {
   --bg-panel: rgba(248, 248, 248, 0.58);
 }
 
+/* under glass the field is the glass itself — the panels are the only thing
+   carrying a scrim, which is what makes the gaps between them read as window */
+html.glass {
+  --bg-field: transparent;
+}
+
 /* more scrim than the dark modal carries: white glass brightens what's
    behind it, so at equal alpha the light box washes toward its own text */
 html.light.glass .settings-box {
@@ -122,11 +142,11 @@ body,
 
 /* paint the webview itself so relayout gaps never flash a foreign color */
 html {
-  background: var(--bg-panel);
+  background: var(--bg-field);
 }
 
 body {
-  background: var(--bg);
+  background: var(--bg-field);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 13px;
@@ -143,8 +163,9 @@ body {
    desktop by itself. */
 
 html.glass {
-  /* one tone for every pane — under glass the editor/panel split reads as
-     two different windows, so the distinction is left to borders alone */
+  /* one tone for every pane — under glass the editor/panel split read as two
+     different windows. That used to leave the distinction to borders; now the
+     panels float, and the gap of clear glass between them does it instead. */
   --bg: rgba(24, 24, 24, 0.58);
   --bg-panel: rgba(24, 24, 24, 0.58);
 }
@@ -154,22 +175,18 @@ html.glass body {
   background: transparent;
 }
 
-/* these two had no background of their own — the body's showed through */
-html.glass .main-col,
-html.glass .launcher {
-  background: var(--bg);
-}
+/* .main-col and .launcher used to be handed a background here, because they
+   had none of their own and the body's showed through. Both paint --bg in
+   every appearance now — the editor is a floating card and a card has to
+   carry its own tone — so there is nothing left for this to fix up. */
 
-/* the editor and the terminal paint themselves from JS themes, opaquely and
-   in whatever color the chosen syntax theme says — under glass they go clear
-   and the pane behind them (.main-col / .term-panel) carries the one scrim
-   layer, so every theme glasses the same way */
+/* the editor paints itself from a JS theme, opaquely and in whatever color
+   the chosen syntax theme says — under glass it goes clear and the pane
+   behind it (.main-col) carries the one scrim layer, so every theme glasses
+   the same way. The terminal's surfaces used to be listed here too; they are
+   clear in every appearance now, so they say so where they are defined. */
 html.glass .cm-editor,
-html.glass .cm-gutters,
-html.glass .term-abs,
-html.glass .term-pane .xterm-viewport,
-html.glass .term-pane .xterm-screen,
-html.glass .term-pane .xterm canvas {
+html.glass .cm-gutters {
   background: transparent !important;
 }
 
@@ -214,11 +231,14 @@ kbd {
 
 /* ===== launcher ===== */
 
+/* the no-project screen is the one place with nothing floating on the field,
+   so it keeps the editor's tone rather than showing the surface panels lie on */
 .launcher {
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--bg);
 }
 
 .launcher-inner {
@@ -328,29 +348,33 @@ kbd {
   flex-direction: column;
 }
 
+/* 40px, and the traffic lights were moved to match rather than the other way
+   round. They are 14px tall and macOS parks them 9px down — an axis at 16,
+   which is where the system's own 32px titlebar band centres them and why the
+   bar was 32 for a while. It doesn't have to be: `trafficLightPosition` in
+   tauri.conf.json hands their placement to us, and tao re-applies it on every
+   redraw, so it survives a resize.
+   Its `y` is not the axis and not the inset — measured, the button's centre
+   lands at y − 2, so a bar of height B wants y = B / 2 + 2. 40 ⇒ 22, an axis
+   at 20, which is this bar's middle. Change one and the other has to follow;
+   they are the same number written twice, in two files, which is the price of
+   the extra height. */
 .titlebar {
   position: relative;
-  height: 38px;
+  height: 40px;
   flex: none;
   display: flex;
   align-items: center;
-  background: var(--bg-panel);
+  /* no fill and no rule under it: the bar is a strip of the field the panels
+     float on, not a fourth panel. A tone of its own would put a seam across
+     the top of the window in the one place the cards were meant to remove it,
+     and under glass it would frost a band that the gaps beside it leave
+     clear. What separates it from the editor is the float gap, same as
+     everywhere else. */
+  background: transparent;
   /* equal insets so centered tabs sit on the true window axis;
      left inset also clears the traffic lights */
   padding: 0 78px;
-}
-
-/* the rule is drawn, not a border: a border-bottom eats a pixel of the
-   content box, so everything centred inside the bar lands half a pixel high */
-.titlebar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  background: var(--border);
-  pointer-events: none;
 }
 
 .titlebar-spacer {
@@ -363,6 +387,7 @@ kbd {
 .titlebar-tabs {
   display: flex;
   align-items: center;
+  gap: 2px;
   height: 100%;
   overflow-x: auto;
   scrollbar-width: none;
@@ -370,42 +395,73 @@ kbd {
 
 /* symmetric: a fixed square at each end (status left, close right) with the
    name between them, so the tab is one width in every state */
-/* 11px, and it's derived rather than chosen: the bar is 38px and the two icon
-   squares at the ends are 16px, so they float (38 − 16) / 2 = 11px clear of the
-   top and bottom. Anything else on the sides and the ring sits nearer the tab's
-   edge than its ceiling, which is what 5px looked like. */
+/* Pills on the field rather than cells in a strip. The hairlines they used to
+   carry were what made the bar read as a surface, and there is no surface up
+   here any more — a divider between two tabs that sit on the window would be
+   a line drawn on nothing. So the fill is the whole of it: the tab you are in
+   is the one wearing the editor's tone.
+   28 of the bar's 40px, so six clear top and bottom, and fourteen taller than
+   the buttons beside it are wide — which is what stops it reading as squashed
+   the way 24 in a 32px bar did. */
 .titlebar-tab {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 100%;
+  gap: 6px;
+  height: 28px;
   padding: 0 11px;
+  border-radius: 7px;
   font-size: 12.5px;
   color: var(--text-faint);
-  border-right: 1px solid var(--border);
   white-space: nowrap;
   cursor: grab;
 }
 
+/* The same 16px box the status dot and the ✕ get, so the three of them are
+   centred by the same arithmetic. At `line-height: 1` the box is the font
+   size — 12.5 — and centring that in a 28px pill puts its top on 7.75 while
+   the icons' boxes land on 6: a half-pixel of disagreement, which is a whole
+   device pixel on this screen and reads as the name sitting a touch high.
+   The leading itself was never the problem. Measured against the system font
+   at this size, the optical centre of mixed-case text sits 0.32px below the
+   middle of its own box — a third of a pixel, and the same third either way,
+   so it is the box that has to line up and it now does. */
 .titlebar-tab-name {
-  /* the glyph box, not the font's default leading, decides where the text
-     sits — otherwise the descent pushes it low against the two icon slots */
-  line-height: 1;
+  line-height: 16px;
 }
 
-.titlebar-tab:first-child {
-  border-left: 1px solid var(--border);
+/* A tick between one project and the next, in the gap they already leave.
+   Half the pill's height and grey rather than a rule edge to edge: the pills
+   are objects lying on the window, and a full-height line between them would
+   go back to drawing the cells they stopped being.
+   It belongs to the tab on its right — hence the sibling selector, which also
+   means the first tab never has one, there being nothing to its left to part
+   it from. */
+.titlebar-tab + .titlebar-tab::before {
+  content: "";
+  position: absolute;
+  left: -1.5px;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  transform: translateY(-50%);
+  background: var(--text-faint);
 }
 
+/* No fill on either state, which is the rule the sidebar's tabs have followed
+   all along: "the icon's own brightness says which is which". A filled pill
+   was a box drawn around a word on a bar that has no surface of its own —
+   solid it read as a slab, a wash it read as a smudge, and either way it was
+   the loudest thing in a strip whose job is to name four projects. What is
+   left is the word, in three brightnesses: faint, dim under the pointer, full
+   for the one you are in. The tick between two tabs parts them; nothing has
+   to be boxed to be told apart from its neighbour. */
 .titlebar-tab:hover {
   color: var(--text-dim);
-  background: var(--bg-raised);
 }
 
 .titlebar-tab.active {
   color: var(--text);
-  background: var(--bg);
 }
 
 /* reorder: the tabs being passed over slide, the one under the pointer must
@@ -439,15 +495,15 @@ body.dragging-tab .editor-tab * {
    everything else in this theme — the two states are told apart by whether the
    light is moving and whether the ring is closed, which reads at 10px better
    than a hue does. Cleared once you've been there. */
-/* the reserved square — same 16px as the close button on the other end */
+/* the reserved square — same 18px as the close button on the other end */
 .titlebar-tab-status {
   position: relative;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .claude-ring {
@@ -501,16 +557,22 @@ body.dragging-tab .editor-tab * {
 }
 
 /* fixed square, flex-centred — same vertical axis as the status dot */
+/* 18px around a 9px mark, and the mark is all of it — no square behind it,
+   the same as the file tabs' ✕. The room is still worth having: it is the
+   target, not the paint. Grown at both ends — the status square matches it —
+   because the two squares are what keep the name centred in its own tab. */
 .titlebar-tab-close {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  border-radius: 3px;
   color: transparent;
+  /* the same 120ms the file tabs' ✕ fades over */
+  cursor: pointer;
+  transition: color 0.12s ease;
 }
 
 .titlebar-tab-close svg {
@@ -522,61 +584,64 @@ body.dragging-tab .editor-tab * {
   color: var(--text-faint);
 }
 
-.titlebar-tab-close:hover {
-  color: var(--text);
-  background: var(--bg-raised);
-}
-
-/* only while you're up here — unclickable as well as invisible, so a stray
-   click on the empty title bar can't open a file dialog */
-.titlebar-add {
-  padding: 3px 10px;
-  font-size: 12px;
-  color: var(--text-faint);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s ease;
-}
-
-.titlebar:hover .titlebar-add {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.titlebar-add:hover {
+/* same specificity trap as the file tabs' ✕ — the tab-hover rule above is the
+   longer selector, so this one has to match it to win the colour */
+.titlebar-tab:hover .titlebar-tab-close:hover {
   color: var(--text);
 }
 
-/* unlike the +, always there: settings shouldn't need the shortcut known or
-   the bar hovered to be found. Absolutely pinned, for two reasons that are the
-   same reason: in the flex row the bar's 78px inset would hold it that far
-   from the edge, and its width would join the spacer math and pull the tabs
-   off the window axis. Out of the flow it sits in the true corner and the
-   tabs never feel it. */
-.titlebar-gear {
+/* The bar's own controls, pinned to the right inset rather than laid in the
+   flex row: their widths would otherwise join the spacer arithmetic that
+   keeps the tab strip on the window's axis. They are in flow with each other
+   though, which is what lets the ＋ sit beside the gear without the two of
+   them being pinned to hand-counted offsets that collide the moment the
+   update pill appears between them. */
+.titlebar-right {
   position: absolute;
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
+  gap: 2px;
+}
+
+/* Always there, like the gear beside it. It used to appear only while the
+   pointer was in the bar, which was a way of keeping a stray click off a file
+   dialog back when it sat alone in the middle of an empty strip — next to the
+   gear it is plainly a button among buttons, and one you have to aim at. */
+.titlebar-add {
+  display: flex;
+  align-items: center;
   padding: 4px 6px;
   color: var(--text-faint);
+  transition: color 0.12s ease;
+}
+
+.titlebar-add svg {
+  display: block;
+}
+
+.titlebar-add:hover {
+  color: var(--text);
+}
+
+/* settings shouldn't need the shortcut known to be found */
+.titlebar-gear {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  color: var(--text-faint);
+  transition: color 0.12s ease;
 }
 
 .titlebar-gear:hover {
   color: var(--text);
 }
 
-/* pinned like the gear and for the same reason — out of the flex row, so its
-   width never joins the spacer math and pulls the tabs off the window axis.
-   Sits to the gear's left, and since it only exists while an update is
-   waiting, nothing shifts when it appears or goes. */
+/* first in the cluster, so it appears to the left of the ＋ and the gear and
+   pushes neither: the whole row is anchored by its right edge */
 .titlebar-update {
-  position: absolute;
-  right: 34px;
-  top: 50%;
-  transform: translateY(-50%);
   padding: 3px 9px;
   border-radius: 5px;
   font-size: 11px;
@@ -618,11 +683,49 @@ body.dragging-tab .editor-tab * {
   transform: translateZ(0);
 }
 
-/* sidebar + editor; the terminal is this row's sibling, not the editor's */
+/* sidebar + editor; the terminal is this row's sibling, not the editor's.
+   The float gap lives here as padding rather than on each card, so the one
+   place that knows how far a panel stands off the window is the box that
+   holds them — and the outer three gaps stay equal whether or not the sidebar
+   is showing, which margins on the cards themselves could not manage.
+   No gap on top, and that is what makes the title bar look centred rather
+   than merely being centred. Everything up there sits on the traffic lights'
+   axis, 16px down, because macOS put them there and won't move them. Add a
+   gap under the bar and the band a person reads as "the top bar" becomes the
+   bar plus the gap — 40px, whose middle is 20 — and the tabs that are dead
+   centre on the buttons look four pixels high in it. The bar's own 32px is
+   the gap. */
 .workspace-top {
   flex: 1;
   min-height: 0;
   display: flex;
+  padding: 0 var(--float-gap) var(--float-gap);
+}
+
+/* ===== floating panels =====
+   The three surfaces that lie on the field: the sidebar, the editor column
+   and the terminal. Same radius, same lift — the language is only a language
+   if every panel speaks it.
+   No outline on any of them. A hairline is how you say "this is a separate
+   thing" to two panes that share an edge, and none of these share one any
+   more: the gap says it, the shadow says it again, and a line drawn on top of
+   both is a frame around something already framed. */
+.sidebar,
+.editor-card {
+  border-radius: 10px;
+  /* The negative spread is the point: a plain `0 4px 16px` reaches twelve
+     pixels *above* the card as well as below it, and above the cards is the
+     title bar — a 32px strip with a dark wash across its bottom third, which
+     is enough to make three buttons centred in it look like they are sitting
+     high. Pulling the spread back by the blur keeps the shadow under the card
+     where the light says it should be. */
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.5);
+}
+
+/* the same lift over white, where a shadow tuned for near-black is a smudge */
+html.light .sidebar,
+html.light .editor-card {
+  box-shadow: 0 5px 12px -6px rgba(0, 0, 0, 0.22);
 }
 
 .workspace.inactive {
@@ -632,11 +735,21 @@ body.dragging-tab .editor-tab * {
 
 /* ===== sidebar ===== */
 
+/* A floating card rather than a column butted against the window edge — the
+   shape macOS 26 gives a sidebar, and the one Telegram has had for years.
+   Its own margin is only half the gap to the editor; the resizer standing in
+   the middle is the other half.
+   `overflow: hidden` is what makes the radius real here: the tab strip's rule
+   runs to both edges and the tree's hover fills do too, and either one squares
+   off a corner it isn't clipped at. Nothing in this panel pops out of it — no
+   menus, no tooltips — so there is nothing for the clip to cost. */
 .sidebar {
   flex: none;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
+  margin-right: calc(var(--float-gap) / 2);
+  overflow: hidden;
 }
 
 /* same bar height as the editor tab strip so the two line up across the split */
@@ -702,25 +815,34 @@ body.dragging-tab .editor-tab * {
 
 /* ===== resizers ===== */
 
+/* No rule at rest any more, on either of them: the gap between two cards is
+   the divider now, and a line down the middle of it would only be the seam
+   put back. They keep their width as a hit area and still light up under the
+   pointer — and because the workspace's padding already insets them, the bar
+   each one paints runs exactly the length of the cards it parts. */
 .resizer-col {
   flex: none;
-  width: 4px;
-  margin: 0 -1px;
+  width: calc(var(--float-gap) / 2);
   cursor: col-resize;
-  background: var(--border);
+  background: transparent;
   background-clip: content-box;
   padding: 0 1.5px;
   z-index: 10;
 }
 
+/* it lies in the workspace's bottom padding rather than below it — that band
+   is already the gap between the editor and the terminal, and a divider that
+   added its own height would double it */
 .resizer-row {
   flex: none;
-  height: 4px;
-  margin: -1px 0;
+  height: var(--float-gap);
+  margin-top: calc(var(--float-gap) * -1);
   cursor: row-resize;
-  background: var(--border);
+  background: transparent;
   background-clip: content-box;
-  padding: 1.5px 0;
+  /* padded to a 1px content box, so what lights up is a line and not the
+     whole band */
+  padding: 3.5px var(--float-gap);
   z-index: 10;
 }
 
@@ -2733,11 +2855,36 @@ body.dragging-row {
 
 /* ===== main column ===== */
 
+/* Not a surface — a column, holding a strip of window with tabs on it and the
+   card below. It used to be the card itself, and moving that one step down is
+   what lets the tab strip be the window's own colour rather than the page's:
+   a strip painted like the field but wrapped in the card's fill, radius and
+   shadow would have been a card pretending not to be one, shadow and all. */
 .main-col {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* The page the tabs belong to, and the card the editor column carries. Square
+   at the top left, which is the corner the tabs stand on: a curve there cuts
+   the run of tabs off from the page they open into, and the whole point of an
+   active tab wearing the page's tone is that the two are one shape. The other
+   three corners are the card's own.
+   Clipped to its radius, which is what keeps every view's own background —
+   CodeMirror's, the diff's, a memo thread's — from painting the corners
+   square again; they all paint this card's tone, and a corner is meant to
+   show the field through it. Safe to clip because CodeMirror's completion
+   popups hang off <body> now (see editorTheme). */
+.editor-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-top-left-radius: 0;
+  overflow: hidden;
 }
 
 /* editor */
@@ -2766,14 +2913,23 @@ body.dragging-row {
   transform: translateX(calc(var(--sidebar-offset, 0px) / -2));
 }
 
+/* the card's own radius, exactly: with no border between them there is no
+   inner curve to sit inside of. Its own `overflow-x` is what clips the first
+   tab's fill to it. */
+/* Nothing of its own — no fill and no rule under it, so what shows through
+   is the field the whole window is built on, the same surface the cards float
+   over. That is the point: the tabs are objects lying on the window, not a
+   coloured band across the top of the page. The panel tone belongs to the
+   tabs, and it stops where they stop. The tab you are on wears the page's own
+   tone instead and sits directly on the card below it, with no edge in
+   between, because it is the top of that page. */
 .editor-tabs {
   flex: none;
   box-sizing: border-box;
   height: 32px;
   display: flex;
   overflow-x: auto;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  background: transparent;
   scrollbar-width: none;
 }
 
@@ -2782,13 +2938,48 @@ body.dragging-row {
   display: flex;
   align-items: center;
   border-right: 1px solid var(--border);
+  background: var(--bg-panel);
   color: var(--text-faint);
   cursor: grab;
 }
 
+/* Both ends of the run are rounded on top, and only on top — the bottoms are
+   square because they stand on the card. The left one used to get its corner
+   from the card's own clip, back when the card still contained the strip;
+   with the tabs out on the field it has to be given one, and it may as well
+   be given the same one the right end already had.
+   The last tab keeps its hairline as well: it is what marks where the run
+   stops. The border curves into the radius and tapers out at the top, there
+   being no top border to meet — a tick rather than a line, which is all the
+   end of a run needs. */
+.editor-tab:first-child {
+  border-top-left-radius: 10px;
+}
+
+.editor-tab:last-child {
+  border-top-right-radius: 10px;
+}
+
+/* The tab you are on wears the page's tone, and it should meet the page with
+   nothing at all in between — so the separator on its right goes, and so does
+   the one the tab before it would land on its left. Those hairlines part two
+   tabs of the same colour; an active tab is parted from its neighbours by
+   being a different colour already, and a line around it only draws a box
+   where a continuation belongs.
+   Repainted, never removed. `border-right: none` takes a pixel of width off
+   the tab as it becomes active and gives it back as it stops being one, so
+   every tab to its right steps sideways each time you switch — the layout has
+   to be identical in both states, which means the border stays and only its
+   colour moves. Each takes its own background, so the pixel joins the tab it
+   belongs to instead of showing a line of window between them. */
 .editor-tab.active {
   background: var(--bg);
+  border-right-color: var(--bg);
   color: var(--text);
+}
+
+.editor-tab:has(+ .editor-tab.active) {
+  border-right-color: var(--bg-panel);
 }
 
 /* reorder — same rules as the project tabs above */
@@ -2830,14 +3021,36 @@ body.dragging-row {
   color: var(--green);
 }
 
+/* Transparent, not absent — the same rule the project tabs above follow, and
+   for the same two reasons. A tab that only wears its ✕ under the pointer
+   stops carrying a control it doesn't need the rest of the time, and colour
+   is what hides it rather than `display`, so the tab is one width in both
+   states and the strip doesn't twitch as you run along it. */
+/* A pointer of its own: the tab it sits in is a thing you drag, so it hands
+   its `grab` down to everything inside it, and a ✕ that closes a file has no
+   business advertising that it can be picked up. Colour is the only thing
+   that moves — no chip behind it, unlike the project tabs, where the ✕ is the
+   one control in a bar of bare words and has to be found. Here the strip is
+   already made of surfaces; another one inside a tab is a box in a box. */
 .editor-tab-close {
   height: 100%;
   padding: 0 8px 0 4px;
-  color: var(--text-faint);
+  color: transparent;
   font-size: 13px;
+  cursor: pointer;
+  transition: color 0.12s ease;
 }
 
-.editor-tab-close:hover {
+.editor-tab:hover .editor-tab-close {
+  color: var(--text-faint);
+}
+
+/* Reaching the ✕ itself lights it — and the selector has to be this long to
+   do it. `.editor-tab-close:hover` is one class and a pseudo-class; the rule
+   above it is two classes and a pseudo-class, so it outranks it however the
+   two are ordered, and the ✕ stayed faint under the pointer. Source order
+   only decides ties. */
+.editor-tab:hover .editor-tab-close:hover {
   color: var(--text);
 }
 
@@ -2846,7 +3059,11 @@ body.dragging-row {
   flex: none;
   display: flex;
   align-items: center;
-  padding: 3px 12px;
+  /* it used to sit under a tab strip with a rule across it, which gave the
+     line an edge to hang from; the strip has no rule and no fill now, so the
+     breadcrumb has to hold its own space or it reads as a caption stuck to
+     the tabs */
+  padding: 7px 12px;
   font-size: 11.5px;
   color: var(--text-faint);
   background: var(--bg);
@@ -3169,12 +3386,19 @@ body.dragging-row {
 
 /* ===== terminals ===== */
 
+/* Not a card, and the only one of the three that isn't: no fill, no radius,
+   no lift. A terminal is text, and once the panels around it stopped being
+   flush with the window there was nothing left for a panel behind it to
+   separate it from — so it sits on the field directly and the window shows
+   through between its lines. It keeps the gaps, so its text still lines up
+   under the cards rather than running out to the window's edge. */
 .term-panel {
   flex: none;
   min-height: 100px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: transparent;
+  margin: 0 var(--float-gap) var(--float-gap);
 }
 
 .term-body {
@@ -3188,7 +3412,6 @@ body.dragging-row {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background: var(--bg-panel);
 }
 
 /* the pane a dragged-in file would land in, lit while it's held over one.
@@ -3204,8 +3427,14 @@ body.dragging-row {
   background: rgb(255 255 255 / 4%);
 }
 
-/* the split line itself is the pane's border; this is just the hit area over
-   it. Below .pane-actions so it never steals a click from the ✕. */
+/* The split line moved here from the panes themselves. It used to be a border
+   on the pane below or to the right of it, which meant the line and the thing
+   you grab for it were two different objects a pixel apart; now the divider
+   draws its own line and lights the same line up when you reach for it. Two
+   terminals need it in a way two cards don't — cards are parted by a gap of
+   window, and these are parted by nothing but their own padding, which reads
+   as one wide terminal with a gutter. Below .pane-actions so it never steals
+   a click from the ✕. */
 .term-divider {
   position: absolute;
   z-index: 2;
@@ -3227,7 +3456,7 @@ body.dragging-row {
   content: "";
   position: absolute;
   inset: 0;
-  background: transparent;
+  background: var(--border);
   transition: background 0.12s ease;
 }
 
@@ -3343,10 +3572,10 @@ body.dragging-row .term-divider.col::after {
   overscroll-behavior: contain;
 }
 
-/* any strip exposed mid-resize shows theme grey, never canvas black */
+/* any strip exposed mid-resize shows the field, never canvas black */
 .term-pane .xterm-screen,
 .term-pane .xterm canvas {
-  background: var(--bg-panel);
+  background: transparent;
 }
 
 /* NB: no `will-change: transform` here. It promotes the layer, but WKWebView
@@ -3355,10 +3584,10 @@ body.dragging-row .term-divider.col::after {
    translate3d in smoothTermScroll keeps the element promoted anyway, which is
    what actually removes the gesture-start stall. */
 
-/* xterm.css ships .xterm-viewport with background #000; the theme paints
-   cells but not the sub-row leftover strip at the bottom — repaint it */
+/* xterm.css ships .xterm-viewport with background #000, which would be a
+   black band under the last row where the field should be */
 .term-pane .xterm-viewport {
-  background-color: var(--bg-panel) !important;
+  background-color: transparent !important;
 }
 
 /* fills the panel so the hint lands in the middle of the empty space */
@@ -3391,4 +3620,10 @@ body.dragging-row .term-divider.col::after {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* the tab's own icon sits in the name button's gap, so its own margin — which
+   the tree needs, having no gap of its own — would be counted twice */
+.editor-tab-name .file-icon {
+  margin-right: 0;
 }

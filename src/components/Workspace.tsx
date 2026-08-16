@@ -188,10 +188,48 @@ export const Workspace = memo(function Workspace({
     });
   }, []);
 
+  // Closed tabs, newest last, with the slot each one held. Kept in a ref
+  // rather than in state: nothing renders from it, and a stack that triggered
+  // a re-render on every close would re-render the whole workspace to record
+  // something nobody is looking at. Bounded, because it costs a View apiece
+  // and the twentieth undo of a close is not a thing anyone reaches for.
+  const closedRef = useRef<{ view: View; idx: number }[]>([]);
+
   const closeView = useCallback((idx: number) => {
     setViews((prev) => {
+      const gone = prev[idx];
+      if (gone) {
+        closedRef.current.push({ view: gone, idx });
+        if (closedRef.current.length > 20) closedRef.current.shift();
+      }
       const next = prev.filter((_, i) => i !== idx);
       setActiveView((cur) => Math.min(cur > idx ? cur - 1 : cur, Math.max(next.length - 1, 0)));
+      return next;
+    });
+  }, []);
+
+  /**
+   * ⌘⇧T — put back the tab you just closed, in the slot it was closed from.
+   *
+   * The slot rather than the end, because reopening is undoing: a tab that
+   * comes back three places to the right of where it was is a second thing to
+   * fix. It is clamped to the current length, since the tabs on its right may
+   * have gone too.
+   *
+   * Anything already open is skipped rather than duplicated — reopen a file by
+   * hand and its entry in the stack is spent, or ⌘⇧T would hand you the tab
+   * you are standing on and look like it did nothing.
+   */
+  const reopenClosed = useCallback(() => {
+    setViews((prev) => {
+      let entry = closedRef.current.pop();
+      while (entry && prev.some((v) => v.key === entry!.view.key)) {
+        entry = closedRef.current.pop();
+      }
+      if (!entry) return prev;
+      const at = Math.min(entry.idx, prev.length);
+      const next = [...prev.slice(0, at), entry.view, ...prev.slice(at)];
+      setActiveView(at);
       return next;
     });
   }, []);
@@ -232,6 +270,12 @@ export const Workspace = memo(function Workspace({
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
         closeView(activeViewRefValue.current);
+      } else if (meta && e.shiftKey && e.key.toLowerCase() === "t") {
+        // ⌘⇧T, the way Cursor and VS Code spell it — and not ⌘⇧Tab, which
+        // never arrives: macOS keeps that one for walking the app switcher
+        // backwards and the window is never told it was pressed.
+        e.preventDefault();
+        reopenClosed();
       } else if (meta && e.key.toLowerCase() === "e") {
         // the tree opens on the file you're looking at, folders and all —
         // ⌘⇧E does it too, since that's the one people arrive with
@@ -281,7 +325,16 @@ export const Workspace = memo(function Workspace({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, closeView, openView, project.root, search.focus, term.newTerminal, term.splitFocused]);
+  }, [
+    active,
+    closeView,
+    reopenClosed,
+    openView,
+    project.root,
+    search.focus,
+    term.newTerminal,
+    term.splitFocused,
+  ]);
 
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
   const activeViewRefValue = useStateRef(activeView);
@@ -315,11 +368,14 @@ export const Workspace = memo(function Workspace({
     <div
       ref={rootRef}
       className={`workspace ${active ? "" : "inactive"}`}
-      // how much width the sidebar (plus its resizer) is stealing from the
-      // right-hand side — anything that wants the window's centre reads this
+      // how much width the sidebar (plus the gaps it floats in, plus its
+      // resizer) is stealing from the right-hand side — anything that wants
+      // the window's centre reads this
       style={
         {
-          "--sidebar-offset": sidebarVisible ? `${sidebarWidth + 2}px` : "0px",
+          "--sidebar-offset": sidebarVisible
+            ? `calc(${sidebarWidth}px + var(--float-gap))`
+            : "0px",
         } as React.CSSProperties
       }
     >

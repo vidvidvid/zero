@@ -16,7 +16,11 @@ function viewLabel(v: View, memos: Memos): string {
   // name is said — the thread below draws no title of its own, precisely so
   // this one isn't a second copy of it. Gone from the list and it is down to
   // the id, which is still what its files are called.
-  if (v.kind === "memo") return memoLabel(memos.memos.find((m) => m.id === v.id), v.id);
+  if (v.kind === "memo")
+    return memoLabel(
+      memos.memos.find((m) => m.id === v.id),
+      v.id,
+    );
   const p = v.kind === "diff" ? v.relPath : v.absPath;
   return p.split("/").pop() ?? p;
 }
@@ -97,7 +101,12 @@ export function EditorPane({
    *  record button off the same object the panel does */
   memos: Memos;
 }) {
-  const { stripRef, drag, start: startDrag, shift } = useTabReorder(".editor-tab", onReorder);
+  const {
+    stripRef,
+    drag,
+    start: startDrag,
+    shift,
+  } = useTabReorder(".editor-tab", onReorder);
 
   // The strip scrolls, and most of what activates a tab is somewhere else: a
   // memo row, a search hit, ⌘P, a memo that came back and opened itself. With
@@ -140,7 +149,15 @@ export function EditorPane({
               }
             }}
           >
-            <button className="editor-tab-name" onClick={() => onSelect(i)} title={v.key}>
+            <button
+              className="editor-tab-name"
+              onClick={() => onSelect(i)}
+              title={v.key}
+            >
+              {/* the file's own icon, from the same seti set the tree uses.
+                  Taken from the path rather than the label because a memo's
+                  label is its title — the path is what names a file there. */}
+              <FileIconSpan name={viewPath(v, root).split("/").pop() ?? ""} />
               {/* the two diffs of one file are two tabs, so the marker has to
                   tell them apart — ✓ is the staged one, already accounted for */}
               {v.kind === "diff" && (
@@ -160,38 +177,70 @@ export function EditorPane({
           </div>
         ))}
       </div>
-      {views[activeView] && (
-        <Breadcrumb view={views[activeView]} root={root} onOpenFile={onOpenFile} />
-      )}
-      <div className="editor-body">
-        {views.map((v, i) => (
-          <div key={v.key} className="editor-view" style={{ display: i === activeView ? "block" : "none" }}>
-            {v.kind === "diff" ? (
-              <DiffView
-                worktree={v.worktree}
-                relPath={v.relPath}
-                staged={v.staged}
-                visible={i === activeView}
-              />
-            ) : v.kind === "memo" ? (
-              <MemoThread root={root} id={v.id} memos={memos} visible={i === activeView} />
-            ) : v.kind === "new" ? (
-              <NewFileView
-                root={root}
-                onSaved={(absPath) => onReplace(i, { kind: "file", key: `file:${absPath}`, absPath })}
-              />
-            ) : isImage(v.absPath) ? (
-              <ImageView absPath={v.absPath} />
-            ) : (
-              <FileView
-                absPath={v.absPath}
-                line={v.line}
-                visible={i === activeView}
-                onOpenFile={onOpenFile}
-              />
-            )}
-          </div>
-        ))}
+      {/* The card starts under the tabs, not above them: the strip is window
+          now, and this is the page it holds. */}
+      <div className="editor-card">
+        {/* The path line, on every view again. It went away for a while as the
+            file's name said twice — once in the tab and once here — but the
+            crumbs before that name are the part nothing else says: which of
+            four index.ts you are looking at is a fact about the folders above
+            it. The name stays on the end of them because a trail that stops
+            short of its file reads as unfinished, and because a file at the
+            project's root has no folders at all and the bar would come up
+            empty. A thread's line is still the one that also opens something —
+            see the click handler. */}
+        {views[activeView] && (
+          <Breadcrumb
+            view={views[activeView]}
+            root={root}
+            onOpenFile={onOpenFile}
+          />
+        )}
+        <div className="editor-body">
+          {views.map((v, i) => (
+            <div
+              key={v.key}
+              className="editor-view"
+              style={{ display: i === activeView ? "block" : "none" }}
+            >
+              {v.kind === "diff" ? (
+                <DiffView
+                  worktree={v.worktree}
+                  relPath={v.relPath}
+                  staged={v.staged}
+                  visible={i === activeView}
+                />
+              ) : v.kind === "memo" ? (
+                <MemoThread
+                  root={root}
+                  id={v.id}
+                  memos={memos}
+                  visible={i === activeView}
+                />
+              ) : v.kind === "new" ? (
+                <NewFileView
+                  root={root}
+                  onSaved={(absPath) =>
+                    onReplace(i, {
+                      kind: "file",
+                      key: `file:${absPath}`,
+                      absPath,
+                    })
+                  }
+                />
+              ) : isImage(v.absPath) ? (
+                <ImageView absPath={v.absPath} />
+              ) : (
+                <FileView
+                  absPath={v.absPath}
+                  line={v.line}
+                  visible={i === activeView}
+                  onOpenFile={onOpenFile}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

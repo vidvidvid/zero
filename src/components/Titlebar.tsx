@@ -111,12 +111,15 @@ export function Titlebar({
               title="close project"
             >
               {/* drawn rather than the × glyph, which sits off-centre in its
-                  em box and never lines up with the status dot */}
-              <svg width="9" height="9" viewBox="0 0 9 9">
+                  em box and never lines up with the status dot. 7 of the
+                  viewBox's 9, with the stroke scaled back up so the mark is
+                  smaller and not fainter: 1.55 × 7/9 is the 1.2 it drew at
+                  full size */}
+              <svg width="7" height="7" viewBox="0 0 9 9">
                 <path
                   d="M1 1 L8 8 M8 1 L1 8"
                   stroke="currentColor"
-                  strokeWidth="1.2"
+                  strokeWidth="1.55"
                   strokeLinecap="round"
                 />
               </svg>
@@ -124,51 +127,65 @@ export function Titlebar({
           </div>
         ))}
       </div>
-      {/* the + lives in the right-hand spacer, not in the tab strip: inside it
-          it counted towards the centred group's width and pushed every tab off
-          the window's axis. Out here the two spacers stay equal, so the tabs
-          are centred and the button simply follows them. */}
-      <div className="titlebar-spacer" data-tauri-drag-region>
-        <button className="titlebar-add" title="open project (⌘⇧N / ⌘⇧O)" onClick={onPick}>
-          ＋
-        </button>
-      </div>
-      {/* Only ever here when the new version is already downloaded, so this
+      {/* the right spacer is empty and still has to be here: it is what
+          balances the left one, and two equal spacers are the whole of what
+          keeps the tab strip on the window's axis */}
+      <div className="titlebar-spacer" data-tauri-drag-region />
+      {/* Every control the bar owns, in one cluster pinned to the right inset
+          — the 78px the tabs never enter. Out of the flex flow entirely, so
+          none of their widths joins the centring math; in flow with each
+          other, so they sit in a row and the ＋ can't land on the update pill
+          the way two separately pinned buttons could. */}
+      <div className="titlebar-right">
+        {/* Only ever here when the new version is already downloaded, so this
           says restart and not update — the wait is over by the time you see
           it. Clicking arms rather than fires: restarting closes every terminal
           in the window, and a terminal here can be holding a Claude session
           mid-task, so the second click is the one that agrees to that and the
           count is what it costs. It disarms itself, because a button that
           stays armed is one an unrelated click lands on later. */}
-      {ready && (
-        <button
-          className={`titlebar-update ${armed ? "armed" : ""}`}
-          title={`zero ${ready} is downloaded — restart to run it`}
-          onClick={() => (armed ? void restart() : setArmed(true))}
-        >
-          {!armed
-            ? `update ${ready}`
-            : live === 0
-              ? "restart now"
-              : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
+        {ready && (
+          <button
+            className={`titlebar-update ${armed ? "armed" : ""}`}
+            title={`zero ${ready} is downloaded — restart to run it`}
+            onClick={() => (armed ? void restart() : setArmed(true))}
+          >
+            {!armed
+              ? `update ${ready}`
+              : live === 0
+                ? "restart now"
+                : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
+          </button>
+        )}
+        <button className="titlebar-add" title="open project (⌘⇧N / ⌘⇧O)" onClick={onPick}>
+          {/* drawn on the gear's own 16/14 grid, at the gear's stroke weight,
+              for the reason the gear gives below: a ＋ from a font sits where
+              its em box puts it, which is not where a drawn glyph's centre
+              is, and no amount of centring the button fixes a mark that is
+              off-centre inside it */}
+          <svg width="16" height="16" viewBox="0 0 14 14">
+            <path
+              d="M7 2.6 V11.4 M2.6 7 H11.4"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+          </svg>
         </button>
-      )}
-      {/* outside the spacers: the gear sits in the bar's right inset — the
-          78px the tabs never enter — so it can be pinned to the corner without
-          entering the centring math that keeps the tabs on the window axis */}
-      <button className="titlebar-gear" title="preferences (⌘,)" onClick={onSettings}>
-        {/* drawn like the tab close ×: a cog glyph from a font sits off-centre
-            in its em box and half of them render as emoji */}
-        <svg width="16" height="16" viewBox="0 0 14 14">
-          <circle cx="7" cy="7" r="2.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
-          <path
-            d="M7 2.4 V4.2 M7 9.8 V11.6 M2.4 7 H4.2 M9.8 7 H11.6 M5 5 L3.7 3.7 M9 5 L10.3 3.7 M9 9 L10.3 10.3 M5 9 L3.7 10.3"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+        <button className="titlebar-gear" title="preferences (⌘,)" onClick={onSettings}>
+          {/* drawn like the tab close ×: a cog glyph from a font sits
+              off-centre in its em box and half of them render as emoji */}
+          <svg width="16" height="16" viewBox="0 0 14 14">
+            <circle cx="7" cy="7" r="2.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+            <path
+              d="M7 2.4 V4.2 M7 9.8 V11.6 M2.4 7 H4.2 M9.8 7 H11.6 M5 5 L3.7 3.7 M9 5 L10.3 3.7 M9 9 L10.3 10.3 M5 9 L3.7 10.3"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }

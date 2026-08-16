@@ -1,4 +1,4 @@
-import { EditorView, ViewPlugin } from "@codemirror/view";
+import { EditorView, ViewPlugin, tooltips } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
@@ -453,5 +453,21 @@ export function editorTheme(): Extension {
     });
     return { destroy: unsub };
   });
-  return [compartment.of(themeFor(getSettings().editorTheme)), follow];
+  // Completions and hovers hang off <body>, not off the editor.
+  //
+  // CodeMirror positions them `fixed`, which normally escapes any clipping
+  // above it — but .workspace carries a transform, and a transform makes its
+  // element the containing block for fixed descendants, which puts them back
+  // under the overflow rules of everything in between. The editor is a card
+  // with rounded corners now, so it clips to them, and a completion list
+  // opened on the last visible line is exactly the thing that reaches past
+  // the bottom edge. Parented to <body> the tooltip has no transformed
+  // ancestor at all, so it is measured against the window and nothing clips
+  // it. Nothing styles .cm-tooltip from here either — CodeMirror injects its
+  // own styles document-wide, so they follow it out.
+  return [
+    compartment.of(themeFor(getSettings().editorTheme)),
+    follow,
+    tooltips({ parent: document.body }),
+  ];
 }
