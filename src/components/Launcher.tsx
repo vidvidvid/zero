@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, RecentProject } from "../lib/api";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
 
 export function Launcher({
   onOpen,
@@ -28,7 +29,29 @@ export function Launcher({
         <div className="launcher-version">{__APP_VERSION__}</div>
         <div className="launcher-recents">
           {recents.map((r) => (
-            <button key={r.path} className="launcher-item" onClick={() => onOpen(r.path)}>
+            <button
+              key={r.path}
+              className="launcher-item"
+              onClick={() => onOpen(r.path)}
+              // "Remove from Recents" is the item this list has been missing:
+              // a project that has moved leaves a row that opens nothing, and
+              // there was no way to be rid of it short of opening others until
+              // it fell off the end
+              onContextMenu={(e) =>
+                contextMenu(e, [
+                  { text: "Open Project", run: () => onOpen(r.path) },
+                  {
+                    text: "Remove from Recents",
+                    run: () =>
+                      api
+                        .removeRecent(r.path)
+                        .then(() => setRecents((prev) => prev.filter((x) => x.path !== r.path))),
+                  },
+                  "sep",
+                  ...fileEntries(r.path, { isDir: true, writes: "none" }),
+                ])
+              }
+            >
               <span className="launcher-item-name">{r.name}</span>
               <span className="launcher-item-path">{r.path.replace(/^\/Users\/[^/]+/, "~")}</span>
             </button>

@@ -1,4 +1,5 @@
 mod cli;
+mod files;
 mod git;
 mod links;
 #[cfg(target_os = "macos")]
@@ -89,6 +90,10 @@ pub fn run() {
             links::open_url,
             links::reveal_path,
             links::resolve_paths,
+            files::create_entry,
+            files::rename_entry,
+            files::duplicate_entry,
+            files::trash_entry,
             recents::get_recents,
             recents::add_recent,
             recents::remove_recent,

@@ -6,6 +6,7 @@ import { EditorPane } from "./EditorPane";
 import { Terminals, useTerminalTree } from "./Terminals";
 import { QuickOpen } from "./QuickOpen";
 import { moveItem, movedIndex } from "../lib/tabReorder";
+import { onPathMoved, under } from "../lib/fileEvents";
 import { projectSession, saveProject } from "../lib/session";
 import { useSearch } from "../lib/search";
 import { useMemos } from "../lib/memos";
@@ -173,6 +174,65 @@ export const Workspace = memo(function Workspace({
     setViews((prev) => prev.map((old, i) => (i === idx ? v : old)));
   }, []);
 
+  /**
+   * A file a tab is holding open was renamed, or thrown away.
+   *
+   * Renaming something you have open is an ordinary thing to do, and without
+   * this the tab keeps the old path: it goes on showing the file's last
+   * contents and fails the next time anything reads it, which is a bug that
+   * only surfaces minutes later. So the views follow the file — including the
+   * ones under a renamed *folder*, which is why this is a prefix test and not
+   * an equality one. Trashed, and the tab goes with it; there is nothing left
+   * for it to be a view of.
+   *
+   * Diffs are addressed by worktree plus relative path, so a rename inside the
+   * worktree is the same rewrite with the root put back on afterwards.
+   */
+  useEffect(
+    () =>
+      onPathMoved((from, to) => {
+        setViews((prev) => {
+          let touched = false;
+          const next: View[] = [];
+          for (const v of prev) {
+            if (v.kind === "file" && under(v.absPath, from)) {
+              touched = true;
+              if (to === null) continue;
+              const moved = to + v.absPath.slice(from.length);
+              next.push({ ...v, key: `file:${moved}`, absPath: moved });
+            } else if (v.kind === "diff" && under(`${v.worktree}/${v.relPath}`, from)) {
+              touched = true;
+              if (to === null) continue;
+              const moved = to + `${v.worktree}/${v.relPath}`.slice(from.length);
+              // the same key the changes panel builds, or the tab would keep an
+              // identity naming a path it no longer points at — and a second
+              // click on that row would open a duplicate of it
+              const rel = moved.slice(v.worktree.length + 1);
+              const key = v.staged
+                ? `diff:staged:${v.worktree}:${rel}`
+                : `diff:${v.worktree}:${rel}`;
+              next.push({ ...v, key, relPath: rel });
+            } else {
+              next.push(v);
+            }
+          }
+          if (!touched) return prev;
+          setActiveView((cur) => Math.min(cur, Math.max(next.length - 1, 0)));
+          return next;
+        });
+      }),
+    []
+  );
+
+  // ⌘E's second half, on its own so the right-click menus can reach it: walk
+  // the tree open to this file and light its row. The keystroke works out
+  // *which* file from the active tab; a menu already knows.
+  const revealInTree = useCallback((abs: string) => {
+    setSidebarVisible(true);
+    setSidebarTab("files");
+    setReveal({ path: abs, n: revealCount.current++ });
+  }, []);
+
   // a resolved path from a ⌘-click, in the terminal or in the editor
   const openFile = useCallback(
     (abs: string, line?: number) =>
@@ -205,6 +265,27 @@ export const Workspace = memo(function Workspace({
       const next = prev.filter((_, i) => i !== idx);
       setActiveView((cur) => Math.min(cur > idx ? cur - 1 : cur, Math.max(next.length - 1, 0)));
       return next;
+    });
+  }, []);
+
+  /**
+   * "Close Others" — everything but one, in one go, and all of it reopenable.
+   *
+   * Pushed onto the same stack in the order they were closed, so ⌘⇧T walks
+   * back through them one at a time rather than treating the lot as one event.
+   * That's the behaviour the stack already has for a run of ⌘W presses, and a
+   * menu item is no different to a fast hand.
+   */
+  const closeOthers = useCallback((keep: number) => {
+    setViews((prev) => {
+      if (prev.length < 2) return prev;
+      prev.forEach((view, i) => {
+        if (i === keep) return;
+        closedRef.current.push({ view, idx: i });
+        if (closedRef.current.length > 20) closedRef.current.shift();
+      });
+      setActiveView(0);
+      return prev.filter((_, i) => i === keep);
     });
   }, []);
 
@@ -285,7 +366,7 @@ export const Workspace = memo(function Workspace({
         const v = viewsRef.current[activeViewRefValue.current];
         const abs =
           v?.kind === "file" ? v.absPath : v?.kind === "diff" ? `${v.worktree}/${v.relPath}` : null;
-        if (abs) setReveal({ path: abs, n: revealCount.current++ });
+        if (abs) revealInTree(abs);
       } else if (meta && e.shiftKey && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "h")) {
         // ⌘⇧F searches, ⌘⇧H arrives with the replace field already open — the
         // same split VS Code and Cursor make
@@ -396,6 +477,7 @@ export const Workspace = memo(function Workspace({
               activeMemo={activeMemo}
               activeKey={shown?.key ?? null}
               reveal={reveal}
+              onRevealInTree={revealInTree}
             />
             <div
               className="resizer-col"
@@ -409,9 +491,11 @@ export const Workspace = memo(function Workspace({
             activeView={activeView}
             onSelect={setActiveView}
             onClose={closeView}
+            onCloseOthers={closeOthers}
             onReplace={replaceView}
             onReorder={reorderViews}
             onOpenFile={openFile}
+            onRevealInTree={revealInTree}
             root={project.root}
             // a memo tab draws its own live title and records its own
             // follow-ups, both of which are this object

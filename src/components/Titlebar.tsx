@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Project } from "../App";
 import { useClaudeStatus } from "../lib/claudeStatus";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { useTabReorder } from "../lib/tabReorder";
 import { useUpdate } from "../lib/update";
 
@@ -74,6 +75,16 @@ export function Titlebar({
                 startDrag(e, i);
               }
             }}
+            // The project's own folder. Nothing here writes: closing a project
+            // is a thing you do to the window, and a project you could trash
+            // from its tab is a project one slip away from the Trash.
+            onContextMenu={(e) =>
+              contextMenu(e, [
+                { text: "Close Project", run: () => onClose(i) },
+                "sep",
+                ...fileEntries(p.root, { isDir: true, writes: "none" }),
+              ])
+            }
             title={p.root}
           >
             {/* always rendered, even empty: the slot is the same fixed square

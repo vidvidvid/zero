@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReplaceTarget, SearchFile, SearchLine, SearchSpan } from "../lib/api";
 import type { Search } from "../lib/search";
 import type { View } from "./Workspace";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { Chevron } from "./Chevron";
 
 /**
@@ -47,10 +48,12 @@ export function SearchPanel({
   root,
   search,
   onOpenView,
+  onRevealInTree,
 }: {
   root: string;
   search: Search;
   onOpenView: (v: View) => void;
+  onRevealInTree: (abs: string) => void;
 }) {
   const { params, set, result, busy, error, collapsed, showReplace, showFilters } = search;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -206,7 +209,24 @@ export function SearchPanel({
           const open = !collapsed.has(f.path);
           const dir = dirOf(f.path);
           return (
-            <div key={f.path} className="search-group">
+            // the group and every hit in it are the same file, so the menu
+            // hangs off the group and each row inherits it
+            <div
+              key={f.path}
+              className="search-group"
+              onContextMenu={(e) =>
+                contextMenu(e, [
+                  { text: "Open", run: () => openAt(f, f.lines[0]?.line ?? 1) },
+                  { text: "Reveal in Sidebar", run: () => onRevealInTree(`${root}/${f.path}`) },
+                  showReplace && {
+                    text: `Replace ${f.count} in This File`,
+                    run: () => replace([{ path: f.path }]),
+                  },
+                  "sep",
+                  ...fileEntries(`${root}/${f.path}`, { root }),
+                ])
+              }
+            >
               <div
                 className="search-file"
                 title={f.path}
@@ -233,7 +253,28 @@ export function SearchPanel({
               {open &&
                 f.lines.map((l) =>
                   l.spans.map((s) => (
-                    <div className="search-row" key={`${l.line}:${s.nth}`}>
+                    <div
+                      className="search-row"
+                      key={`${l.line}:${s.nth}`}
+                      // its own, rather than the group's: a hit is a line, and
+                      // "Open" here should land on that line and not the file's
+                      // first match
+                      onContextMenu={(e) =>
+                        contextMenu(e, [
+                          { text: `Open at Line ${l.line}`, run: () => openAt(f, l.line) },
+                          {
+                            text: "Reveal in Sidebar",
+                            run: () => onRevealInTree(`${root}/${f.path}`),
+                          },
+                          showReplace && {
+                            text: "Replace This One",
+                            run: () => replace([{ path: f.path, line: l.line, nth: s.nth }]),
+                          },
+                          "sep",
+                          ...fileEntries(`${root}/${f.path}`, { root }),
+                        ])
+                      }
+                    >
                       <button className="search-hit" onClick={() => openAt(f, l.line)}>
                         <span className="search-line">{l.line}</span>
                         <span className="search-text">

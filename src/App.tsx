@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api";
 import { Launcher } from "./components/Launcher";
+import { Prompt } from "./components/Prompt";
 import { Settings } from "./components/Settings";
 import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
@@ -200,14 +201,21 @@ export default function App() {
   // flash of it every launch on the way to the projects that were already open
   if (!restored) return null;
 
-  // rendered in both branches: ⌘, should work from the launcher too
-  const settings = showSettings ? <Settings onClose={() => setShowSettings(false)} /> : null;
+  // Rendered in both branches: ⌘, should work from the launcher too, and the
+  // launcher's recents have a right-click menu of their own. `Prompt` is empty
+  // until a menu item asks for a name — it costs a null render otherwise.
+  const overlays = (
+    <>
+      {showSettings ? <Settings onClose={() => setShowSettings(false)} /> : null}
+      <Prompt />
+    </>
+  );
 
   if (projects.length === 0) {
     return (
       <>
         <Launcher onOpen={openProject} onPick={pickProject} />
-        {settings}
+        {overlays}
       </>
     );
   }
@@ -228,7 +236,7 @@ export default function App() {
           <Workspace key={p.root} project={p} active={i === activeIdx} />
         ))}
       </div>
-      {settings}
+      {overlays}
     </div>
   );
 }

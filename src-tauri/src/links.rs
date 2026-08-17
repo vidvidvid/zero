@@ -32,16 +32,39 @@ fn is_web_url(url: &str) -> bool {
         && !url.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 
-/// Show a file in Finder — for paths that exist but sit outside the project.
+/// Show a file in Finder — for paths that exist but sit outside the project,
+/// and for the right-click menu, which offers this on every file the app names.
 ///
 /// Canonicalised first, so what gets revealed is a real path rather than
 /// whatever `../..` walk the terminal printed, and it always starts with `/`
 /// and so can't be read as a flag.
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), String> {
-    let abs = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+    let abs = nearest_existing(Path::new(&path)).ok_or_else(|| format!("no such path: {path}"))?;
     let abs = abs.to_str().ok_or("path is not valid UTF-8")?;
     spawn_open(&["-R", abs])
+}
+
+/// The path itself when it's there, and otherwise the closest folder above it
+/// that is.
+///
+/// The right-click menu is offered on rows that name files which have since
+/// gone — a deleted file in the changes panel is the everyday one — and "open
+/// file location" still has an answer for those: the folder it was in. Without
+/// this the menu item is one that silently does nothing, which is worse than
+/// one that lands a directory away.
+///
+/// Still only ever a Finder reveal: the ancestor is canonicalised the same way,
+/// so what reaches `open -R` is absolute either way.
+fn nearest_existing(path: &Path) -> Option<PathBuf> {
+    let mut at = Some(path);
+    while let Some(p) = at {
+        if let Ok(abs) = std::fs::canonicalize(p) {
+            return Some(abs);
+        }
+        at = p.parent();
+    }
+    None
 }
 
 fn spawn_open(args: &[&str]) -> Result<(), String> {
@@ -133,6 +156,28 @@ mod tests {
         // an absolute path is taken as given rather than joined to the root
         let abs = root.join("src/api.ts").to_string_lossy().to_string();
         assert_eq!(ask(&abs).len(), 1);
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// What the right-click menu leans on: a file that isn't there any more
+    /// still has a location, and it's the folder it was in.
+    #[test]
+    fn reveal_falls_back_to_the_folder() {
+        let base = std::env::temp_dir().join("zero-reveal-test");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        std::fs::write(base.join("src/api.ts"), "x").unwrap();
+
+        let here = nearest_existing(&base.join("src/api.ts")).unwrap();
+        assert!(here.ends_with("src/api.ts"), "a file that exists is itself");
+
+        let gone = nearest_existing(&base.join("src/deleted.ts")).unwrap();
+        assert_eq!(gone, std::fs::canonicalize(base.join("src")).unwrap());
+
+        // relative and nowhere near anything: `/` is the last ancestor, and
+        // walking past it is what would return nothing
+        assert!(nearest_existing(Path::new("no-such-file")).is_none());
 
         std::fs::remove_dir_all(&base).unwrap();
     }

@@ -6,6 +6,7 @@ import { ImageView } from "./ImageView";
 import { MemoThread } from "./MemoThread";
 import { NewFileView } from "./NewFileView";
 import { isImage } from "../lib/imageFile";
+import { contextMenu, fileEntries, type Entry } from "../lib/contextMenu";
 import { FileIconSpan } from "./FileIcon";
 import { memoLabel, memoPaths, type Memos } from "../lib/memos";
 import { useTabReorder } from "../lib/tabReorder";
@@ -33,6 +34,12 @@ function viewAbs(v: View, root: string): string {
   return v.kind === "diff" ? `${v.worktree}/${v.relPath}` : v.absPath;
 }
 
+/** the file a view is of, and null for the one kind that isn't on disk yet —
+ *  an untitled buffer has a name but nowhere to be revealed */
+function viewFile(v: View, root: string): string | null {
+  return v.kind === "new" ? null : viewAbs(v, root);
+}
+
 // path shown in the breadcrumb: relative to the project when it lives inside it
 function viewPath(v: View, root: string): string {
   const abs = viewAbs(v, root);
@@ -45,10 +52,12 @@ function Breadcrumb({
   view,
   root,
   onOpenFile,
+  onRevealInTree,
 }: {
   view: View;
   root: string;
   onOpenFile: (abs: string) => void;
+  onRevealInTree: (abs: string) => void;
 }) {
   const abs = viewAbs(view, root);
   const parts = viewPath(view, root).split("/");
@@ -63,6 +72,18 @@ function Breadcrumb({
       className={`editor-path ${open ? "opens" : ""}`}
       title={open ? `${abs} — open the file itself` : abs}
       onClick={open}
+      // the line already says where the file is; this is the same line saying
+      // what can be done about it. No Close here — the tab is where a tab is
+      // closed, and this line belongs to the file rather than to the tab
+      onContextMenu={(e) => {
+        const file = viewFile(view, root);
+        if (!file) return;
+        contextMenu(e, [
+          { text: "Reveal in Sidebar", run: () => onRevealInTree(file) },
+          "sep",
+          ...fileEntries(file, { root, writes: view.kind === "memo" ? "none" : "all" }),
+        ]);
+      }}
     >
       {parts.map((p, i) => (
         <span key={i} className="crumb">
@@ -83,8 +104,10 @@ export function EditorPane({
   activeView,
   onSelect,
   onClose,
+  onCloseOthers,
   onReplace,
   onOpenFile,
+  onRevealInTree,
   onReorder,
   root,
   memos,
@@ -93,8 +116,10 @@ export function EditorPane({
   activeView: number;
   onSelect: (i: number) => void;
   onClose: (i: number) => void;
+  onCloseOthers: (keep: number) => void;
   onReplace: (i: number, v: View) => void;
   onOpenFile: (abs: string, line?: number) => void;
+  onRevealInTree: (abs: string) => void;
   onReorder: (from: number, to: number) => void;
   root: string;
   /** this project's memos — a memo tab reads its title, its status and its
@@ -107,6 +132,31 @@ export function EditorPane({
     start: startDrag,
     shift,
   } = useTabReorder(".editor-tab", onReorder);
+
+  /**
+   * A tab's menu: what to do with the tab, then what to do with its file.
+   *
+   * An untitled buffer has a name and no file, so it gets the first half and
+   * nothing else — there is nowhere to reveal it and nothing to rename. A memo
+   * tab has a file, but one whose name the pipeline reads: renaming `<id>.md`
+   * out from under it would orphan the recording and both transcripts, so its
+   * document is shown and copied and otherwise left alone.
+   */
+  const tabEntries = (v: View, i: number): Entry[] => {
+    const file = viewFile(v, root);
+    return [
+      { text: "Close", run: () => onClose(i) },
+      views.length > 1 && { text: "Close Others", run: () => onCloseOthers(i) },
+      "sep",
+      ...(file
+        ? [
+            { text: "Reveal in Sidebar", run: () => onRevealInTree(file) },
+            "sep" as const,
+            ...fileEntries(file, { root, writes: v.kind === "memo" ? "none" : "all" }),
+          ]
+        : []),
+    ];
+  };
 
   // The strip scrolls, and most of what activates a tab is somewhere else: a
   // memo row, a search hit, ⌘P, a memo that came back and opened itself. With
@@ -148,6 +198,7 @@ export function EditorPane({
                 startDrag(e, i);
               }
             }}
+            onContextMenu={(e) => contextMenu(e, tabEntries(v, i))}
           >
             <button
               className="editor-tab-name"
@@ -194,6 +245,7 @@ export function EditorPane({
             view={views[activeView]}
             root={root}
             onOpenFile={onOpenFile}
+            onRevealInTree={onRevealInTree}
           />
         )}
         <div className="editor-body">

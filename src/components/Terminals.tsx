@@ -7,7 +7,8 @@ import { onSettingsChange, resolvedAppearance } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
-import { pathLinkProvider } from "../lib/termLinks";
+import { pathLinkProvider, pathTextAt, resolveOne } from "../lib/termLinks";
+import { contextMenuAt, fileEntries } from "../lib/contextMenu";
 
 /** A clicked link leaves the app entirely — the Rust side vets the scheme */
 function openLink(uri: string) {
@@ -508,6 +509,33 @@ function TerminalPane({
       pathLinkProvider(term, cwd, (abs, line) => onOpenFileRef.current(abs, line))
     );
 
+    // Right-click on one of those paths. The terminal is where most of the
+    // filenames in this app come from — Claude prints them by the dozen — and
+    // it is the one surface where what was clicked is a run of characters
+    // rather than an element, so the hit test is ours to do.
+    //
+    // Only path-shaped text takes the click: anywhere else the webview's own
+    // menu keeps it, which is what still offers Copy over a selection.
+    const onMenu = (ev: MouseEvent) => {
+      const raw = pathTextAt(term, ev);
+      if (!raw) return;
+      ev.preventDefault();
+      void resolveOne(cwd, raw).then((hit) => {
+        if (!hit) return;
+        void contextMenuAt([
+          // only what's inside the project opens here; ⌘-click follows the
+          // same rule, and a file from somewhere else is Finder's
+          hit.inside && {
+            text: "Open",
+            run: () => onOpenFileRef.current(hit.abs),
+          },
+          "sep",
+          ...fileEntries(hit.abs, { root: cwd }),
+        ]);
+      });
+    };
+    el.addEventListener("contextmenu", onMenu);
+
     // DOM renderer on purpose. WebGL: WKWebView drops the contexts (frozen
     // panes, webview crashes). Canvas: the only build that exists is compiled
     // against xterm 5 internals and renders nothing on xterm 6 — tried it,
@@ -819,6 +847,7 @@ function TerminalPane({
 
     return () => {
       unTheme();
+      el.removeEventListener("contextmenu", onMenu);
       el.removeEventListener("focusin", onFocusIn);
       observer.disconnect();
       window.clearTimeout(resizeTimer);

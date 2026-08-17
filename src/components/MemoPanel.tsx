@@ -1,9 +1,11 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { Memo } from "../lib/api";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
 import {
   clock,
   failed,
+  memoPaths,
   memoRaw,
   memoWork,
   projectName,
@@ -385,6 +387,23 @@ export function MemoPanel({
               // ⌥ asks for the words as they were heard, which is what you want
               // exactly when the cleaned version reads wrong
               onClick={(e) => open(m, e.altKey)}
+              // The memo's document — and `.zero/memos`, where its recording
+              // and both transcripts sit beside it, for a memo that hasn't got
+              // one yet. Nothing here renames it: the pipeline finds all four
+              // files by the memo's id, so a renamed `.md` is a memo whose
+              // recording it can no longer find. Delete is the memo's own verb
+              // below, and it takes the whole set.
+              onContextMenu={(e) =>
+                contextMenu(e, [
+                  { text: "Open Thread", run: () => open(m, false) },
+                  { text: "Open Raw Transcript", enabled: !!memoRaw(root, m), run: () => open(m, true) },
+                  failed(m) && { text: "Retry", run: () => memos.retry(m.id) },
+                  "sep",
+                  ...fileEntries(memoPaths(root, m.id).md, { root, writes: "none" }),
+                  "sep",
+                  { text: "Delete Memo", run: () => remove(m) },
+                ])
+              }
             >
               {/* what's being done to this memo, or nothing at all — which is
                   what a finished one has to report */}

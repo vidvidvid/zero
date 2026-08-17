@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { matchedIndices, rankPaths } from "../lib/fuzzy";
 import { FileIconSpan } from "./FileIcon";
 
@@ -103,6 +104,13 @@ export function QuickOpen({
                 className={`quick-item ${i === at ? "on" : ""}`}
                 onMouseMove={() => setAt(i)}
                 onClick={() => onPick(r.path)}
+                onContextMenu={(e) =>
+                  contextMenu(e, [
+                    { text: "Open", run: () => onPick(r.path) },
+                    "sep",
+                    ...fileEntries(`${root}/${r.path}`, { root }),
+                  ])
+                }
               >
                 <FileIconSpan name={name} />
                 <span className="quick-name">{marked(name, cut + 1, hit)}</span>

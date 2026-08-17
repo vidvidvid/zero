@@ -70,6 +70,7 @@ export function Sidebar({
   activeMemo,
   activeKey,
   reveal,
+  onRevealInTree,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -86,6 +87,9 @@ export function Sidebar({
    *  file is on screen marks itself */
   activeKey: string | null;
   reveal: Reveal | null;
+  /** walk the file tree open to a path and light its row — ⌘E's other half,
+   *  offered as a menu item by the panels that name files they didn't find */
+  onRevealInTree: (abs: string) => void;
 }) {
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
@@ -119,6 +123,7 @@ export function Sidebar({
           <WorktreePanel
             project={project}
             onOpenView={onOpenView}
+            onRevealInTree={onRevealInTree}
             active={active}
             activeKey={activeKey}
           />
@@ -132,7 +137,12 @@ export function Sidebar({
           />
         )}
         {tab === "search" && (
-          <SearchPanel root={project.root} search={search} onOpenView={onOpenView} />
+          <SearchPanel
+            root={project.root}
+            search={search}
+            onOpenView={onOpenView}
+            onRevealInTree={onRevealInTree}
+          />
         )}
         {tab === "memos" && (
           <MemoPanel

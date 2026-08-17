@@ -1,5 +1,7 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, DirEntry } from "../lib/api";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
+import { onFilesChanged } from "../lib/fileEvents";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
 import { decorations, useGitStatus } from "../lib/gitStatus";
@@ -73,6 +75,36 @@ export function FileTree({
     void load(root);
   }, [root, load]);
 
+  /**
+   * A folder was written to — forget what we knew of it and ask again.
+   *
+   * The tree reads a directory once and remembers, which is what keeps it from
+   * walking the project on a timer; the cost is that a rename from anywhere
+   * else in the app leaves a row saying the old name. `null` is "no idea
+   * which", and drops the lot — every open folder then reloads as it is drawn.
+   */
+  useEffect(
+    () =>
+      onFilesChanged((dir) => {
+        if (dir === null) {
+          kidsRef.current = {};
+          pending.current.clear();
+          setKids({});
+          void load(root);
+          return;
+        }
+        if (!(dir in kidsRef.current)) return;
+        const next = { ...kidsRef.current };
+        delete next[dir];
+        // the ref only — `kids` keeps the old rows until the new ones arrive,
+        // which is a folder that doesn't blink every time you rename in it
+        kidsRef.current = next;
+        pending.current.delete(dir);
+        void load(dir);
+      }),
+    [root, load]
+  );
+
   useEffect(() => {
     if (!reveal) return;
     if (!reveal.path.startsWith(root + "/")) return;
@@ -127,6 +159,18 @@ export function FileTree({
       return next;
     });
 
+  /** what a click on a file row does, and what the menu's "Open" does too */
+  const openFile = (full: string, name = full.slice(full.lastIndexOf("/") + 1)) => {
+    setSelected(full);
+    // audio goes to Finder, where QuickLook plays it with a space bar; the
+    // editor would open a memo as a wall of bytes
+    if (AUDIO.test(name)) {
+      api.revealPath(full).catch(() => {});
+      return;
+    }
+    onOpenView({ kind: "file", key: `file:${full}`, absPath: full });
+  };
+
   const rows = (dir: string, depth: number): ReactNode[] =>
     (kids[dir] ?? []).flatMap((entry) => {
       const full = `${dir}/${entry.name}`;
@@ -143,15 +187,15 @@ export function FileTree({
               isSel ? "selected" : ""
             } ${mark ? `git-${mark.mark}` : ""}`}
             style={pad}
-            onClick={() => {
+            onClick={() => openFile(full, entry.name)}
+            // the row the menu is about lights up while it's open, the way a
+            // right-click in Finder selects what it landed on
+            onContextMenu={(e) => {
               setSelected(full);
-              // audio goes to Finder, where QuickLook plays it with a space
-              // bar; the editor would open a memo as a wall of bytes
-              if (AUDIO.test(entry.name)) {
-                api.revealPath(full).catch(() => {});
-                return;
-              }
-              onOpenView({ kind: "file", key: `file:${full}`, absPath: full });
+              contextMenu(e, [
+                { text: "Open", run: () => openFile(full, entry.name) },
+                ...fileEntries(full, { root, after: (made) => openFile(made) }),
+              ]);
             }}
           >
             <FileIconSpan name={entry.name} />
@@ -171,6 +215,24 @@ export function FileTree({
           }`}
           style={pad}
           onClick={() => toggle(full)}
+          onContextMenu={(e) =>
+            contextMenu(e, [
+              // a new file lands in the folder you asked from, so open it —
+              // otherwise the row appears under a chevron still pointing right
+              ...fileEntries(full, {
+                root,
+                isDir: true,
+                after: (made) => {
+                  // the same pair `toggle` does: opening a folder and reading
+                  // it are two things, and a folder nobody had opened yet has
+                  // no children loaded for the new row to appear among
+                  setOpen((prev) => (prev.has(full) ? prev : new Set(prev).add(full)));
+                  void load(full);
+                  openFile(made);
+                },
+              }),
+            ])
+          }
         >
           <Chevron open={isOpen} className="tree-arrow" />
           <span className="tree-name">{entry.name}</span>
@@ -179,5 +241,20 @@ export function FileTree({
       ];
     });
 
-  return <div className="file-tree">{rows(root, 0)}</div>;
+  // The container's own menu, which only ever fires on the space below the last
+  // row — every row stops the event. That space is the project itself, so what
+  // it offers is what you can put *in* the project: the root is not one of the
+  // project's entries and has no business being renamed or trashed from here.
+  return (
+    <div
+      className="file-tree"
+      onContextMenu={(e) =>
+        contextMenu(e, [
+          ...fileEntries(root, { root, isDir: true, writes: "inside", after: openFile }),
+        ])
+      }
+    >
+      {rows(root, 0)}
+    </div>
+  );
 }

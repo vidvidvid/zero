@@ -149,6 +149,16 @@ export const api = {
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   resolvePaths: (cwd: string, paths: string[]) =>
     invoke<ResolvedPath[]>("resolve_paths", { cwd, paths }),
+  /* The four verbs the right-click menu adds. Each resolves with the path it
+     made, so the caller can open what it just asked for; each rejects rather
+     than overwriting anything, with a message written to be shown as-is. */
+  createEntry: (dir: string, name: string, folder: boolean) =>
+    invoke<string>("create_entry", { dir, name, folder }),
+  /** within the folder it's already in — `name` is one component, not a path */
+  renameEntry: (path: string, name: string) => invoke<string>("rename_entry", { path, name }),
+  duplicateEntry: (path: string) => invoke<string>("duplicate_entry", { path }),
+  /** the real Trash, so Finder can Put Back what this took away */
+  trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
   worktrees: (root: string) => invoke<Worktree[]>("git_worktrees", { root }),
   worktreeRemove: (root: string, path: string, force: boolean) =>
     invoke<void>("git_worktree_remove", { root, path, force }),

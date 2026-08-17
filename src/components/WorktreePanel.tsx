@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { api, FileChange } from "../lib/api";
+import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
 import { pokeGit, useGitStatus, WorktreeChanges } from "../lib/gitStatus";
@@ -20,11 +21,13 @@ const STATUS_CLASS: Record<string, string> = {
 export function WorktreePanel({
   project,
   onOpenView,
+  onRevealInTree,
   active,
   activeKey,
 }: {
   project: Project;
   onOpenView: (v: View) => void;
+  onRevealInTree: (abs: string) => void;
   active: boolean;
   /** the shown view's key — the row it belongs to marks itself */
   activeKey: string | null;
@@ -157,12 +160,48 @@ export function WorktreePanel({
   const fileRow = (wt: WtState, c: FileChange, staged: boolean) => {
     const fileKey = `file:${wt.path}/${c.path}`;
     const diffKey = staged ? `diff:staged:${wt.path}:${c.path}` : `diff:${wt.path}:${c.path}`;
+    const abs = `${wt.path}/${c.path}`;
     // lit whichever way it was opened — its diff, or the file via ↗
     const on = activeKey !== null && (activeKey === diffKey || activeKey === fileKey);
+    // A deleted row names a file that isn't there any more. Its diff still
+    // reads (both sides come out of git), and its reveal still lands on the
+    // folder it was in — but there is nothing to open, duplicate or rename.
+    const gone = c.status === "D";
     return (
     <div
       key={`${wt.path}:${staged ? "s" : "w"}:${c.path}`}
       className={`wt-file ${on ? "on" : ""} ${staged ? "" : "wt-file-unstaged"}`}
+      onContextMenu={(e) =>
+        contextMenu(e, [
+          {
+            text: "Open File",
+            enabled: !gone,
+            run: () => onOpenView({ kind: "file", key: fileKey, absPath: abs }),
+          },
+          c.status !== "U" && {
+            text: staged ? "Open Staged Diff" : "Open Diff",
+            run: () =>
+              onOpenView({
+                kind: "diff",
+                key: diffKey,
+                worktree: wt.path,
+                relPath: c.path,
+                staged,
+              }),
+          },
+          { text: "Reveal in Sidebar", run: () => onRevealInTree(abs) },
+          "sep",
+          staged
+            ? { text: "Unstage", run: () => unstage(wt, [c.path]) }
+            : { text: "Stage", run: () => stage(wt, [c.path]) },
+          !staged && {
+            text: c.status === "U" ? "Delete Untracked File" : "Discard Changes",
+            run: () => discard(wt, [c]),
+          },
+          "sep",
+          ...fileEntries(abs, { root: wt.path, writes: gone ? "none" : "all" }),
+        ])
+      }
     >
       <button
         className="wt-file-name"
@@ -233,7 +272,29 @@ export function WorktreePanel({
         const open = !collapsed.has(wt.path);
         return (
           <div key={wt.path} className="wt-group">
-            <div className="wt-header" title={wt.path} onClick={() => toggleCollapsed(wt.path)}>
+            <div
+              className="wt-header"
+              title={wt.path}
+              onClick={() => toggleCollapsed(wt.path)}
+              // The branch's own checkout — the one folder this group is
+              // about. No writing verbs on it: git owns whether a worktree
+              // exists, and the ✕ on this row is how it stops existing.
+              onContextMenu={(e) =>
+                contextMenu(e, [
+                  wt.changes.some((c) => !c.staged) && {
+                    text: "Stage All Changes",
+                    run: () => stage(wt, wt.changes.filter((c) => !c.staged).map((c) => c.path)),
+                  },
+                  wt.changes.some((c) => c.staged) && {
+                    text: "Unstage All",
+                    run: () => unstage(wt, wt.changes.filter((c) => c.staged).map((c) => c.path)),
+                  },
+                  !wt.is_main && { text: "Delete Worktree", run: () => removeWt(wt) },
+                  "sep",
+                  ...fileEntries(wt.path, { root: project.root, isDir: true, writes: "none" }),
+                ])
+              }
+            >
               <Chevron open={open} className="wt-chevron" />
               <span className="wt-branch">{wt.branch || "(no branch)"}</span>
               <span className="wt-count">{wt.changes.length || ""}</span>

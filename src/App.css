@@ -1855,6 +1855,66 @@ body.dragging-row {
   text-align: center;
 }
 
+/* ===== prompt (new file, rename) ===== */
+
+/* The quick-open backdrop again, and a narrower box than either of the two
+   overlays that came before it: this holds a filename and a verb, and the
+   width of the file list around one field is a lot of furniture. */
+.prompt-box {
+  display: flex;
+  flex-direction: column;
+  width: min(380px, 88vw);
+  /* the backdrop stretches its children; a box the height of the window with
+     one field in it is the thing this prevents — same reason .settings-box has
+     it */
+  align-self: flex-start;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.prompt-title {
+  padding: 11px 14px 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.prompt-input {
+  padding: 6px 14px 11px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+}
+
+/* full width along the floor of the box rather than a pair in a corner —
+   there is one thing to do here, and ⎋ is the other one */
+.prompt-ok {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.prompt-ok:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+html.glass .prompt-box {
+  background: rgba(24, 24, 24, 0.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
+}
+
+html.light.glass .prompt-box {
+  background: rgba(248, 248, 248, 0.68);
+}
+
 /* ===== settings (⌘,) ===== */
 
 /* rides the quick-open backdrop; only the box is its own */
