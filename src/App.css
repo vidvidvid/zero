@@ -3585,6 +3585,58 @@ body.dragging-row .term-divider.col::after {
   color: #f14c4c;
 }
 
+/* ⌘F. The pane-actions corner, and above them in stacking — while the bar is
+   up the actions are suppressed (see Terminals), so the two never fight for
+   the same pixels. */
+.term-find {
+  position: absolute;
+  top: 3px;
+  right: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 5px 2px var(--bg-panel);
+}
+
+.term-find-input {
+  width: 150px;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+/* reserved even when empty, so the box doesn't breathe as matches come and go */
+.term-find-count {
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.term-find button {
+  padding: 0 5px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-faint);
+  border-radius: 3px;
+}
+
+.term-find button:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
 .term-pane {
   flex: 1;
   min-width: 0;

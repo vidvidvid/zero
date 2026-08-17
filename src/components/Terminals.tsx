@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
 import { onSettingsChange, resolvedAppearance } from "../lib/settings";
@@ -13,6 +14,115 @@ import { contextMenuAt, fileEntries } from "../lib/contextMenu";
 /** A clicked link leaves the app entirely — the Rust side vets the scheme */
 function openLink(uri: string) {
   api.openUrl(uri).catch((e) => console.warn(`link: ${e}`));
+}
+
+/** every live pane's terminal and search addon, keyed the way the tree keys
+ *  panes — the find bar lives outside the pane that owns the terminal, and
+ *  this is how it reaches in */
+const searchers = new Map<string, { term: Terminal; search: SearchAddon }>();
+
+/** #RRGGBB only — the addon parses these itself and takes no alpha */
+function findColors() {
+  return resolvedAppearance() === "light"
+    ? { match: "#ffdf5d", active: "#ff9632" }
+    : { match: "#515c6a", active: "#ff9632" };
+}
+
+/**
+ * The find bar for one terminal pane — ⌘F while the terminal has the keyboard.
+ *
+ * It searches the pane that was focused when it opened and follows nothing:
+ * clicking a different pane closes it (see the effect in Terminals), because
+ * a bar that jumps panes steals the focus its input needs from the terminal
+ * that was just clicked.
+ *
+ * `ping` counts ⌘F presses. A press while the bar is already up should hand
+ * the keyboard back to the field with the query selected — state that moves
+ * on every press is what an effect can watch for that.
+ */
+function TermFind({ id, ping, onClose }: { id: string; ping: number; onClose: () => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [hits, setHits] = useState<{ index: number; count: number } | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [id, ping]);
+
+  // separate from the focus effect: this one's cleanup wipes the highlights,
+  // which should happen when the bar goes, not on every repeated ⌘F
+  useEffect(() => {
+    const entry = searchers.get(id);
+    const sub = entry?.search.onDidChangeResults((e) =>
+      setHits({ index: e.resultIndex, count: e.resultCount })
+    );
+    return () => {
+      sub?.dispose();
+      entry?.search.clearDecorations();
+      setHits(null);
+    };
+  }, [id]);
+
+  const find = (dir: "next" | "prev", incremental = false) => {
+    const entry = searchers.get(id);
+    if (!entry) return;
+    const q = inputRef.current?.value ?? "";
+    if (!q) {
+      entry.search.clearDecorations();
+      setHits(null);
+      return;
+    }
+    const c = findColors();
+    const decorations = {
+      matchBackground: c.match,
+      matchOverviewRuler: c.match,
+      activeMatchBackground: c.active,
+      activeMatchColorOverviewRuler: c.active,
+    };
+    if (dir === "next") entry.search.findNext(q, { incremental, decorations });
+    else entry.search.findPrevious(q, { decorations });
+  };
+
+  // buttons hand the keyboard straight back — the bar's whole flow is typed
+  const button = (dir: "next" | "prev") => () => {
+    find(dir);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className="term-find">
+      <input
+        ref={inputRef}
+        className="term-find-input"
+        placeholder="find"
+        spellCheck={false}
+        onInput={() => find("next", true)}
+        // every key in here is this field's — the workspace's window handler
+        // sits above and would answer ⌘W by closing an editor tab
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") find(e.shiftKey ? "prev" : "next");
+          else if (e.key === "Escape") onClose();
+          else if (e.metaKey && e.key.toLowerCase() === "f") {
+            e.preventDefault();
+            e.currentTarget.select();
+          }
+        }}
+      />
+      <span className="term-find-count">
+        {hits ? (hits.count === 0 ? "0" : hits.index >= 0 ? `${hits.index + 1}/${hits.count}` : `${hits.count}`) : ""}
+      </span>
+      <button title="previous match (⇧↩)" onClick={button("prev")}>
+        ‹
+      </button>
+      <button title="next match (↩)" onClick={button("next")}>
+        ›
+      </button>
+      <button title="close (⎋)" onClick={onClose}>
+        ✕
+      </button>
+    </div>
+  );
 }
 
 export type TermNode =
@@ -252,9 +362,35 @@ export function Terminals({
   const [armed, setArmed] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  // ⌘F presses so far, 0 while the bar is closed — a count rather than a
+  // flag so a press with the bar already up still reaches it (see TermFind)
+  const [finding, setFinding] = useState(0);
+
   // app-wide rather than per-panel, and started from here because the panes
   // are what it delivers to; calling it again is a no-op
   useEffect(watchFileDrops, []);
+
+  // the bar searches the pane it opened on; a click that moves focus to
+  // another pane is a return to that session, so the bar goes with it
+  useEffect(() => {
+    setFinding(0);
+  }, [tree.focusedId]);
+
+  // ⌘F, but only when the keyboard is already the terminal's — the editor's
+  // ⌘F is CodeMirror's and never passes through here. Listening on the window
+  // rather than the pane because xterm's textarea answers keydowns itself.
+  useEffect(() => {
+    if (!active || !visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      if (e.key.toLowerCase() !== "f") return;
+      if (!(e.target instanceof Node) || !bodyRef.current?.contains(e.target)) return;
+      e.preventDefault();
+      setFinding((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, visible]);
 
   // Drag a divider to change how two neighbouring panes share their split.
   // Shares are recomputed from the sizes captured at mousedown, so a long
@@ -325,7 +461,22 @@ export function Terminals({
                 }}
                 onMouseLeave={() => setArmed((cur) => (cur === id ? null : cur))}
               >
-                <div className={`pane-actions ${armed === id ? "visible" : ""}`}>
+                {finding > 0 && tree.focusedId === id && (
+                  <TermFind
+                    id={id}
+                    ping={finding}
+                    onClose={() => {
+                      setFinding(0);
+                      searchers.get(id)?.term.focus();
+                    }}
+                  />
+                )}
+                {/* same corner as the find bar, so the actions yield while it's up */}
+                <div
+                  className={`pane-actions ${
+                    armed === id && !(finding > 0 && tree.focusedId === id) ? "visible" : ""
+                  }`}
+                >
                   <button title="add terminal left" onClick={() => tree.splitPane(id, "left")}>
                     ◧
                   </button>
@@ -501,6 +652,9 @@ function TerminalPane({
     termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    searchers.set(id, { term, search });
     term.open(el);
 
     // bare URLs and file paths in ordinary output. OSC 8 links are separate —
@@ -858,7 +1012,9 @@ function TerminalPane({
       links.dispose();
       ptyBus.off(id);
       api.ptyKill(id).catch(() => {});
+      searchers.delete(id);
       termRef.current = null;
+      // the search addon goes down with the terminal — no dispose of its own
       term.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -191,8 +191,8 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **21,376 lines** (10,036 TS/TSX · 6,843 Rust · 3,689 CSS · 808 Swift) | closed, VS Code fork |
-| npm dependencies | **19** direct, 38 in the production tree | — |
+| Source | **21,596 lines** (10,204 TS/TSX · 6,843 Rust · 3,741 CSS · 808 Swift) | closed, VS Code fork |
+| npm dependencies | **24** direct, 65 in the production tree | — |
 | Rust crates | 443 | — |
 
 Voice memos roughly doubled it: 4,009 of the Rust lines and 808 of the Swift
