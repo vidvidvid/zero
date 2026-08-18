@@ -26,7 +26,7 @@ Method    3 launches each, median reported, apps quit between runs
 | App bundle | **14 MB** | 860 MB | 61× |
 | Installer | **6.3 MB** dmg | — | |
 | Files in the bundle | **5** | 17,035 | |
-| Shipped JS | **1.4 MB** loaded, 2.4 MB in all | 256 MB across 12,021 files | 183× |
+| Shipped JS | **1.4 MB** loaded, 2.7 MB in all | 256 MB across 12,021 files | 183× |
 | Electron/WebKit runtime | 0 (system WebKit) | 259 MB bundled | |
 | Bundled extensions | 0 | 116 | |
 
@@ -48,7 +48,7 @@ and the mono one. That's the price of letting the system compose the icon
 instead of drawing it ourselves, and it is a real 14% of the app.
 
 Two JS numbers, because the syntax highlighting split them apart: 1.4 MB is
-what loads to draw the window, and the other megabyte is 109 language modes
+what loads to draw the window, and the other 1.3 MB is 113 language modes
 that are fetched only when a file of that kind is opened. Both live inside the
 binary; neither adds a file to the bundle.
 

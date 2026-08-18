@@ -7,6 +7,8 @@ import { MemoThread } from "./MemoThread";
 import { NewFileView } from "./NewFileView";
 import { isImage } from "../lib/imageFile";
 import { contextMenu, fileEntries, type Entry } from "../lib/contextMenu";
+import { overrideFor, setLanguageOverride } from "../lib/lang";
+import { pickLanguage } from "../lib/langPick";
 import { FileIconSpan } from "./FileIcon";
 import { memoLabel, memoPaths, type Memos } from "../lib/memos";
 import { useTabReorder } from "../lib/tabReorder";
@@ -151,6 +153,17 @@ export function EditorPane({
       ...(file
         ? [
             { text: "Reveal in Sidebar", run: () => onRevealInTree(file) },
+            // the file's language is an editor question, so it lives with the
+            // editor's half of the menu — but only where there is an editor:
+            // a memo reads as markdown and an image isn't text at all
+            (v.kind === "file" || v.kind === "diff") && {
+              text: "Language…",
+              run: async () => {
+                const name = file.split("/").pop() ?? file;
+                const pick = await pickLanguage({ fileName: name, current: overrideFor(name) });
+                if (pick !== null) setLanguageOverride(name, pick === "auto" ? null : pick);
+              },
+            },
             "sep" as const,
             ...fileEntries(file, { root, writes: v.kind === "memo" ? "none" : "all" }),
           ]

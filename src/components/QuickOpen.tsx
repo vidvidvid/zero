@@ -7,8 +7,9 @@ import { FileIconSpan } from "./FileIcon";
 /** More than fits on screen twice over; nobody scrolls a fuzzy list. */
 const LIMIT = 50;
 
-/** Wrap the letters the query actually matched, in runs rather than per-char. */
-function marked(text: string, offset: number, hit: Set<number>): ReactNode {
+/** Wrap the letters the query actually matched, in runs rather than per-char.
+ *  Exported for the language picker, which draws its list the same way. */
+export function marked(text: string, offset: number, hit: Set<number>): ReactNode {
   if (hit.size === 0) return text;
   const out: ReactNode[] = [];
   let buf = "";
