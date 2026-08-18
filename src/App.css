@@ -717,11 +717,14 @@ body.dragging-tab .editor-tab * {
    which is what lets any rearrangement be nothing but new numbers here,
    never a remount.
    The transition is the app's whole animation system: panes glide to their
-   seats, so a drag's live preview rearranges the real layout under the hand
-   — the way the Claude app moves its panels — and the same easing lands the
-   drop, closes the gap behind ⌘B and ⌘J, and settles a keyboard split. The
-   curve is the tab strips' own. Off while a divider is in hand: a resize
-   tracks the pointer exactly, and an eased chase would read as lag. */
+   seats — the way the Claude app moves its panels — and the one easing
+   closes the gap behind ⌘B and ⌘J and settles a keyboard split. A drag
+   leans on only the transform leg: the rects freeze at pickup, the preview
+   slides panes as translates and the drop lands everything as FLIP glides
+   (see Workspace), so the whole gesture runs on the compositor and the
+   layout legs here never fire until the tree itself changes. The curve is
+   the tab strips' own. Off while a divider is in hand: a resize tracks the
+   pointer exactly, and an eased chase would read as lag. */
 .pane-abs {
   position: absolute;
   display: flex;
@@ -742,21 +745,15 @@ body.dragging-row .pane-abs {
 }
 
 /* The card in hand rides the pointer as itself — live terminal, live tree —
-   pinned at the size it was picked up at while everything else rearranges.
-   It tracks the hand, not an easing, so its motion transitions go; only its
-   opacity eases, for the one thing that may change mid-carry: over ground
-   its own parent still owns it stays solid — reordering neighbours is not a
-   removal — and it lets light through only as a ghost, when the aim would
-   carry it somewhere foreign. */
+   pinned at the size it was picked up at while everything else slides, and
+   solid the whole way: wherever the aim would take it, what you carry is
+   the pane, never a picture of one. It tracks the hand, not an easing, so
+   every transition goes. */
 .pane-abs.moving {
   z-index: 40;
   pointer-events: none;
   will-change: transform;
-  transition: opacity 160ms ease;
-}
-
-.pane-abs.moving.ghost {
-  opacity: 0.82;
+  transition: none;
 }
 
 body.dragging-panel,

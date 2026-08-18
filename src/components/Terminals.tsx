@@ -131,21 +131,19 @@ export function TerminalPanes({
   panes,
   active,
   draggingId,
-  dragGhost,
   onPaneDragStart,
   onOpenFile,
 }: {
   tree: LayoutTree;
   /** every terminal leaf, in an order that never changes with the layout; a
    *  null rect is a hidden pane (⌘J), which keeps its element — and its
-   *  shell — alive at display:none */
-  panes: { id: string; rect: Rect | null }[];
+   *  shell — alive at display:none. `shift` is the drag preview riding over
+   *  the frozen rect — a transform, so the pane slides without ever being
+   *  laid out again */
+  panes: { id: string; rect: Rect | null; shift?: string }[];
   active: boolean;
   /** the pane being carried, for its card's lift and its pill's light */
   draggingId: string | null;
-  /** whether the carried pane is on foreign ground — solid over its own
-   *  parent, a ghost only when the drop would take it elsewhere */
-  dragGhost: boolean;
   /** the workspace owns every drag now — a terminal is a peer of the sidebar
    *  and the editor there, and the drop targets span all of them */
   onPaneDragStart: (e: ReactMouseEvent, id: string) => void;
@@ -194,12 +192,12 @@ export function TerminalPanes({
 
   return (
     <>
-      {panes.map(({ id, rect }) => (
+      {panes.map(({ id, rect, shift }) => (
         <div
           key={id}
           className={`pane-abs term-abs ${termStyle === "plain" ? "plain" : ""} ${
             draggingId === id ? "moving" : ""
-          } ${draggingId === id && dragGhost ? "ghost" : ""}`}
+          }`}
           data-pane-id={id}
           // how a dropped file finds the pty it was dropped on
           data-term-id={id}
@@ -210,6 +208,7 @@ export function TerminalPanes({
                   top: `${rect.y}%`,
                   width: `${rect.w}%`,
                   height: `${rect.h}%`,
+                  transform: shift,
                 }
               : { display: "none" }
           }
@@ -489,10 +488,13 @@ function TerminalPane({
     const dragging = () =>
       document.body.classList.contains("dragging-row") ||
       document.body.classList.contains("dragging-col") ||
-      // a carried pane counts too: the live preview resizes panes per frame,
-      // and the program on the other end should hear one SIGWINCH at the
-      // drop, not a redraw per animation frame
-      document.body.classList.contains("dragging-panel");
+      // a carried pane counts too, and so does this pane still gliding into
+      // a seat that resized it (the .landing the drop pins on): the program
+      // on the other end should hear one SIGWINCH once everything is still,
+      // not a redraw per animation frame — and applySize should measure the
+      // settled card, never a size caught mid-glide
+      document.body.classList.contains("dragging-panel") ||
+      el.closest(".pane-abs.landing") !== null;
 
     /**
      * How many rows the terminal can give up without losing anything.
@@ -712,11 +714,18 @@ function TerminalPane({
     });
     void decoder;
 
-    // fit visually every frame during drags (debouncing leaves the exposed
-    // strip showing the cleared canvas = black flash); only the pty notify
-    // is debounced.
+    // Two kinds of drag, two opposite needs. A divider drag really resizes
+    // this pane per frame, so it refits visually every frame (debouncing
+    // leaves the exposed strip showing the cleared canvas = black flash);
+    // only the pty notify is debounced. A panel drag never resizes anything
+    // until the drop — the preview is transforms — so any resize that lands
+    // while one runs (and the carried card's own landing glide, which eases
+    // width for real) skips the refit entirely: the card clips, the text
+    // holds still, and one settle refit arrives through notifyPty when
+    // everything is down. That single refit is most of what 120fps cost.
     //
-    // And it waits for the mouse to come up, not just for 50ms of quiet.
+    // The pty notify waits for the mouse to come up, not just for 50ms of
+    // quiet.
     // Telling the pty is a SIGWINCH, and a full-screen program answers one by
     // redrawing everything it has on screen — for Claude Code that is its
     // whole UI. A drag pauses longer than 50ms between snap points more often
@@ -732,8 +741,11 @@ function TerminalPane({
         resizeTimer = window.setTimeout(notifyPty, 30);
         return;
       }
-      // the shrink applySize held back while the mouse was down, and the
-      // SIGWINCH that tells the program to redraw for it, back to back
+      // everything held back while the mouse was down, back to back: the
+      // scroll offset that now describes the wrong geometry, the refit a
+      // panel drag skipped (or the shrink a divider drag held), and the
+      // SIGWINCH that tells the program to redraw for it
+      smooth.reset();
       applySize();
       if (term.cols > 0 && term.rows > 0) {
         api.ptyResize(id, term.cols, term.rows).catch(() => {});
@@ -744,6 +756,16 @@ function TerminalPane({
       resizeRaf = window.requestAnimationFrame(() => {
         resizeRaf = 0;
         if (el.clientWidth === 0 || el.clientHeight === 0) return;
+        // a panel in flight: no refit now — notifyPty below re-arms until
+        // the drag and the landing are over, then applySize()s once
+        if (
+          document.body.classList.contains("dragging-panel") ||
+          el.closest(".pane-abs.landing") !== null
+        ) {
+          window.clearTimeout(resizeTimer);
+          resizeTimer = window.setTimeout(notifyPty, 50);
+          return;
+        }
         smooth.reset();
         applySize();
         if (term.rows > 0) term.refresh(0, term.rows - 1);

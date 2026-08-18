@@ -47,6 +47,24 @@ export type View =
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
+/* ----- the drag's numbers -----
+   Every threshold the gesture answers to, gathered here to be tuned from.
+   Distances are CSS px. Direct-sibling swaps stay instant on entry — if that
+   ever proves twitchy on small panes, an entry buffer belongs in this list.
+   The share clamps a seat may take live with the tree ops, in layout.ts. */
+/** travel before a press becomes a carry — a click with a shake in it stays a click */
+const DRAG_START = 5;
+/** the window-edge band that aims a drop at the root rather than at any pane */
+const EDGE_STRIP = 22;
+/** a split band's share of the extent it crosses… */
+const SPLIT_BAND = 0.25;
+/** …never thinner than this, so a short pane still offers one */
+const SPLIT_BAND_MIN = 28;
+/** …and never wider, so a tall pane doesn't become mostly band */
+const SPLIT_BAND_MAX = 90;
+/** crosswise travel before split bands arm at all — a level slide never splits */
+const CROSS_ARM = 24;
+
 /**
  * Everything in this window that a keystroke might belong to instead of to us.
  *
@@ -417,18 +435,19 @@ export const Workspace = memo(function Workspace({
   // Same gesture for every pane — a terminal, the editor, the sidebar: pick
   // it up by the pill at its top and carry it. The feedback is the drop's own
   // nature, the way the Claude app does it. Aiming a re-seat — a drop along
-  // the axis of the split the target already lives in — rearranges the real
-  // layout under the hand, live and animated: the gap that opens is the seat.
-  // Aiming a true split — a drop across that axis — draws a single accent
-  // line along the edge it would cut, and nothing moves until release.
-  // ⎋ puts everything back.
+  // the axis of the split the target already lives in — slides the other
+  // panes into the layout the drop would make, live and animated: the gap
+  // that opens is the seat. Aiming a true split — a drop across that axis —
+  // draws a single accent line along the edge it would cut, and nothing
+  // moves until release. ⎋ puts everything back.
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  /** whether the carried card is on foreign ground — solid while its target
-   *  keeps the parent it already has, a ghost only when it would leave */
-  const [ghost, setGhost] = useState(false);
-  /** the tree as the drop would leave it, drawn live while a re-seat is
-   *  aimed — the preview and the drop are the same computation */
+  /** the tree as the drop would leave it, worn live while a re-seat is
+   *  aimed — the preview and the drop are the same computation. Every pane's
+   *  committed rect stays frozen for the length of the drag; this tree shows
+   *  itself as per-pane transforms over them (previewShift below), so a
+   *  frame of preview costs the compositor a slide and the layout engine
+   *  nothing at all — no reflow, no terminal refit, no repaint of text. */
   const [previewRoot, setPreviewRoot] = useState<LayoutNode | null>(null);
   /** the line a split shows, along the edge of the pane it would cut */
   const [splitHint, setSplitHint] = useState<{ rect: Rect; side: Side } | null>(null);
@@ -436,37 +455,62 @@ export const Workspace = memo(function Workspace({
    *  arm their own). Armed by proximity rather than :hover so the pill never
    *  takes the pointer at rest from the tabs and icons it floats over. */
   const [grabArmed, setGrabArmed] = useState<"sidebar" | "editor" | null>(null);
-  /** the carried card's rect as the drag began — pinned, so the card in hand
-   *  never resizes while the preview rearranges everyone else */
-  const dragPin = useRef<Rect | null>(null);
 
   // ----- the layout, drawn -----
   // One tree, one absolute field. Hidden panes stay leaves — the sidebar
   // toggled away, every terminal while ⌘J holds — and simply get no rect:
   // their siblings renormalise into the room, and everything comes back to
-  // its own seat because nothing ever left the tree. While a re-seat is
-  // being aimed, what is drawn is the preview tree instead.
+  // its own seat because nothing ever left the tree. The rects always come
+  // from the committed tree — a drag freezes them by never committing until
+  // the drop — and an aimed re-seat rides on top as transforms.
   const hiddenIds = new Set<string>();
   if (!sidebarVisible) hiddenIds.add(SIDEBAR);
   const termIds = leafIds(tree.root).filter(isTerm);
   if (!terminalVisible) for (const id of termIds) hiddenIds.add(id);
 
-  const drawnRoot = previewRoot ?? tree.root;
   const panes: { id: string; rect: Rect }[] = [];
   const dividers: Divider[] = [];
-  collectRects(drawnRoot, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, panes, dividers);
+  collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, panes, dividers);
   const rectOf = (id: string) => panes.find((p) => p.id === id)?.rect ?? null;
-  /** what a pane is drawn at: its rect, except the carried card, which keeps
-   *  the rect it was picked up at and rides the pointer from there */
-  const drawnRect = (id: string) =>
-    draggingId === id && dragPin.current ? dragPin.current : rectOf(id);
-  const paneStyle = (rect: Rect | null): React.CSSProperties =>
+  /** where the aimed drop would put each pane, while one is aimed */
+  const previewPanes: { id: string; rect: Rect }[] | null = previewRoot ? [] : null;
+  if (previewRoot && previewPanes)
+    collectRects(previewRoot, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, previewPanes, []);
+  /**
+   * The preview, worn as a slide: the distance from a pane's frozen rect to
+   * its place in the aimed layout, as a translate in percentages of the
+   * pane's own box — so nothing is ever measured back off the DOM. Same-axis
+   * re-seats preserve every size, so for them this slide is the exact
+   * layout; a seat in a foreign split only approximates until the drop
+   * (sizes stay pinned mid-drag, so a target giving ground may overlap its
+   * neighbour a little while the gap opens). The carried card is never
+   * shifted — it rides the pointer, and its seat is the gap the others leave.
+   */
+  const previewShift = (id: string): string | undefined => {
+    if (!previewPanes || id === draggingId) return undefined;
+    const at = rectOf(id);
+    const to = previewPanes.find((p) => p.id === id)?.rect;
+    if (!at || !to) return undefined;
+    const tx = ((to.x - at.x) / at.w) * 100;
+    const ty = ((to.y - at.y) / at.h) * 100;
+    if (Math.abs(tx) < 0.01 && Math.abs(ty) < 0.01) return undefined;
+    return `translate(${tx}%, ${ty}%)`;
+  };
+  const paneStyle = (rect: Rect | null, shift?: string): React.CSSProperties =>
     rect
-      ? { left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.w}%`, height: `${rect.h}%` }
+      ? {
+          left: `${rect.x}%`,
+          top: `${rect.y}%`,
+          width: `${rect.w}%`,
+          height: `${rect.h}%`,
+          transform: shift,
+        }
       : { display: "none" };
   // stable order, never tree order: re-seating a pane must not reorder the
   // keyed siblings, or React would move live terminal DOM around the tree
-  const termPanes = [...termIds].sort().map((id) => ({ id, rect: drawnRect(id) }));
+  const termPanes = [...termIds]
+    .sort()
+    .map((id) => ({ id, rect: rectOf(id), shift: previewShift(id) }));
 
   /**
    * What a drop at this point would do. Targets are measured against the
@@ -478,10 +522,7 @@ export const Workspace = memo(function Workspace({
    * where you're going), and a foreign pane seats by its midline. True
    * splits — drops across the target's own axis — live in narrow bands
    * along the crossing edges, so they are asked for deliberately rather
-   * than tripped over. Window-edge strips aim at the root. `home` is
-   * whether the pane would still answer to the parent it already has: while
-   * it would, the card in hand stays solid; only a move to foreign ground
-   * carries as a ghost.
+   * than tripped over. Window-edge strips aim at the root.
    */
   const targetAt = (
     cx: number,
@@ -492,8 +533,8 @@ export const Workspace = memo(function Workspace({
     travelX: number,
     travelY: number
   ):
-    | { op: "pane"; targetId: string; side: Side; seat: boolean; home: boolean; ratio: number; rect: Rect }
-    | { op: "root"; side: Side; seat: boolean; home: boolean; extent: number; rect: Rect }
+    | { op: "pane"; targetId: string; side: Side; seat: boolean; ratio: number; rect: Rect }
+    | { op: "root"; side: Side; seat: boolean; extent: number; rect: Rect }
     | null => {
     const root = rootRef.current;
     if (!root) return null;
@@ -502,17 +543,13 @@ export const Workspace = memo(function Workspace({
     const fy = clamp(cy - rr.top, 0, rr.height);
     const whole: Rect = { x: 0, y: 0, w: 100, h: 100 };
     const edge = Math.min(fx, rr.width - fx, fy, rr.height - fy);
-    if (edge < 22) {
+    if (edge < EDGE_STRIP) {
       const side: Side =
         edge === fx ? "left" : edge === rr.width - fx ? "right" : edge === fy ? "up" : "down";
       const axis = side === "left" || side === "right" ? "row" : "col";
       const seat = tree.root.type === "split" && tree.root.dir === axis;
-      const home =
-        seat &&
-        tree.root.type === "split" &&
-        tree.root.children.some((c) => c.type === "leaf" && c.id === dragged);
       const extent = (axis === "row" ? dRect.w : dRect.h) / 100;
-      return { op: "root", side, seat, home, extent, rect: whole };
+      return { op: "root", side, seat, extent, rect: whole };
     }
     const px = (fx / rr.width) * 100;
     const py = (fy / rr.height) * 100;
@@ -536,19 +573,20 @@ export const Workspace = memo(function Workspace({
       const m = Math.min(inX, wPx - inX, inY, hPx - inY);
       const side: Side =
         m === inX ? "left" : m === wPx - inX ? "right" : m === inY ? "up" : "down";
-      return { op: "pane", targetId: hit.id, side, seat: false, home: false, ratio: 0.5, rect: hit.rect };
+      return { op: "pane", targetId: hit.id, side, seat: false, ratio: 0.5, rect: hit.rect };
     }
     // Split bands arm only once the hand has actually travelled across the
     // axis. Every drag starts at a pane's top pill, so a level slide into a
     // neighbour skims its top band the whole way — and a level slide means
     // reorder, not split. Real splits arrive crosswise, and those get the
     // bands at full size.
-    const band = (cross: number) => Math.min(Math.max(cross * 0.25, 28), 90);
+    const band = (cross: number) =>
+      Math.min(Math.max(cross * SPLIT_BAND, SPLIT_BAND_MIN), SPLIT_BAND_MAX);
     if (pdir === "row") {
-      const b = Math.abs(travelY) > 24 ? band(hPx) : 0;
+      const b = Math.abs(travelY) > CROSS_ARM ? band(hPx) : 0;
       if (b > 0 && (inY < b || inY > hPx - b)) {
         const side: Side = inY < b ? "up" : "down";
-        return { op: "pane", targetId: hit.id, side, seat: false, home: false, ratio: 0.5, rect: hit.rect };
+        return { op: "pane", targetId: hit.id, side, seat: false, ratio: 0.5, rect: hit.rect };
       }
       const pre = precedes(tree.root, dragged, hit.id);
       const side: Side = pre === true ? "right" : pre === false ? "left" : inX < wPx / 2 ? "left" : "right";
@@ -557,15 +595,14 @@ export const Workspace = memo(function Workspace({
         targetId: hit.id,
         side,
         seat: true,
-        home: pre !== null,
         ratio: dRect.w / (dRect.w + hit.rect.w),
         rect: hit.rect,
       };
     }
-    const b = Math.abs(travelX) > 24 ? band(wPx) : 0;
+    const b = Math.abs(travelX) > CROSS_ARM ? band(wPx) : 0;
     if (b > 0 && (inX < b || inX > wPx - b)) {
       const side: Side = inX < b ? "left" : "right";
-      return { op: "pane", targetId: hit.id, side, seat: false, home: false, ratio: 0.5, rect: hit.rect };
+      return { op: "pane", targetId: hit.id, side, seat: false, ratio: 0.5, rect: hit.rect };
     }
     const pre = precedes(tree.root, dragged, hit.id);
     const side: Side = pre === true ? "down" : pre === false ? "up" : inY < hPx / 2 ? "up" : "down";
@@ -574,7 +611,6 @@ export const Workspace = memo(function Workspace({
       targetId: hit.id,
       side,
       seat: true,
-      home: pre !== null,
       ratio: dRect.h / (dRect.h + hit.rect.h),
       rect: hit.rect,
     };
@@ -603,9 +639,8 @@ export const Workspace = memo(function Workspace({
       const dx = ev.clientX - sx;
       const dy = ev.clientY - sy;
       if (!live) {
-        if (Math.hypot(dx, dy) < 5) return;
+        if (Math.hypot(dx, dy) < DRAG_START) return;
         live = true;
-        dragPin.current = pin;
         document.body.classList.add("dragging-panel");
         setDraggingId(id);
       }
@@ -619,10 +654,8 @@ export const Workspace = memo(function Workspace({
       if (!target) {
         setPreviewRoot(null);
         setSplitHint(null);
-        setGhost(false);
       } else if (target.seat) {
         setSplitHint(null);
-        setGhost(!target.home);
         setPreviewRoot(
           target.op === "pane"
             ? seatedLeaf(tree.root, id, target.targetId, target.side, target.ratio)
@@ -630,7 +663,6 @@ export const Workspace = memo(function Workspace({
         );
       } else {
         setPreviewRoot(null);
-        setGhost(true);
         setSplitHint({ rect: target.rect, side: target.side });
       }
     };
@@ -640,13 +672,19 @@ export const Workspace = memo(function Workspace({
       window.removeEventListener("keydown", key, true);
       document.body.classList.remove("dragging-panel");
       const from = live ? card.getBoundingClientRect() : null;
-      dragPin.current = null;
-      // one synchronous commit: the tree, the un-pinning and the class all
+      // every other pane's visual rect too, read before the tree commits:
+      // the preview slides are mid-glide, and where a pane is seen is where
+      // its landing has to start from
+      const others: [HTMLElement, DOMRect][] = from
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-pane-id]"))
+            .filter((el) => el !== card)
+            .map((el) => [el, el.getBoundingClientRect()])
+        : [];
+      // one synchronous commit: the tree, the preview and the class all
       // land before the next paint, so there is no frame where the card is
       // half one thing and half the other
       flushSync(() => {
         setDraggingId(null);
-        setGhost(false);
         setPreviewRoot(null);
         setSplitHint(null);
         if (apply && live && target) {
@@ -660,25 +698,43 @@ export const Workspace = memo(function Workspace({
           }
         }
       });
-      // Land the card from exactly where the hand left it. The DOM already
-      // wears the seat's rect; replay the visual position over it (FLIP) and
-      // release, so the card that settles is the card that was carried —
-      // one glide, no swap of a ghost for an original.
+      // Land everything from exactly where it was seen. The DOM now wears
+      // the committed rects — that one commit is the drop's only layout —
+      // and each pane replays its visual position over its new seat (FLIP)
+      // and releases, so the whole landing is a set of transform glides the
+      // layout engine never hears about. The card that settles is the card
+      // that was carried — one glide, no swap of a ghost for an original.
       if (from) {
         card.style.transition = "none";
         card.style.transform = "";
+        for (const [el] of others) el.style.transition = "none";
         const to = card.getBoundingClientRect();
+        const flips: [HTMLElement, number, number][] = [];
+        for (const [el, was] of others) {
+          const now = el.getBoundingClientRect();
+          const dx = was.left - now.left;
+          const dy = was.top - now.top;
+          if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) flips.push([el, dx, dy]);
+        }
         card.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+        for (const [el, dx, dy] of flips) el.style.transform = `translate(${dx}px, ${dy}px)`;
         const resized = Math.abs(from.width - to.width) > 1 || Math.abs(from.height - to.height) > 1;
         const pw = card.style.width;
         const ph = card.style.height;
         if (resized) {
+          // the one landing that is a resize glides between its two sizes
+          // as itself; its terminal's refit waits at the far end (the
+          // .landing gate in Terminals), so the text holds still and the
+          // card clips until it settles
+          card.classList.add("landing");
           card.style.width = `${from.width}px`;
           card.style.height = `${from.height}px`;
         }
         void card.offsetWidth;
         card.style.transition = "";
         card.style.transform = "";
+        for (const [el] of others) el.style.transition = "";
+        for (const [el] of flips) el.style.transform = "";
         if (resized) {
           card.style.width = `${to.width}px`;
           card.style.height = `${to.height}px`;
@@ -686,6 +742,7 @@ export const Workspace = memo(function Workspace({
           window.setTimeout(() => {
             card.style.width = pw;
             card.style.height = ph;
+            card.classList.remove("landing");
           }, 200);
         }
       } else {
@@ -765,11 +822,9 @@ export const Workspace = memo(function Workspace({
     <div ref={rootRef} className={`workspace ${active ? "" : "inactive"}`}>
       {sidebarVisible && (
         <div
-          className={`pane-abs ${draggingId === SIDEBAR ? "moving" : ""} ${
-            draggingId === SIDEBAR && ghost ? "ghost" : ""
-          }`}
+          className={`pane-abs ${draggingId === SIDEBAR ? "moving" : ""}`}
           data-pane-id={SIDEBAR}
-          style={paneStyle(drawnRect(SIDEBAR))}
+          style={paneStyle(rectOf(SIDEBAR), previewShift(SIDEBAR))}
           onMouseMove={armWrapper("sidebar", 14)}
           onMouseLeave={disarmWrapper("sidebar")}
         >
@@ -796,11 +851,9 @@ export const Workspace = memo(function Workspace({
         </div>
       )}
       <div
-        className={`pane-abs main-col ${draggingId === EDITOR ? "moving" : ""} ${
-          draggingId === EDITOR && ghost ? "ghost" : ""
-        }`}
+        className={`pane-abs main-col ${draggingId === EDITOR ? "moving" : ""}`}
         data-pane-id={EDITOR}
-        style={paneStyle(drawnRect(EDITOR))}
+        style={paneStyle(rectOf(EDITOR), previewShift(EDITOR))}
         onMouseMove={armWrapper("editor", 12)}
         onMouseLeave={disarmWrapper("editor")}
       >
@@ -832,7 +885,6 @@ export const Workspace = memo(function Workspace({
         panes={termPanes}
         active={active}
         draggingId={draggingId}
-        dragGhost={ghost}
         onPaneDragStart={startPaneDrag}
         onOpenFile={openFile}
       />
