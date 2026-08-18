@@ -109,3 +109,37 @@ pub fn watch(app: tauri::AppHandle) {
         }
     });
 }
+
+/// The folder picker, asked for by a process that is allowed to open one.
+///
+/// `NSOpenPanel` is hosted out of process, and macOS 26 refuses that
+/// connection to an executable that isn't inside an `.app` bundle — which is
+/// precisely what `tauri dev` runs. The panel comes back NULL, objc2 panics on
+/// it, and the window goes with it: in this repository "open project" has been
+/// a way to quit the dev build, and nothing about the failure says so.
+///
+/// osascript *is* bundled, and `choose folder` is the same AppKit panel, so
+/// asking it instead costs one subprocess and works. Only the dev build takes
+/// this route — a bundled zero has no reason to.
+#[tauri::command]
+pub async fn pick_directory(title: String) -> Result<Option<String>, String> {
+    // the prompt is ours, but it is still going into a script: a quote in it
+    // would end the string and everything after it would be AppleScript
+    let prompt = title.replace(['"', '\\', '\n'], " ");
+    let out = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(format!("POSIX path of (choose folder with prompt \"{prompt}\")"))
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    // cancelling is -128 and is not a failure to report, and telling it apart
+    // from a real error would only change a message nobody sees
+    if !out.status.success() {
+        return Ok(None);
+    }
+    // `POSIX path of` ends a directory with a slash; every root elsewhere in
+    // zero is stored without one, and the same project under two spellings is
+    // two tabs
+    let dir = String::from_utf8_lossy(&out.stdout).trim().trim_end_matches('/').to_string();
+    Ok((!dir.is_empty()).then_some(dir))
+}
