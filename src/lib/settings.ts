@@ -27,7 +27,7 @@ export interface Settings {
   /** light / dark, or system to follow macOS. What most consumers want is
    *  not this but `resolvedAppearance()` — the two-value answer. */
   appearance: Appearance;
-  /** Whether the terminal wears the same card every other panel does, or goes
+  /** Whether terminal panes wear the same card every other panel does, or go
    *  without — no fill, no border, no shadow, text straight on the window.
    *  Scoped to the terminal rather than offered per panel because it is the
    *  one panel that is nothing but text: the sidebar and the editor hold

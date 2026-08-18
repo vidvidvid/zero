@@ -719,9 +719,10 @@ body.dragging-tab .editor-tab * {
 }
 
 /* ===== floating panels =====
-   The three surfaces that lie on the field: the sidebar, the editor card and
-   — unless preferences say plain — the terminal. Same radius, same hairline,
-   same lift; the language is only a language if every panel speaks it.
+   The surfaces that lie on the field: the sidebar, the editor card and —
+   unless preferences say plain — every terminal pane, each a card of its
+   own. Same radius, same hairline, same lift; the language is only a
+   language if every panel speaks it.
    The hairline is new since the cards learned to be picked up. Gap and
    shadow told two resting panels apart and could have gone on doing it, but
    a card being carried crosses every tone in the window, and mid-flight the
@@ -729,7 +730,7 @@ body.dragging-tab .editor-tab * {
    change: with a line to say "ends here", it only has to say "lifted". */
 .sidebar,
 .editor-card,
-.term-panel {
+.term-pane {
   border-radius: var(--panel-radius);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
@@ -937,7 +938,7 @@ body.dragging-row {
    breath until the drop. Only a transform moves, so nothing under it reflows
    and nothing inside it is disturbed. */
 .sidebar.moving,
-.term-panel.moving {
+.main-col.moving {
   opacity: 0.82;
   z-index: 40;
   pointer-events: none;
@@ -949,9 +950,10 @@ body.dragging-panel * {
   cursor: grabbing !important;
 }
 
-/* where the carried card would land: an accent line standing at the edge it
-   would dock to — the insertion mark the Claude app draws in blue, drawn
-   here in this theme's one highlight, brightness */
+/* where the carried card would land: an accent line standing at the seam it
+   would take — the insertion mark the Claude app draws in blue, drawn here
+   in this theme's one highlight, brightness. The vertical one's x is set
+   inline, being a seat in a row whose seams move. */
 .dock-hint {
   position: absolute;
   z-index: 30;
@@ -960,15 +962,7 @@ body.dragging-panel * {
   pointer-events: none;
 }
 
-.dock-hint.left {
-  left: 2px;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-}
-
-.dock-hint.right {
-  right: 2px;
+.dock-hint.row {
   top: 0;
   bottom: 0;
   width: 4px;
@@ -3563,32 +3557,29 @@ html.light.glass .prompt-box {
 
 /* ===== terminals ===== */
 
-/* A card like the others by default — the panel fill behind the text, the
-   shared hairline and lift, and a clip to keep the panes inside its corners.
-   The terminal went without for a while, text straight on the field, and
-   that look survives as `terminal: plain` in preferences: no fill, no
-   border, no shadow, the window showing through between the lines — and
-   under glass, the text on bare glass. Its cell in the workspace grid sizes
-   it, so the panel holds no height or margin of its own. */
+/* A region of cards rather than a card: each pane wears the shared chrome
+   itself, which is what lets one be picked up on its own — carried to
+   another pane's edge to re-seat, or out of the region to move the whole
+   dock. The old single-panel look survives per pane as `terminal: plain` in
+   preferences: no fill, no border, no shadow, the window showing through
+   between the lines — and under glass, the text on bare glass. The region's
+   cell in the workspace grid sizes it; it holds no height or margin of its
+   own. */
 .term-panel {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: var(--bg-panel);
-  overflow: hidden;
 }
 
-.term-panel.plain {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-}
-
+/* Grown by half a gap on every side: the panes tile this box edge to edge,
+   and each one insets itself by the same half — so two panes stand a whole
+   gap apart, while the outermost edges land exactly where every other card's
+   edge does. */
 .term-body {
   flex: 1;
   min-height: 0;
   position: relative;
+  margin: calc(var(--float-gap) / -2);
 }
 
 .term-abs {
@@ -3596,6 +3587,7 @@ html.light.glass .prompt-box {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  padding: calc(var(--float-gap) / 2);
 }
 
 /* the pane a dragged-in file would land in, lit while it's held over one.
@@ -3604,62 +3596,129 @@ html.light.glass .prompt-box {
 .term-abs.term-drop::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: calc(var(--float-gap) / 2);
   z-index: 3;
   pointer-events: none;
   border: 1px solid var(--text-faint);
+  border-radius: var(--panel-radius);
   background: rgb(255 255 255 / 4%);
 }
 
-/* The split line moved here from the panes themselves. It used to be a border
-   on the pane below or to the right of it, which meant the line and the thing
-   you grab for it were two different objects a pixel apart; now the divider
-   draws its own line and lights the same line up when you reach for it. Two
-   terminals need it in a way two cards don't — cards are parted by a gap of
-   window, and these are parted by nothing but their own padding, which reads
-   as one wide terminal with a gutter. Below .pane-actions so it never steals
-   a click from the ✕. */
+/* the pane in hand — the same carry the workspace's cards get */
+.term-abs.moving {
+  opacity: 0.82;
+  z-index: 5;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* the pill a pane is carried by — the panel-grab's twin, positioned inside
+   the pane's own box and armed the same way (see the pane's mousemove) */
+.pane-grab {
+  position: absolute;
+  top: calc(var(--float-gap) / 2 + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: 64px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  cursor: grab;
+}
+
+.pane-grab.armed,
+.pane-grab.live {
+  pointer-events: auto;
+}
+
+.pane-grab::after {
+  content: "";
+  width: 44px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.pane-grab.armed::after {
+  opacity: 1;
+}
+
+.pane-grab.live::after {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* the edge of the pane a carried one would re-seat against */
+.pane-hint {
+  position: absolute;
+  z-index: 6;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.pane-hint.v {
+  width: 4px;
+}
+
+.pane-hint.h {
+  height: 4px;
+}
+
+/* The seam between two panes is a gap of window now, like the seams between
+   cards — so the divider works the way the workspace's do: the whole gap is
+   the hit area, nothing at rest, a pill under the pointer, accent while in
+   hand. Below .pane-actions so it never steals a click from the ✕. */
 .term-divider {
   position: absolute;
   z-index: 2;
 }
 
 .term-divider.row {
-  width: 9px;
-  margin-left: -4.5px;
+  width: var(--float-gap);
+  margin-left: calc(var(--float-gap) / -2);
   cursor: col-resize;
 }
 
 .term-divider.col {
-  height: 9px;
-  margin-top: -4.5px;
+  height: var(--float-gap);
+  margin-top: calc(var(--float-gap) / -2);
   cursor: row-resize;
 }
 
 .term-divider::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background: var(--border);
-  transition: background 0.12s ease;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 2.5px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
 .term-divider.row::after {
-  left: 4px;
-  right: 4px;
+  width: 5px;
+  height: 44px;
 }
 
 .term-divider.col::after {
-  top: 4px;
-  bottom: 4px;
+  width: 44px;
+  height: 5px;
 }
 
-/* Lit while the pointer is on it, and for as long as the drag lasts — the
-   divider slides out from under the pointer otherwise and goes dark mid-drag,
-   which reads as having lost hold of it. */
 .term-divider:hover::after,
-body.dragging-col .term-divider.row::after,
-body.dragging-row .term-divider.col::after {
+.term-divider.live::after {
+  opacity: 1;
+}
+
+.term-divider.live::after {
   background: var(--accent);
 }
 
@@ -3668,13 +3727,14 @@ body.dragging-row .term-divider.col::after {
    while the pointer is in the top fifth of that pane. */
 .pane-actions {
   position: absolute;
-  /* inset by the pane's own padding, and kept near enough one cell tall that
-     it rides the terminal's first line instead of sitting above it */
-  top: 3px;
+  /* inset past the half-gap the pane card stands in, then by the card's own
+     padding — near enough one cell tall that it rides the terminal's first
+     line instead of sitting above it */
+  top: 7px;
   /* clear of the scrollbar, not flush to the pane. The viewport's right edge
      is the pane's 6px padding and the bar is 8px wide, so anything under 14px
      sits on top of it — which put the close button squarely on the thumb. */
-  right: 16px;
+  right: 20px;
   z-index: 3;
   display: flex;
   gap: 2px;
@@ -3714,8 +3774,8 @@ body.dragging-row .term-divider.col::after {
    the same pixels. */
 .term-find {
   position: absolute;
-  top: 3px;
-  right: 16px;
+  top: 7px;
+  right: 20px;
   z-index: 4;
   display: flex;
   align-items: center;
@@ -3772,6 +3832,18 @@ body.dragging-row .term-divider.col::after {
      without matching it exactly — they're separate panels, not one grid. */
   padding: 6px 6px 6px 12px;
   display: flex;
+  /* the card itself: fill behind the text, and the clip that makes the
+     radius real against the scrollbar and the selection fills */
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+/* plain: the card taken off — the look this panel wore before it was one */
+.term-panel.plain .term-pane {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* clips the sub-row transform smoothTermScroll puts on .xterm-screen.

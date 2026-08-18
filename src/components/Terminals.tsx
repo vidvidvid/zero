@@ -227,6 +227,7 @@ export interface TerminalTree {
   splitFocused: (dir: "row" | "col") => void;
   splitPane: (id: string, side: Side) => void;
   removePane: (id: string) => void;
+  movePane: (id: string, targetId: string, side: Side) => void;
   setSizes: (path: number[], sizes: number[]) => void;
 }
 
@@ -290,6 +291,22 @@ export function useTerminalTree(
     });
   }, []);
 
+  /**
+   * Re-seat a live pane against another: out of the tree, then back in on
+   * `side` of the target — the same insertAt a split uses, so a moved pane
+   * halves its target's share the way a new one would. Only the tree changes;
+   * the pane's component keeps its slot, so the shell inside never notices.
+   */
+  const movePane = useCallback((id: string, targetId: string, side: Side) => {
+    if (id === targetId) return;
+    setRoot((r) => {
+      if (!r || !hasLeaf(r, id)) return r;
+      const without = removeLeaf(r, id);
+      if (!without || !hasLeaf(without, targetId)) return r;
+      return insertAt(without, targetId, side, { type: "leaf", id });
+    });
+  }, []);
+
   return {
     root,
     cwd,
@@ -299,6 +316,7 @@ export function useTerminalTree(
     splitFocused,
     splitPane,
     removePane,
+    movePane,
     setSizes,
   };
 }
@@ -356,24 +374,127 @@ export function Terminals({
   visible,
   layout,
   active,
+  group,
   onOpenFile,
 }: {
   tree: TerminalTree;
   visible: boolean;
-  /** where the workspace's grid puts this panel — its size comes from the
-   *  tracks, so the panel itself no longer holds a height */
+  /** where the workspace's grid puts this region — its size comes from the
+   *  tracks, so the region itself no longer holds a height */
   layout: CSSProperties;
   active: boolean;
+  /** the workspace's half of a pane drag that leaves the region: aiming the
+   *  whole terminal dock at a seat in the row, or at the bottom */
+  group: {
+    hint: (x: number, y: number) => void;
+    clear: () => void;
+    drop: (x: number, y: number) => boolean;
+  };
   /** a ⌘-clicked path that belongs to this project */
   onOpenFile: (abs: string, line?: number) => void;
 }) {
-  // whether this panel wears the shared card or goes plain — a live setting,
+  // whether the panes wear the shared card or go plain — a live setting,
   // so flipping it in ⌘, restyles every open terminal on the spot
   const { termStyle } = useSettings();
   // The pane toolbar only exists near the top edge of a pane, so working in
   // the middle of a session never puts chrome on screen.
   const [armed, setArmed] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  // ----- moving a pane -----
+  // Every pane is its own card with its own pill. Inside the region a drop
+  // re-seats the pane against the one under the pointer — the accent line
+  // says which edge; carried out of the region, the workspace takes over and
+  // the drop moves the whole dock. ⎋ puts everything back.
+  const [movingPane, setMovingPane] = useState<string | null>(null);
+  const [grabArmed, setGrabArmed] = useState<string | null>(null);
+  const [paneDrop, setPaneDrop] = useState<{ id: string; side: Side } | null>(null);
+  /** the rects as last rendered — the drag handler's map of the region */
+  const panesRef = useRef<{ id: string; rect: Rect }[]>([]);
+
+  const startPaneMove = (e: React.MouseEvent, id: string) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const body = bodyRef.current;
+    const abs = body?.querySelector<HTMLElement>(`[data-term-id="${id}"]`);
+    if (!body || !abs) return;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let live = false;
+    let target:
+      | { kind: "pane"; id: string; side: Side }
+      | { kind: "group"; x: number; y: number }
+      | null = null;
+
+    const move = (ev: MouseEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      // a click with a shake in it must not send the card into the air
+      if (!live) {
+        if (Math.hypot(dx, dy) < 5) return;
+        live = true;
+        document.body.classList.add("dragging-panel");
+        setMovingPane(id);
+      }
+      abs.style.transform = `translate(${dx}px, ${dy}px)`;
+      const br = body.getBoundingClientRect();
+      const inside =
+        ev.clientX >= br.left && ev.clientX <= br.right && ev.clientY >= br.top && ev.clientY <= br.bottom;
+      if (!inside) {
+        setPaneDrop(null);
+        group.hint(ev.clientX, ev.clientY);
+        target = { kind: "group", x: ev.clientX, y: ev.clientY };
+        return;
+      }
+      group.clear();
+      const px = ((ev.clientX - br.left) / br.width) * 100;
+      const py = ((ev.clientY - br.top) / br.height) * 100;
+      const hit = panesRef.current.find(
+        (p) =>
+          p.id !== id &&
+          px >= p.rect.x &&
+          px < p.rect.x + p.rect.w &&
+          py >= p.rect.y &&
+          py < p.rect.y + p.rect.h
+      );
+      if (!hit) {
+        setPaneDrop(null);
+        target = null;
+        return;
+      }
+      // which edge of the pane under the pointer is nearest, in its own axes
+      const rx = (px - hit.rect.x) / hit.rect.w;
+      const ry = (py - hit.rect.y) / hit.rect.h;
+      const min = Math.min(rx, 1 - rx, ry, 1 - ry);
+      const side: Side = min === rx ? "left" : min === 1 - rx ? "right" : min === ry ? "up" : "down";
+      target = { kind: "pane", id: hit.id, side };
+      setPaneDrop((cur) => (cur?.id === hit.id && cur.side === side ? cur : { id: hit.id, side }));
+    };
+    const finish = (apply: boolean) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("keydown", key, true);
+      document.body.classList.remove("dragging-panel");
+      abs.style.transform = "";
+      setMovingPane(null);
+      setPaneDrop(null);
+      group.clear();
+      if (apply && live && target) {
+        if (target.kind === "pane") tree.movePane(id, target.id, target.side);
+        else group.drop(target.x, target.y);
+      }
+    };
+    const up = () => finish(true);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finish(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", key, true);
+  };
 
   // ⌘F presses so far, 0 while the bar is closed — a count rather than a
   // flag so a press with the bar already up still reaches it (see TermFind)
@@ -414,6 +535,9 @@ export function Terminals({
       const node = nodeAt(tree.root, d.path);
       if (!body || !node || node.type !== "split") return;
       e.preventDefault();
+      // only the divider in hand lights — same rule as the workspace's
+      const handle = e.currentTarget as HTMLElement;
+      handle.classList.add("live");
       const base = sizesOf(node);
       const br = body.getBoundingClientRect();
       const span = d.dir === "row" ? (br.width * d.host.w) / 100 : (br.height * d.host.h) / 100;
@@ -434,6 +558,7 @@ export function Terminals({
       const up = () => {
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
+        handle.classList.remove("live");
         document.body.classList.remove("dragging-col", "dragging-row");
       };
       window.addEventListener("mousemove", move);
@@ -446,6 +571,7 @@ export function Terminals({
   const panes: { id: string; rect: Rect }[] = [];
   const dividers: Divider[] = [];
   if (tree.root) collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], panes, dividers);
+  panesRef.current = panes;
 
   return (
     <div
@@ -458,7 +584,7 @@ export function Terminals({
             return panes.map(({ id, rect }) => (
               <div
                 key={id}
-                className="term-abs"
+                className={`term-abs ${movingPane === id ? "moving" : ""}`}
                 // how a dropped file finds the pty it was dropped on
                 data-term-id={id}
                 style={{
@@ -468,15 +594,33 @@ export function Terminals({
                   height: `${rect.h}%`,
                 }}
                 onMouseMove={(e) => {
+                  if (movingPane) return;
                   const r = e.currentTarget.getBoundingClientRect();
                   // the top fifth, floored so a short pane still has a strip
                   // you can actually aim at
                   const zone = Math.max(r.height * 0.2, 28);
                   const near = e.clientY - r.top < zone;
                   setArmed((cur) => (near ? id : cur === id ? null : cur));
+                  // the move pill's reach: the top strip of the card, centre
+                  // only — beside the pane actions, over nothing else. Armed
+                  // by proximity rather than :hover so that at rest it never
+                  // takes the pointer from the text under it.
+                  const grab =
+                    e.clientY - r.top < 14 && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
+                  setGrabArmed((cur) => (grab ? id : cur === id ? null : cur));
                 }}
-                onMouseLeave={() => setArmed((cur) => (cur === id ? null : cur))}
+                onMouseLeave={() => {
+                  setArmed((cur) => (cur === id ? null : cur));
+                  setGrabArmed((cur) => (cur === id ? null : cur));
+                }}
               >
+                <div
+                  className={`pane-grab ${grabArmed === id ? "armed" : ""} ${
+                    movingPane === id ? "live" : ""
+                  }`}
+                  title="move terminal"
+                  onMouseDown={(e) => startPaneMove(e, id)}
+                />
                 {finding > 0 && tree.focusedId === id && (
                   <TermFind
                     id={id}
@@ -547,6 +691,30 @@ export function Terminals({
             onMouseDown={(e) => startResize(e, d)}
           />
         ))}
+        {/* the edge the carried pane would re-seat against */}
+        {paneDrop &&
+          (() => {
+            const p = panes.find((x) => x.id === paneDrop.id);
+            if (!p) return null;
+            const s = paneDrop.side;
+            const style: CSSProperties =
+              s === "left"
+                ? { left: `${p.rect.x}%`, top: `${p.rect.y}%`, height: `${p.rect.h}%` }
+                : s === "right"
+                  ? {
+                      left: `calc(${p.rect.x + p.rect.w}% - 4px)`,
+                      top: `${p.rect.y}%`,
+                      height: `${p.rect.h}%`,
+                    }
+                  : s === "up"
+                    ? { top: `${p.rect.y}%`, left: `${p.rect.x}%`, width: `${p.rect.w}%` }
+                    : {
+                        top: `calc(${p.rect.y + p.rect.h}% - 4px)`,
+                        left: `${p.rect.x}%`,
+                        width: `${p.rect.w}%`,
+                      };
+            return <div className={`pane-hint ${s === "left" || s === "right" ? "v" : "h"}`} style={style} />;
+          })()}
       </div>
     </div>
   );
