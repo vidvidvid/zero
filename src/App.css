@@ -2962,15 +2962,35 @@ html.light.glass .prompt-box {
 }
 
 /* the mark belongs to the window, not to the editor pane: back out half of
-   whatever the sidebar is taking so it sits on the window's centre line */
+   whatever the sidebar is taking so it sits on the window's centre line. On
+   the group rather than the mark alone, so the version under it is on the
+   same line and there is one place the offset is written down. */
+.editor-empty {
+  transform: translateX(calc(var(--sidebar-offset, 0px) / -2));
+}
+
 .editor-empty-hint {
   font-family: var(--font-mono);
   font-size: 20px;
   letter-spacing: 0.35em;
+  /* letter-spacing trails the last character, so give back as much on the
+     left to keep the word centred on its own box */
   margin-left: 0.35em;
   color: var(--text-faint);
   opacity: 0.5;
-  transform: translateX(calc(var(--sidebar-offset, 0px) / -2));
+}
+
+/* quieter than the mark it sits under, and quiet enough to be looked past:
+   this is the screen you are on when you have nothing open, not a splash */
+.editor-empty-version {
+  margin-top: 9px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  margin-left: 0.18em;
+  text-align: center;
+  color: var(--text-faint);
+  opacity: 0.32;
 }
 
 /* the card's own radius, exactly: with no border between them there is no
