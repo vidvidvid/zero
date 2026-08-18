@@ -391,10 +391,17 @@ fn project_name(root: &str) -> String {
 }
 
 /// launchd hands GUI apps a minimal PATH and neither `git` nor `claude` is on
-/// it. Same repair, and the same reason, as `git_base` in `git.rs`.
+/// it. Same repair, and the same reason, as `git_base` in `git.rs` — plus the
+/// two homes claude's own installers use, which no brew or system dir covers:
+/// `~/.local/bin` is the native installer (and where npm installs have been
+/// migrating themselves), `~/.claude/local` the per-user install it replaced.
 fn repaired_path() -> String {
     let path = std::env::var("PATH").unwrap_or_default();
-    format!("/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{path}")
+    let repaired = format!("/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{path}");
+    match std::env::var("HOME") {
+        Ok(home) => format!("{home}/.local/bin:{home}/.claude/local:{repaired}"),
+        Err(_) => repaired,
+    }
 }
 
 /// The first few lines of a failure, which is where a CLI puts the reason.
@@ -1860,10 +1867,13 @@ fn run_claude(req: ClaudeRun) -> Result<String, String> {
         return Err(req.timed_out.into());
     }
     if !run.ok {
-        return Err(if run.stderr.trim().is_empty() {
+        // claude puts most of its refusals on stdout, not stderr — an expired
+        // login says "Failed to authenticate" there and nothing anywhere else
+        let said = if run.stderr.trim().is_empty() { &out } else { &run.stderr };
+        return Err(if said.trim().is_empty() {
             "claude exited without saying why".into()
         } else {
-            first_lines(&run.stderr, 3)
+            first_lines(said, 3)
         });
     }
     if out.trim().is_empty() {
