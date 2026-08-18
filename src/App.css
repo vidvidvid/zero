@@ -3759,3 +3759,36 @@ body.dragging-row .term-divider.col::after {
 .editor-tab-name .file-icon {
   margin-right: 0;
 }
+
+/* The project's own favicon, in the square the claude ring otherwise holds.
+   Never both at once: a spinner drawn over a logo is two marks fighting for
+   10px, and the ring is the one with something to say. The three brightnesses
+   are the tab name's — faint, dim under the pointer, full for the one you're
+   in — so an icon doesn't shout past the word it sits beside. */
+.titlebar-tab-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.titlebar-tab:hover .titlebar-tab-icon {
+  opacity: 0.75;
+}
+
+.titlebar-tab.active .titlebar-tab-icon {
+  opacity: 1;
+}
+
+/* The drawn stand-in for a project with no icon of its own. currentColor, so
+   it rides the tab name's own three brightnesses rather than declaring its
+   own — and stays flat geometry, which is how you can tell at a glance that
+   nobody chose it. */
+.titlebar-tab-mark {
+  flex: none;
+  display: block;
+  fill: currentColor;
+  opacity: 0.85;
+}

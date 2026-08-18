@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Project } from "../App";
 import { useClaudeStatus } from "../lib/claudeStatus";
 import { contextMenu, fileEntries } from "../lib/contextMenu";
+import { identicon, useProjectIcons } from "../lib/projectIcon";
 import { useTabReorder } from "../lib/tabReorder";
 import { useUpdate } from "../lib/update";
 
@@ -27,6 +28,7 @@ export function Titlebar({
   onSettings: () => void;
 }) {
   const claude = useClaudeStatus(projects.map((p) => p.root));
+  const icons = useProjectIcons(projects.map((p) => p.root));
   const activeRoot = projects[activeIdx]?.root;
 
   // "finished" is an unread badge: being in the project reads it, and only a
@@ -101,7 +103,32 @@ export function Titlebar({
                 // Finished is the one that's genuinely about you — it clears
                 // by being read, which is what `seen` tracks.
                 const done = seen.has(p.root) ? 0 : (c?.done ?? 0);
-                if (!working && !done) return null;
+                // Nothing to say is the project's own icon, the way a browser
+                // tab reads. The ring takes the square while there is
+                // something to say and hands it back when there isn't —
+                // never both at once, since a spinner drawn over a logo is
+                // two marks fighting over 10px.
+                if (!working && !done)
+                  return icons[p.root] ? (
+                    <img className="titlebar-tab-icon" src={icons[p.root]} alt="" />
+                  ) : (
+                    // no icon in the repository: one drawn from its path, so
+                    // the square is never the odd empty one out
+                    <svg className="titlebar-tab-mark" width="13" height="13" viewBox="0 0 5 5">
+                      {identicon(p.root).map(
+                        (on, n) =>
+                          on && (
+                            <rect
+                              key={n}
+                              x={(n % 5) + 0.06}
+                              y={Math.floor(n / 5) + 0.06}
+                              width="0.88"
+                              height="0.88"
+                            />
+                          ),
+                      )}
+                    </svg>
+                  );
                 return (
                   <span
                     className={`claude-ring ${working ? "working" : "done"}`}

@@ -180,6 +180,8 @@ export const api = {
   indexFile: (worktree: string, path: string) => invoke<string>("git_index_file", { worktree, path }),
   gitBaseline: (path: string) => invoke<Baseline>("git_baseline", { path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
+  /** the folder picker the dev build has to use — see `pick_directory` */
+  pickDirectory: (title: string) => invoke<string | null>("pick_directory", { title }),
   projectFiles: (root: string) => invoke<string[]>("list_project_files", { root }),
   searchProject: (root: string, query: SearchQuery) =>
     invoke<SearchResult>("search_project", { root, query }),
