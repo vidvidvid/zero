@@ -8,7 +8,8 @@ import { editorTheme } from "../lib/cmTheme";
 import { charDiff } from "../lib/diffChars";
 import { lineDiff } from "../lib/lineDiff";
 import { api } from "../lib/api";
-import { langFor, lazyLangFor, lazyLangForShebang } from "../lib/lang";
+import { langFor, lazyLangFor, lazyLangForShebang, overrideFor } from "../lib/lang";
+import { onSettingsChange } from "../lib/settings";
 import { diffRuler } from "../lib/scrollRuler";
 import { pokeGit } from "../lib/gitStatus";
 
@@ -169,8 +170,29 @@ export function DiffView({
       }
     }, 2000);
 
+    // same re-answer as FileView, applied to both sides at once
+    let lastChoice = overrideFor(relPath);
+    const offSettings = onSettingsChange(() => {
+      const choice = overrideFor(relPath);
+      if (choice === lastChoice) return;
+      lastChoice = choice;
+      void lazyLangFor(relPath).then(async (ext) => {
+        if (disposed || !mergeRef.current) return;
+        const docs = loadedRef.current;
+        const mode =
+          ext ??
+          (langFor(relPath).length
+            ? langFor(relPath)
+            : ((await lazyLangForShebang(docs.b || docs.a)) ?? []));
+        if (disposed || !mergeRef.current) return;
+        mergeRef.current.a.dispatch({ effects: langA.reconfigure(mode) });
+        mergeRef.current.b.dispatch({ effects: langB.reconfigure(mode) });
+      });
+    });
+
     return () => {
       disposed = true;
+      offSettings();
       window.clearInterval(iv);
       mergeRef.current?.destroy();
       mergeRef.current = null;

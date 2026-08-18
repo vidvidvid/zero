@@ -24,12 +24,17 @@ export interface Settings {
   /** light / dark, or system to follow macOS. What most consumers want is
    *  not this but `resolvedAppearance()` — the two-value answer. */
   appearance: Appearance;
+  /** the user's language choices: extension (or whole filename when there is
+   *  no extension) → registry language name. lang.ts owns what the keys and
+   *  values mean; this is only where they sleep. */
+  langOverrides: Record<string, string>;
 }
 
 const DEFAULTS: Settings = {
   editorTheme: "dark-modern",
   glass: true,
   appearance: "system",
+  langOverrides: {},
 };
 
 // The stored blob survives across versions of zero, so anything unrecognised
@@ -50,7 +55,17 @@ function parse(raw: string | null): Settings {
     appearance: APPEARANCES.includes(blob.appearance as Appearance)
       ? (blob.appearance as Appearance)
       : DEFAULTS.appearance,
+    langOverrides: sanitizeOverrides(blob.langOverrides),
   };
+}
+
+function sanitizeOverrides(v: unknown): Record<string, string> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(v)) {
+    if (typeof val === "string") out[key] = val;
+  }
+  return out;
 }
 
 let current: Settings = parse(localStorage.getItem(KEY));

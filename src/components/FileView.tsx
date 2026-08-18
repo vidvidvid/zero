@@ -5,7 +5,8 @@ import { indentWithTab } from "@codemirror/commands";
 import { Compartment, Text } from "@codemirror/state";
 import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
-import { langFor, lazyLangFor, lazyLangForShebang } from "../lib/lang";
+import { langFor, lazyLangFor, lazyLangForShebang, overrideFor } from "../lib/lang";
+import { onSettingsChange } from "../lib/settings";
 import { modClick } from "../lib/modClick";
 import { changeGutter, setBaseline } from "../lib/changeGutter";
 import { pokeGit } from "../lib/gitStatus";
@@ -123,8 +124,30 @@ export function FileView({
       void readBaseline();
     }, 5000);
 
+    // the tab's menu can re-answer what language this file is; when that
+    // answer changes — and only then, the settings store also carries themes —
+    // resolve again and swap the compartment under the live editor
+    let lastChoice = overrideFor(absPath);
+    const offSettings = onSettingsChange(() => {
+      const choice = overrideFor(absPath);
+      if (choice === lastChoice) return;
+      lastChoice = choice;
+      void lazyLangFor(absPath).then(async (ext) => {
+        const view = viewRef.current;
+        if (disposed || !view) return;
+        const mode =
+          ext ??
+          (langFor(absPath).length
+            ? langFor(absPath)
+            : ((await lazyLangForShebang(view.state.doc.toString())) ?? []));
+        if (disposed || !viewRef.current) return;
+        viewRef.current.dispatch({ effects: lang.reconfigure(mode) });
+      });
+    });
+
     return () => {
       disposed = true;
+      offSettings();
       window.clearInterval(iv);
       window.clearInterval(baselineIv);
       viewRef.current?.destroy();

@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api";
 import { Launcher } from "./components/Launcher";
 import { Prompt } from "./components/Prompt";
+import { LanguagePick } from "./components/LanguagePick";
 import { Settings } from "./components/Settings";
 import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
@@ -208,6 +209,7 @@ export default function App() {
     <>
       {showSettings ? <Settings onClose={() => setShowSettings(false)} /> : null}
       <Prompt />
+      <LanguagePick />
     </>
   );
 

@@ -8,6 +8,7 @@ import { rust } from "@codemirror/lang-rust";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import type { Extension } from "@codemirror/state";
+import { getSettings, updateSettings } from "./settings";
 
 /**
  * Highlighting comes in two waves.
@@ -44,8 +45,6 @@ export function langFor(path: string): Extension[] {
       return [css()];
     case "html":
     case "htm":
-    // no Svelte mode exists to load, and its markup half is plain HTML
-    case "svelte":
       return [html()];
     case "json":
       return [json()];
@@ -53,13 +52,58 @@ export function langFor(path: string): Extension[] {
     case "markdown":
       // fenced code blocks colour as their own language, fetched from the
       // registry only when a fence actually names one
-      return [markdown({ codeLanguages: languages })];
+      return [markdown({ codeLanguages: ALL })];
     case "rs":
       return [rust()];
     default:
       return [];
   }
 }
+
+/**
+ * Languages the registry doesn't carry, each brought in as its own package and
+ * described the same way, so everything downstream — filename matching, fence
+ * names in markdown, the language picker — sees one list. Ours sit first: a
+ * name that appears in both is a name we had a reason to re-answer.
+ */
+const EXTRAS: LanguageDescription[] = [
+  LanguageDescription.of({
+    name: "Svelte",
+    extensions: ["svelte"],
+    load: () => import("@replit/codemirror-lang-svelte").then((m) => m.svelte()),
+  }),
+  LanguageDescription.of({
+    name: "Elixir",
+    extensions: ["ex", "exs"],
+    load: () => import("codemirror-lang-elixir").then((m) => m.elixir()),
+  }),
+  LanguageDescription.of({
+    name: "GraphQL",
+    alias: ["gql"],
+    extensions: ["graphql", "gql"],
+    // graphql() is the editor-with-schema kit; the bare language is this one
+    load: () => import("cm6-graphql").then((m) => m.graphqlLanguageSupport()),
+  }),
+  LanguageDescription.of({
+    name: "Nix",
+    extensions: ["nix"],
+    load: () => import("@replit/codemirror-lang-nix").then((m) => m.nix()),
+  }),
+  LanguageDescription.of({
+    name: "Zig",
+    extensions: ["zig", "zon"],
+    load: () => import("codemirror-lang-zig").then((m) => m.zig()),
+  }),
+  LanguageDescription.of({
+    name: "Terraform",
+    alias: ["hcl"],
+    extensions: ["tf", "tfvars", "hcl"],
+    load: () => import("codemirror-lang-terraform").then((m) => m.terraform()),
+  }),
+];
+
+/** The whole roster: zero's own additions, then the hundred-and-forty-odd. */
+const ALL: readonly LanguageDescription[] = [...EXTRAS, ...languages];
 
 /**
  * Extensions language-data doesn't recognise, mapped to the mode a person
@@ -90,9 +134,6 @@ const ALIASES: Record<string, string> = {
   ".eslintrc": "JSON",
   ".prettierrc": "JSON",
   bzl: "Python",
-  // no Elixir mode exists to load; Ruby is the close cousin that does
-  ex: "Ruby",
-  exs: "Ruby",
   ".gitmodules": "Properties files",
   // ignore files are comments and patterns, which is most of what the
   // properties mode colours anyway
@@ -117,27 +158,73 @@ const ALIASES: Record<string, string> = {
 };
 
 /**
+ * The user's own row in the tables, set from a tab's context menu and kept in
+ * settings: this kind of file is that language, whatever the tables think.
+ * "plain" is a real answer — highlighting off — and can't collide with a
+ * language, because the sentinel never reaches the registry.
+ */
+export const PLAIN = "plain";
+
+/** The key a choice is stored under: the extension when the file has one, the
+ *  whole lowercased name when the name is all there is (Makefile, .envrc). */
+export function overrideKeyFor(fileName: string): string {
+  const name = fileName.split("/").pop() ?? fileName;
+  const dot = name.lastIndexOf(".");
+  return (dot > 0 ? name.slice(dot + 1) : name).toLowerCase();
+}
+
+export function overrideFor(fileName: string): string | null {
+  return getSettings().langOverrides[overrideKeyFor(fileName)] ?? null;
+}
+
+/** Remember a choice — a language name, PLAIN, or null to return to the
+ *  tables — for every file sharing this one's key. */
+export function setLanguageOverride(fileName: string, choice: string | null) {
+  const key = overrideKeyFor(fileName);
+  const next = { ...getSettings().langOverrides };
+  if (choice) next[key] = choice;
+  else delete next[key];
+  updateSettings({ langOverrides: next });
+}
+
+/** Every name the picker can offer, alphabetically. */
+export function languageNames(): string[] {
+  return ALL.map((d) => d.name).sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * The mode for a file zero doesn't bundle, or null when `langFor` already
  * covered it and when nothing matches at all. Resolving it means fetching a
  * chunk, so it lands a moment after the text does.
  */
 export async function lazyLangFor(path: string): Promise<Extension[] | null> {
   const name = path.split("/").pop() ?? path;
+
+  // the user's word beats every table, including the bundled wave — an empty
+  // list is the "plain" answer, and reconfiguring to it turns colouring off
+  const chosen = overrideFor(name);
+  if (chosen === PLAIN) return [];
+  if (chosen) {
+    const d = LanguageDescription.matchLanguageName(ALL, chosen);
+    // an override naming a mode that no longer exists falls back to the tables
+    if (d) return loadMode(d);
+  }
+
   if (langFor(name).length) return null;
 
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const alias = ALIASES[name] ?? ALIASES[name.toLowerCase()] ?? ALIASES[ext];
   let desc = alias
-    ? LanguageDescription.matchLanguageName(languages, alias)
-    : LanguageDescription.matchFilename(languages, name);
+    ? LanguageDescription.matchLanguageName(ALL, alias)
+    : LanguageDescription.matchFilename(ALL, name);
   // families named by prefix rather than extension: Dockerfile.dev,
   // .env.production
   if (!desc) {
     const lower = name.toLowerCase();
     if (lower.startsWith("dockerfile")) {
-      desc = LanguageDescription.matchLanguageName(languages, "Dockerfile");
+      desc = LanguageDescription.matchLanguageName(ALL, "Dockerfile");
     } else if (lower.startsWith(".env.")) {
-      desc = LanguageDescription.matchLanguageName(languages, "Properties files");
+      desc = LanguageDescription.matchLanguageName(ALL, "Properties files");
     }
   }
   return desc ? loadMode(desc) : null;
@@ -181,7 +268,7 @@ export async function lazyLangForShebang(content: string): Promise<Extension[] |
   if (interp === "env") interp = words.slice(1).find((w) => !w.startsWith("-")) ?? "";
   interp = (interp.split("/").pop() ?? "").toLowerCase().replace(/[\d.]+$/, "");
   const lang = INTERPRETERS[interp];
-  const desc = lang ? LanguageDescription.matchLanguageName(languages, lang) : null;
+  const desc = lang ? LanguageDescription.matchLanguageName(ALL, lang) : null;
   return desc ? loadMode(desc) : null;
 }
 

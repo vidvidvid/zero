@@ -26,7 +26,7 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 |---|---:|---:|---|
 | App bundle | **14 MB** | 860 MB | 61× |
 | Files in the bundle | **5** | 17,035 | |
-| Shipped JS | **1.4 MB** at startup, 2.4 MB in all | 256 MB in 12,021 files | 183× |
+| Shipped JS | **1.4 MB** at startup, 2.7 MB in all | 256 MB in 12,021 files | 183× |
 | Bundled runtime | 0, system WebKit | 259 MB of Electron | |
 | Bundled extensions | 0 | 116 | |
 | Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
