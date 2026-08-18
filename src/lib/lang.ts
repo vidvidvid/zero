@@ -18,6 +18,9 @@ import type { Extension } from "@codemirror/state";
  * Everything else — the other hundred and thirty-odd — is fetched only when a
  * file of that kind is actually opened, so a project with no Ruby in it never
  * pays for the Ruby mode.
+ *
+ * A script named without an extension gets a third chance: its shebang line
+ * names an interpreter, and the interpreter names the mode.
  */
 export function langFor(path: string): Extension[] {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -48,7 +51,9 @@ export function langFor(path: string): Extension[] {
       return [json()];
     case "md":
     case "markdown":
-      return [markdown()];
+      // fenced code blocks colour as their own language, fetched from the
+      // registry only when a fence actually names one
+      return [markdown({ codeLanguages: languages })];
     case "rs":
       return [rust()];
     default:
@@ -85,7 +90,16 @@ const ALIASES: Record<string, string> = {
   ".eslintrc": "JSON",
   ".prettierrc": "JSON",
   bzl: "Python",
+  // no Elixir mode exists to load; Ruby is the close cousin that does
+  ex: "Ruby",
+  exs: "Ruby",
   ".gitmodules": "Properties files",
+  // ignore files are comments and patterns, which is most of what the
+  // properties mode colours anyway
+  ".gitignore": "Properties files",
+  ".gitattributes": "Properties files",
+  ".dockerignore": "Properties files",
+  ".npmignore": "Properties files",
   ".editorconfig": "Properties files",
   ".npmrc": "Properties files",
   ".gitconfig": "Properties files",
@@ -113,11 +127,65 @@ export async function lazyLangFor(path: string): Promise<Extension[] | null> {
 
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const alias = ALIASES[name] ?? ALIASES[name.toLowerCase()] ?? ALIASES[ext];
-  const desc = alias
+  let desc = alias
     ? LanguageDescription.matchLanguageName(languages, alias)
     : LanguageDescription.matchFilename(languages, name);
-  if (!desc) return null;
+  // families named by prefix rather than extension: Dockerfile.dev,
+  // .env.production
+  if (!desc) {
+    const lower = name.toLowerCase();
+    if (lower.startsWith("dockerfile")) {
+      desc = LanguageDescription.matchLanguageName(languages, "Dockerfile");
+    } else if (lower.startsWith(".env.")) {
+      desc = LanguageDescription.matchLanguageName(languages, "Properties files");
+    }
+  }
+  return desc ? loadMode(desc) : null;
+}
 
+/**
+ * Interpreters a shebang can name, keyed after version numbers are stripped —
+ * python3.12 looks up as python.
+ */
+const INTERPRETERS: Record<string, string> = {
+  sh: "Shell",
+  bash: "Shell",
+  zsh: "Shell",
+  dash: "Shell",
+  ksh: "Shell",
+  fish: "Shell",
+  python: "Python",
+  node: "JavaScript",
+  bun: "JavaScript",
+  deno: "JavaScript",
+  ruby: "Ruby",
+  perl: "Perl",
+  php: "PHP",
+  lua: "Lua",
+};
+
+/**
+ * The mode for a script whose first line says what it is — `deploy` opening
+ * with `#!/bin/bash`. Only worth consulting when the name said nothing.
+ */
+export async function lazyLangForShebang(content: string): Promise<Extension[] | null> {
+  if (!content.startsWith("#!")) return null;
+  const nl = content.indexOf("\n");
+  const words = content
+    .slice(2, nl === -1 ? undefined : nl)
+    .trim()
+    .split(/\s+/);
+  // `#!/usr/bin/env -S python3 -u` — the interpreter is the first word after
+  // env that isn't a flag
+  let interp = words[0]?.split("/").pop() ?? "";
+  if (interp === "env") interp = words.slice(1).find((w) => !w.startsWith("-")) ?? "";
+  interp = (interp.split("/").pop() ?? "").toLowerCase().replace(/[\d.]+$/, "");
+  const lang = INTERPRETERS[interp];
+  const desc = lang ? LanguageDescription.matchLanguageName(languages, lang) : null;
+  return desc ? loadMode(desc) : null;
+}
+
+async function loadMode(desc: LanguageDescription): Promise<Extension[] | null> {
   try {
     return [await desc.load()];
   } catch {

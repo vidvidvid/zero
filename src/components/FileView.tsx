@@ -5,7 +5,7 @@ import { indentWithTab } from "@codemirror/commands";
 import { Compartment, Text } from "@codemirror/state";
 import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
-import { langFor, lazyLangFor } from "../lib/lang";
+import { langFor, lazyLangFor, lazyLangForShebang } from "../lib/lang";
 import { modClick } from "../lib/modClick";
 import { changeGutter, setBaseline } from "../lib/changeGutter";
 import { pokeGit } from "../lib/gitStatus";
@@ -94,9 +94,12 @@ export function FileView({
       if (line) jumpToLine(viewRef.current, line);
       void readBaseline();
 
-      langLater.then((ext) => {
-        if (disposed || !ext || !viewRef.current) return;
-        viewRef.current.dispatch({ effects: lang.reconfigure(ext) });
+      langLater.then(async (ext) => {
+        // a name that said nothing might still open with #!/bin/bash
+        const mode =
+          ext ?? (langFor(absPath).length ? null : await lazyLangForShebang(content));
+        if (disposed || !mode || !viewRef.current) return;
+        viewRef.current.dispatch({ effects: lang.reconfigure(mode) });
       });
     });
 
