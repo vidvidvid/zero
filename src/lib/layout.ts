@@ -164,6 +164,37 @@ export function hasLeaf(node: LayoutNode | null, id: string): boolean {
   return node.type === "leaf" ? node.id === id : node.children.some((c) => hasLeaf(c, id));
 }
 
+/** the direction of the split a leaf sits directly inside, or null for a
+ *  leaf that is the whole tree. This is what tells a drop's two natures
+ *  apart: along the parent's own axis a drop is a re-seat among siblings —
+ *  previewed live — and across it, a new split — previewed as a line. */
+export function parentDirOf(node: LayoutNode, id: string): "row" | "col" | null {
+  if (node.type === "leaf") return null;
+  for (const c of node.children) {
+    if (c.type === "leaf" && c.id === id) return node.dir;
+    const d = parentDirOf(c, id);
+    if (d) return d;
+  }
+  return null;
+}
+
+/** the tree as it would stand after re-seating `id` against `targetId` — the
+ *  drag's live preview and the drop itself are both this, which is what
+ *  keeps what you watched and what you get the same tree */
+export function movedLeaf(root: LayoutNode, id: string, targetId: string, side: Side): LayoutNode {
+  if (id === targetId || !hasLeaf(root, id)) return root;
+  const without = removeLeaf(root, id);
+  if (!without || !hasLeaf(without, targetId)) return root;
+  return insertAt(without, targetId, side, { type: "leaf", id });
+}
+
+/** the tree as it would stand after docking `id` against the window's edge */
+export function movedLeafToRoot(root: LayoutNode, id: string, side: Side): LayoutNode {
+  const without = removeLeaf(root, id);
+  if (!without) return root; // the only pane is already everywhere
+  return insertAtRoot(without, side, { type: "leaf", id });
+}
+
 export function leafIds(node: LayoutNode | null, out: string[] = []): string[] {
   if (!node) return out;
   if (node.type === "leaf") out.push(node.id);
@@ -381,21 +412,11 @@ export function useLayoutTree(
   }, []);
 
   const moveLeaf = useCallback((id: string, targetId: string, side: Side) => {
-    if (id === targetId) return;
-    setRoot((r) => {
-      if (!hasLeaf(r, id)) return r;
-      const without = removeLeaf(r, id);
-      if (!without || !hasLeaf(without, targetId)) return r;
-      return insertAt(without, targetId, side, { type: "leaf", id });
-    });
+    setRoot((r) => movedLeaf(r, id, targetId, side));
   }, []);
 
   const moveLeafToRoot = useCallback((id: string, side: Side) => {
-    setRoot((r) => {
-      const without = removeLeaf(r, id);
-      if (!without) return r; // the only pane is already everywhere
-      return insertAtRoot(without, side, { type: "leaf", id });
-    });
+    setRoot((r) => movedLeafToRoot(r, id, side));
   }, []);
 
   return {

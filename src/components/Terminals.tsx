@@ -484,7 +484,11 @@ function TerminalPane({
     /** a divider is under the mouse — the body class both drag handlers set */
     const dragging = () =>
       document.body.classList.contains("dragging-row") ||
-      document.body.classList.contains("dragging-col");
+      document.body.classList.contains("dragging-col") ||
+      // a carried pane counts too: the live preview resizes panes per frame,
+      // and the program on the other end should hear one SIGWINCH at the
+      // drop, not a redraw per animation frame
+      document.body.classList.contains("dragging-panel");
 
     /**
      * How many rows the terminal can give up without losing anything.
