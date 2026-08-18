@@ -43,6 +43,10 @@ export interface ClaudeStat {
   running: boolean;
   quiet_ms: number;
   burst_ms: number;
+  /** claude's own terminal title: true mid-task, false waiting on you,
+      null when no claude title has been seen and only the timing fields
+      are left to guess from */
+  title_working: boolean | null;
 }
 
 export interface SearchQuery {
