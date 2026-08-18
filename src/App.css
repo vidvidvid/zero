@@ -741,18 +741,22 @@ body.dragging-row .pane-abs {
   transition: none;
 }
 
-/* the card in hand: it rides the pointer as itself — live terminal, live
-   tree — a shade lifted and a shade let through, pinned at the size it was
-   picked up at while everything else rearranges. It tracks the hand, not an
-   easing, so its own transition goes; the moment it is let go the class
-   comes off and the same transition that moved everyone else lands it in
-   its seat. */
+/* The card in hand rides the pointer as itself — live terminal, live tree —
+   pinned at the size it was picked up at while everything else rearranges.
+   It tracks the hand, not an easing, so its motion transitions go; only its
+   opacity eases, for the one thing that may change mid-carry: over ground
+   its own parent still owns it stays solid — reordering neighbours is not a
+   removal — and it lets light through only as a ghost, when the aim would
+   carry it somewhere foreign. */
 .pane-abs.moving {
-  opacity: 0.82;
   z-index: 40;
   pointer-events: none;
   will-change: transform;
-  transition: none;
+  transition: opacity 160ms ease;
+}
+
+.pane-abs.moving.ghost {
+  opacity: 0.82;
 }
 
 body.dragging-panel,

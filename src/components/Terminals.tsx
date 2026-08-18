@@ -131,6 +131,7 @@ export function TerminalPanes({
   panes,
   active,
   draggingId,
+  dragGhost,
   onPaneDragStart,
   onOpenFile,
 }: {
@@ -142,6 +143,9 @@ export function TerminalPanes({
   active: boolean;
   /** the pane being carried, for its card's lift and its pill's light */
   draggingId: string | null;
+  /** whether the carried pane is on foreign ground — solid over its own
+   *  parent, a ghost only when the drop would take it elsewhere */
+  dragGhost: boolean;
   /** the workspace owns every drag now — a terminal is a peer of the sidebar
    *  and the editor there, and the drop targets span all of them */
   onPaneDragStart: (e: ReactMouseEvent, id: string) => void;
@@ -195,7 +199,7 @@ export function TerminalPanes({
           key={id}
           className={`pane-abs term-abs ${termStyle === "plain" ? "plain" : ""} ${
             draggingId === id ? "moving" : ""
-          }`}
+          } ${draggingId === id && dragGhost ? "ghost" : ""}`}
           data-pane-id={id}
           // how a dropped file finds the pty it was dropped on
           data-term-id={id}

@@ -178,8 +178,8 @@ export function parentDirOf(node: LayoutNode, id: string): "row" | "col" | null 
   return null;
 }
 
-/** the tree as it would stand after re-seating `id` against `targetId` — the
- *  drag's live preview and the drop itself are both this, which is what
+/** the tree as it would stand after splitting `targetId` with `id` — the
+ *  drag's split preview and the drop itself are both this, which is what
  *  keeps what you watched and what you get the same tree */
 export function movedLeaf(root: LayoutNode, id: string, targetId: string, side: Side): LayoutNode {
   if (id === targetId || !hasLeaf(root, id)) return root;
@@ -194,6 +194,142 @@ export function movedLeafToRoot(root: LayoutNode, id: string, side: Side): Layou
   if (!without) return root; // the only pane is already everywhere
   return insertAtRoot(without, side, { type: "leaf", id });
 }
+
+/** the split holding both leaves as direct children, or null — the test for
+ *  a re-seat that is a pure reorder, where nobody's share may change */
+function splitWithBoth(
+  node: LayoutNode,
+  a: string,
+  b: string
+): Extract<LayoutNode, { type: "split" }> | null {
+  if (node.type === "leaf") return null;
+  const direct = (id: string) => node.children.some((c) => c.type === "leaf" && c.id === id);
+  if (direct(a) && direct(b)) return node;
+  for (const c of node.children) {
+    const found = splitWithBoth(c, a, b);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** whether leaf `a` sits before leaf `b` among one split's direct children —
+ *  null when they aren't direct siblings, which is its own answer */
+export function precedes(root: LayoutNode, a: string, b: string): boolean | null {
+  const p = splitWithBoth(root, a, b);
+  if (!p) return null;
+  const ia = p.children.findIndex((c) => c.type === "leaf" && c.id === a);
+  const ib = p.children.findIndex((c) => c.type === "leaf" && c.id === b);
+  return ia < ib;
+}
+
+/** order changed, sizes untouched: the child and its share travel together */
+function spliceIn(
+  node: LayoutNode,
+  parent: LayoutNode,
+  id: string,
+  targetId: string,
+  before: boolean
+): LayoutNode {
+  if (node.type === "leaf") return node;
+  if (node !== parent)
+    return { ...node, children: node.children.map((c) => spliceIn(c, parent, id, targetId, before)) };
+  const children = [...node.children];
+  const sizes = [...sizesOf(node)];
+  const from = children.findIndex((c) => c.type === "leaf" && c.id === id);
+  const [moved] = children.splice(from, 1);
+  const [movedSize] = sizes.splice(from, 1);
+  const at = children.findIndex((c) => c.type === "leaf" && c.id === targetId) + (before ? 0 : 1);
+  children.splice(at, 0, moved);
+  sizes.splice(at, 0, movedSize);
+  return { ...node, children, sizes };
+}
+
+/** like insertAt, but the newcomer and the target split the target's share
+ *  by `ratio` (newcomer's part) instead of half each */
+function insertRatio(
+  node: LayoutNode,
+  targetId: string,
+  side: Side,
+  leaf: LayoutNode,
+  ratio: number
+): LayoutNode {
+  const dir: "row" | "col" = side === "left" || side === "right" ? "row" : "col";
+  const before = side === "left" || side === "up";
+  if (node.type === "leaf") {
+    if (node.id !== targetId) return node;
+    return {
+      type: "split",
+      dir,
+      children: before ? [leaf, node] : [node, leaf],
+      sizes: before ? [ratio, 1 - ratio] : [1 - ratio, ratio],
+    };
+  }
+  const idx = node.children.findIndex((c) => c.type === "leaf" && c.id === targetId);
+  if (idx >= 0 && node.dir === dir) {
+    const children = [...node.children];
+    children.splice(before ? idx : idx + 1, 0, leaf);
+    const sizes = [...sizesOf(node)];
+    const combined = sizes[idx];
+    sizes[idx] = combined * (1 - ratio);
+    sizes.splice(before ? idx : idx + 1, 0, combined * ratio);
+    return { ...node, children, sizes };
+  }
+  return { ...node, children: node.children.map((c) => insertRatio(c, targetId, side, leaf, ratio)) };
+}
+
+/**
+ * Re-seat `id` against `targetId` without inventing sizes. Direct siblings
+ * along their split's own axis just change order — every share, the moved
+ * pane's included, survives untouched. Seating into a foreign split, the
+ * mover keeps the extent it was carried in at rather than being dealt half
+ * of someone else's: `ratio` is mover / (mover + target) as drawn, the pair
+ * split the target's old share by it, and only the target gives ground.
+ */
+export function seatedLeaf(
+  root: LayoutNode,
+  id: string,
+  targetId: string,
+  side: Side,
+  ratio: number
+): LayoutNode {
+  if (id === targetId || !hasLeaf(root, id)) return root;
+  const axis = side === "left" || side === "right" ? "row" : "col";
+  const before = side === "left" || side === "up";
+  const p = splitWithBoth(root, id, targetId);
+  if (p && p.dir === axis) return spliceIn(root, p, id, targetId, before);
+  const without = removeLeaf(root, id);
+  if (!without || !hasLeaf(without, targetId)) return root;
+  return insertRatio(without, targetId, side, { type: "leaf", id }, clampShare(ratio, 0.15, 0.85));
+}
+
+/** seat against the whole window's edge. A direct child of a matching root
+ *  split only moves to the end — its share survives; anything else docks at
+ *  the extent it was carried in at, not at a number made up on arrival. */
+export function seatedLeafAtRoot(
+  root: LayoutNode,
+  id: string,
+  side: Side,
+  extent: number
+): LayoutNode {
+  const axis = side === "left" || side === "right" ? "row" : "col";
+  const before = side === "left" || side === "up";
+  if (
+    root.type === "split" &&
+    root.dir === axis &&
+    root.children.some((c) => c.type === "leaf" && c.id === id)
+  ) {
+    const edge = root.children[before ? 0 : root.children.length - 1];
+    if (edge.type === "leaf" && edge.id === id) return root; // already there
+    const anchor = before ? root.children[0] : root.children[root.children.length - 1];
+    const anchorId = anchor.type === "leaf" ? anchor.id : null;
+    if (anchorId) return spliceIn(root, root, id, anchorId, before);
+  }
+  const without = removeLeaf(root, id);
+  if (!without) return root;
+  return insertAtRoot(without, side, { type: "leaf", id }, clampShare(extent, 0.08, 0.6));
+}
+
+const clampShare = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 export function leafIds(node: LayoutNode | null, out: string[] = []): string[] {
   if (!node) return out;
@@ -280,10 +416,14 @@ export interface LayoutTree {
   splitFocused: (dir: "row" | "col") => void;
   splitPane: (id: string, side: Side) => void;
   removePane: (id: string) => void;
-  /** re-seat any pane against another — out of the tree, back in on `side` */
+  /** split another pane with this one — out of the tree, back in on `side` */
   moveLeaf: (id: string, targetId: string, side: Side) => void;
-  /** dock any pane against the whole window's edge */
+  /** split the whole window's edge off for this pane */
   moveLeafToRoot: (id: string, side: Side) => void;
+  /** re-seat beside another pane, sizes preserved (see seatedLeaf) */
+  seatLeaf: (id: string, targetId: string, side: Side, ratio: number) => void;
+  /** re-seat at the window's edge, sizes preserved (see seatedLeafAtRoot) */
+  seatLeafAtRoot: (id: string, side: Side, extent: number) => void;
   setSizes: (path: number[], sizes: number[]) => void;
 }
 
@@ -419,6 +559,14 @@ export function useLayoutTree(
     setRoot((r) => movedLeafToRoot(r, id, side));
   }, []);
 
+  const seatLeaf = useCallback((id: string, targetId: string, side: Side, ratio: number) => {
+    setRoot((r) => seatedLeaf(r, id, targetId, side, ratio));
+  }, []);
+
+  const seatLeafAtRoot = useCallback((id: string, side: Side, extent: number) => {
+    setRoot((r) => seatedLeafAtRoot(r, id, side, extent));
+  }, []);
+
   return {
     root,
     cwd,
@@ -430,6 +578,8 @@ export function useLayoutTree(
     removePane,
     moveLeaf,
     moveLeafToRoot,
+    seatLeaf,
+    seatLeafAtRoot,
     setSizes,
   };
 }
