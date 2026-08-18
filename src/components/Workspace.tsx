@@ -3,8 +3,21 @@ import type { Project } from "../App";
 import { Sidebar, SidebarTab } from "./Sidebar";
 import type { Reveal } from "./FileTree";
 import { EditorPane } from "./EditorPane";
-import { Terminals, useTerminalTree } from "./Terminals";
+import { TerminalPanes } from "./Terminals";
 import { QuickOpen } from "./QuickOpen";
+import {
+  EDITOR,
+  SIDEBAR,
+  collectRects,
+  isTerm,
+  leafIds,
+  nodeAt,
+  sizesOf,
+  useLayoutTree,
+  type Divider,
+  type Rect,
+  type Side,
+} from "../lib/layout";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
 import { projectSession, saveProject } from "../lib/session";
@@ -26,24 +39,7 @@ export type View =
   // a memo rather than a second place it lives.
   | { kind: "memo"; key: string; id: string };
 
-/** The columns of the workspace, in reading order. Every member keeps a seat
- *  in the order even while it isn't drawn — the sidebar toggled away, the
- *  terminal docked at the bottom — so coming back lands where it left. */
-export type RowMember = "sidebar" | "editor" | "term";
-/** the terminal dock is either a column in the row or the full-width bottom */
-export type TermDock = "row" | "bottom";
-
-const ROW_MEMBERS: readonly RowMember[] = ["sidebar", "editor", "term"];
-
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
-
-function persisted(key: string, fallback: number): number {
-  const v = parseFloat(localStorage.getItem(key) ?? "");
-  return Number.isFinite(v) ? v : fallback;
-}
-
-/** a pane's vertical padding — the part of the panel's height that isn't rows */
-const PANE_PAD_Y = 12;
 
 /**
  * Everything in this window that a keystroke might belong to instead of to us.
@@ -64,43 +60,6 @@ const TEXT_SURFACES = 'input, textarea, [contenteditable]:not([contenteditable="
 const typing = (e: KeyboardEvent) =>
   e.target instanceof Element && e.target.closest(TEXT_SURFACES) !== null;
 
-function startDrag(
-  e: React.MouseEvent,
-  axis: "x" | "y",
-  dir: 1 | -1,
-  start: number,
-  min: number,
-  max: number,
-  set: (v: number) => void,
-  /** row height, if this edge should move a whole line at a time */
-  step = 0
-) {
-  e.preventDefault();
-  const startPos = axis === "x" ? e.clientX : e.clientY;
-  // the handle in hand carries its own highlight: with more than one divider
-  // on screen, the body class alone would light every one of them
-  const handle = e.currentTarget as HTMLElement;
-  handle.classList.add("live");
-  document.body.classList.add(axis === "x" ? "dragging-col" : "dragging-row");
-  const move = (ev: MouseEvent) => {
-    const delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
-    let next = start + dir * delta;
-    // snap to heights that hold a whole number of rows. Measured from the
-    // padding, not from zero, or the landing points sit a few px off the rows
-    // they're meant to line up with.
-    if (step > 1) next = Math.round((next - PANE_PAD_Y) / step) * step + PANE_PAD_Y;
-    set(clamp(next, min, max));
-  };
-  const up = () => {
-    window.removeEventListener("mousemove", move);
-    window.removeEventListener("mouseup", up);
-    handle.classList.remove("live");
-    document.body.classList.remove("dragging-col", "dragging-row");
-  };
-  window.addEventListener("mousemove", move);
-  window.addEventListener("mouseup", up);
-}
-
 // memoised: switching projects changes `active` on exactly two of them, and
 // without this every other open project re-renders its whole tree for nothing
 export const Workspace = memo(function Workspace({
@@ -116,38 +75,13 @@ export const Workspace = memo(function Workspace({
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(saved.sidebarTab ?? "scm");
   const [sidebarVisible, setSidebarVisible] = useState(saved.sidebarVisible ?? true);
   const [terminalVisible, setTerminalVisible] = useState(saved.terminalVisible ?? true);
-  const [sidebarWidth, setSidebarWidth] = useState(() => persisted("zero-sidebar-w", 260));
   const [quickOpen, setQuickOpen] = useState(false);
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const revealCount = useRef(0);
-  const [termHeight, setTermHeight] = useState(() => persisted("zero-term-h", 300));
-  // Where the movable panels hang. Stored beside the widths rather than in the
-  // per-project session because they are the same kind of fact: where your
-  // panels live is a preference of the hand, not of the project — like the
-  // widths, read once per workspace mount.
-  const [rowOrder, setRowOrder] = useState<RowMember[]>(() => {
-    const saved = localStorage.getItem("zero-row-order")?.split(",");
-    if (saved?.length === 3 && ROW_MEMBERS.every((k) => saved.includes(k)))
-      return saved as RowMember[];
-    // first run — or state written by the build where the docks were two keys
-    const order: RowMember[] = ["editor"];
-    const dock = localStorage.getItem("zero-term-dock");
-    if (dock === "left") order.unshift("term");
-    else if (dock === "right") order.push("term");
-    if (localStorage.getItem("zero-sidebar-side") === "right") order.push("sidebar");
-    else order.unshift("sidebar");
-    if (!order.includes("term")) order.splice(order.indexOf("editor") + 1, 0, "term");
-    return order;
-  });
-  const [termDock, setTermDock] = useState<TermDock>(() => {
-    const v = localStorage.getItem("zero-term-dock");
-    return v === "left" || v === "right" || v === "row" ? "row" : "bottom";
-  });
-  const [termWidth, setTermWidth] = useState(() => persisted("zero-term-w", 420));
   const [views, setViews] = useState<View[]>(saved.views ?? []);
   const [activeView, setActiveView] = useState(saved.activeView ?? 0);
   const untitledRef = useRef(0);
-  const term = useTerminalTree(project.root, saved);
+  const tree = useLayoutTree(project.root, saved);
   // held here rather than in the panel so a result list survives a look at the
   // file tree — the sidebar renders one tab at a time
   const search = useSearch(project.root);
@@ -163,32 +97,16 @@ export const Workspace = memo(function Workspace({
     // the terminals are this component's to open
     () => {
       setTerminalVisible(true);
-      term.newTerminal("claude /login");
+      tree.newTerminal("claude /login");
     }
   );
-
-  useEffect(() => {
-    localStorage.setItem("zero-sidebar-w", String(sidebarWidth));
-  }, [sidebarWidth]);
-  useEffect(() => {
-    localStorage.setItem("zero-term-h", String(termHeight));
-  }, [termHeight]);
-  useEffect(() => {
-    localStorage.setItem("zero-term-w", String(termWidth));
-  }, [termWidth]);
-  useEffect(() => {
-    localStorage.setItem("zero-row-order", rowOrder.join(","));
-  }, [rowOrder]);
-  useEffect(() => {
-    localStorage.setItem("zero-term-dock", termDock);
-  }, [termDock]);
 
   // everything this project should look like next launch. The store debounces,
   // so a divider drag firing this per mousemove costs one write at the end.
   useEffect(() => {
     saveProject(project.root, {
-      term: term.root,
-      focusedId: term.focusedId,
+      layout: tree.root,
+      focusedId: tree.focusedId,
       sidebarTab,
       sidebarVisible,
       terminalVisible,
@@ -197,8 +115,8 @@ export const Workspace = memo(function Workspace({
     });
   }, [
     project.root,
-    term.root,
-    term.focusedId,
+    tree.root,
+    tree.focusedId,
     sidebarTab,
     sidebarVisible,
     terminalVisible,
@@ -437,7 +355,7 @@ export const Workspace = memo(function Workspace({
       } else if ((ctrl && e.shiftKey && e.code === "Backquote") || (meta && !e.shiftKey && e.key.toLowerCase() === "t")) {
         e.preventDefault();
         setTerminalVisible(true);
-        term.newTerminal();
+        tree.newTerminal();
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         untitledRef.current += 1;
@@ -452,7 +370,7 @@ export const Workspace = memo(function Workspace({
       } else if (meta && e.code === "Backslash") {
         e.preventDefault();
         setTerminalVisible(true);
-        term.splitFocused(e.shiftKey ? "col" : "row");
+        tree.splitFocused(e.shiftKey ? "col" : "row");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -465,8 +383,8 @@ export const Workspace = memo(function Workspace({
     openView,
     project.root,
     search.focus,
-    term.newTerminal,
-    term.splitFocused,
+    tree.newTerminal,
+    tree.splitFocused,
   ]);
 
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
@@ -487,154 +405,119 @@ export const Workspace = memo(function Workspace({
   const shown = views[activeView];
   const activeMemo = shown?.kind === "memo" ? shown.id : null;
 
-  // this project's own row height. Scoped to the workspace rather than the
-  // document because every project's panes are mounted at once, and an
-  // inactive one's rows are laid out just as measurably as the visible one's.
   const rootRef = useRef<HTMLDivElement>(null);
-  const termCell = () => {
-    const row = rootRef.current?.querySelector<HTMLElement>(".xterm-rows > div");
-    const h = row?.getBoundingClientRect().height ?? 0;
-    return h > 1 ? h : 0;
-  };
 
-  // ----- the row, and moving things in it -----
-  // Same gesture everywhere: pick a card up by the pill at its top, carry it,
-  // and an accent line stands where it would land; release to dock it, ⎋ to
-  // put it back. Carrying only ever translates the card — the layout doesn't
-  // reflow until the drop, so a live terminal is never disturbed mid-air.
+  // ----- the layout, drawn -----
+  // One tree, one absolute field. Hidden panes stay leaves — the sidebar
+  // toggled away, every terminal while ⌘J holds — and simply get no rect:
+  // their siblings renormalise into the room, and everything comes back to
+  // its own seat because nothing ever left the tree.
+  const hiddenIds = new Set<string>();
+  if (!sidebarVisible) hiddenIds.add(SIDEBAR);
+  const termIds = leafIds(tree.root).filter(isTerm);
+  if (!terminalVisible) for (const id of termIds) hiddenIds.add(id);
 
-  /** the row member in hand, for its pill's highlight */
-  const [movingRow, setMovingRow] = useState<RowMember | null>(null);
-  /** a vertical accent line at a seat boundary, as an x offset in the workspace */
-  const [rowHint, setRowHint] = useState<number | null>(null);
-  /** the full-width line along the floor — the terminal's bottom dock */
-  const [bottomHint, setBottomHint] = useState(false);
-  /** the pill under the pointer. Armed by proximity rather than by :hover
-   *  because the pill must not take the pointer at rest: an always-hittable
-   *  strip at a card's top centre would sit over the sidebar's tabs and the
-   *  editor's. Armed, it takes clicks; disarmed, clicks fall through. */
+  const panes: { id: string; rect: Rect }[] = [];
+  const dividers: Divider[] = [];
+  collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, panes, dividers);
+  const rectOf = (id: string) => panes.find((p) => p.id === id)?.rect ?? null;
+  const paneStyle = (rect: Rect | null): React.CSSProperties =>
+    rect
+      ? { left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.w}%`, height: `${rect.h}%` }
+      : { display: "none" };
+  // stable order, never tree order: re-seating a pane must not reorder the
+  // keyed siblings, or React would move live terminal DOM around the tree
+  const termPanes = [...termIds].sort().map((id) => ({ id, rect: rectOf(id) }));
+
+  // ----- carrying a pane -----
+  // Same gesture for every pane — a terminal, the editor, the sidebar: pick
+  // it up by the pill at its top, carry it, and a shaded rectangle shows the
+  // exact room the drop would give it; release to take the seat, ⎋ to put it
+  // back. The carried card only translates — the layout doesn't reflow until
+  // the drop, so a live terminal is never disturbed mid-air.
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<Rect | null>(null);
+  /** the pill under the pointer, for the two panes that arm here (terminals
+   *  arm their own). Armed by proximity rather than :hover so the pill never
+   *  takes the pointer at rest from the tabs and icons it floats over. */
   const [grabArmed, setGrabArmed] = useState<"sidebar" | "editor" | null>(null);
 
-  // the members with a column right now, in reading order
-  const visibleRow: RowMember[] = rowOrder.filter((m) =>
-    m === "sidebar" ? sidebarVisible : m === "term" ? terminalVisible && termDock === "row" : true
-  );
-  const memberWidth = (m: RowMember) => (m === "sidebar" ? sidebarWidth : m === "term" ? termWidth : 0);
-
   /**
-   * Where a carried card could land: the x of every seam between the columns
-   * as drawn, outer edges included, and which members those seats fall
-   * between. Measured against the live box because the editor's width is
-   * whatever the fixed columns left it.
+   * What a drop at this point would do, and the rect it would produce — the
+   * one function both the shaded preview and the drop itself consume, which
+   * is what keeps them the same fact. A strip along any window edge inserts
+   * against the whole root and takes a third of the window; anywhere else,
+   * the outer bands of the pane under the pointer split that pane in half.
    */
-  const rowSeats = () => {
-    const root = rootRef.current!;
-    const r = root.getBoundingClientRect();
-    const gap = parseFloat(getComputedStyle(root).paddingLeft) || 8;
-    const vis = visibleRow;
-    const fixed = vis.reduce((a, m) => a + memberWidth(m), 0);
-    const editorW = Math.max(0, r.width - 2 * gap - fixed - gap * (vis.length - 1));
-    const widths = vis.map((m) => (m === "editor" ? editorW : memberWidth(m)));
-    const xs: number[] = [4];
-    let x = gap;
-    for (let i = 0; i < widths.length; i++) {
-      x += widths[i];
-      xs.push(i < widths.length - 1 ? x + gap / 2 : r.width - 4);
-      x += gap;
-    }
-    return { xs, vis, left: r.left, bottom: r.bottom };
-  };
-
-  const nearestSeat = (xs: number[], x: number) =>
-    xs.reduce((best, v, i) => (Math.abs(v - x) < Math.abs(xs[best] - x) ? i : best), 0);
-
-  /** land `member` at seat `i` of `vis` — the arrangement the seats were
-   *  measured against: its place among the others is everyone drawn to the
-   *  left of that seam. Members not drawn keep their relative seats. */
-  const applyRowDrop = (member: RowMember, i: number, vis: RowMember[]) => {
-    const before = vis.slice(0, i).filter((m) => m !== member).length;
-    setRowOrder((cur) => {
-      const rest = cur.filter((m) => m !== member);
-      const others = vis.filter((m) => m !== member);
-      const anchor = others[before];
-      const at = anchor ? rest.indexOf(anchor) : rest.length;
-      const next = [...rest];
-      next.splice(at, 0, member);
-      return next;
-    });
-    if (member === "term") setTermDock("row");
-  };
-
-  // the workspace's half of a pane drag that leaves the terminal region:
-  // aim the whole dock at a seat in the row, or at the bottom
-  const group = {
-    hint: (x: number, y: number) => {
-      const root = rootRef.current;
-      if (!root) return;
-      const seats = rowSeats();
-      if (y > seats.bottom - 48) {
-        setRowHint(null);
-        setBottomHint(true);
-        return;
-      }
-      setBottomHint(false);
-      setRowHint(seats.xs[nearestSeat(seats.xs, x - seats.left)]);
-    },
-    clear: () => {
-      setRowHint(null);
-      setBottomHint(false);
-    },
-    drop: (x: number, y: number) => {
-      const root = rootRef.current;
-      if (!root) return false;
-      const seats = rowSeats();
-      if (y > seats.bottom - 48) {
-        setTermDock("bottom");
-        return true;
-      }
-      applyRowDrop("term", nearestSeat(seats.xs, x - seats.left), seats.vis);
-      return true;
-    },
-  };
-
-  const armGrabs = (e: React.MouseEvent) => {
-    if (movingRow) return;
+  const dropTargetAt = (
+    cx: number,
+    cy: number,
+    dragged: string
+  ):
+    | { kind: "pane"; id: string; side: Side; rect: Rect }
+    | { kind: "root"; side: Side; rect: Rect }
+    | null => {
     const root = rootRef.current;
-    if (!root) return;
-    let next: "sidebar" | "editor" | null = null;
-    for (const kind of ["sidebar", "editor"] as const) {
-      if (kind === "sidebar" && !sidebarVisible) continue;
-      const el = root.querySelector<HTMLElement>(kind === "sidebar" ? ".sidebar" : ".main-col");
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      // the pill's reach: the top strip of the card, centre only — 8px on the
-      // editor to duck under its tabs, 10 on the sidebar's icon strip
-      const reach = kind === "editor" ? 8 : 10;
-      if (
-        e.clientY >= r.top &&
-        e.clientY < r.top + reach &&
-        Math.abs(e.clientX - (r.left + r.width / 2)) < 32
-      ) {
-        next = kind;
-        break;
-      }
+    if (!root) return null;
+    const rr = root.getBoundingClientRect();
+    const fx = clamp(cx - rr.left, 0, rr.width);
+    const fy = clamp(cy - rr.top, 0, rr.height);
+    const edge = Math.min(fx, rr.width - fx, fy, rr.height - fy);
+    if (edge < 22) {
+      const side: Side =
+        edge === fx ? "left" : edge === rr.width - fx ? "right" : edge === fy ? "up" : "down";
+      const t = 100 / 3;
+      const rect: Rect =
+        side === "left"
+          ? { x: 0, y: 0, w: t, h: 100 }
+          : side === "right"
+            ? { x: 100 - t, y: 0, w: t, h: 100 }
+            : side === "up"
+              ? { x: 0, y: 0, w: 100, h: t }
+              : { x: 0, y: 100 - t, w: 100, h: t };
+      return { kind: "root", side, rect };
     }
-    setGrabArmed((cur) => (cur === next ? cur : next));
+    const px = (fx / rr.width) * 100;
+    const py = (fy / rr.height) * 100;
+    const hit = panes.find(
+      (p) =>
+        p.id !== dragged &&
+        px >= p.rect.x &&
+        px < p.rect.x + p.rect.w &&
+        py >= p.rect.y &&
+        py < p.rect.y + p.rect.h
+    );
+    if (!hit) return null;
+    // which edge of the pane under the pointer is nearest, in its own axes
+    const rx = (px - hit.rect.x) / hit.rect.w;
+    const ry = (py - hit.rect.y) / hit.rect.h;
+    const m = Math.min(rx, 1 - rx, ry, 1 - ry);
+    const side: Side = m === rx ? "left" : m === 1 - rx ? "right" : m === ry ? "up" : "down";
+    const { x, y, w, h } = hit.rect;
+    const rect: Rect =
+      side === "left"
+        ? { x, y, w: w / 2, h }
+        : side === "right"
+          ? { x: x + w / 2, y, w: w / 2, h }
+          : side === "up"
+            ? { x, y, w, h: h / 2 }
+            : { x, y: y + h / 2, w, h: h / 2 };
+    return { kind: "pane", id: hit.id, side, rect };
   };
 
-  const startRowMove = (e: React.MouseEvent, member: RowMember) => {
+  const startPaneDrag = (e: React.MouseEvent, id: string) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const root = rootRef.current;
-    const card = root?.querySelector<HTMLElement>(member === "sidebar" ? ".sidebar" : ".main-col");
+    const card = root?.querySelector<HTMLElement>(`[data-pane-id="${id}"]`);
     if (!root || !card) return;
-    const seats = rowSeats();
     const sx = e.clientX;
     const sy = e.clientY;
     // nothing happens until the pointer has clearly left the press — a click
     // with a shake in it must not send a card an inch into the air
     let live = false;
-    let at: number | null = null;
+    let target: ReturnType<typeof dropTargetAt> = null;
 
     const move = (ev: MouseEvent) => {
       const dx = ev.clientX - sx;
@@ -643,26 +526,30 @@ export const Workspace = memo(function Workspace({
         if (Math.hypot(dx, dy) < 5) return;
         live = true;
         document.body.classList.add("dragging-panel");
-        card.classList.add("moving");
-        setMovingRow(member);
+        setDraggingId(id);
       }
       card.style.transform = `translate(${dx}px, ${dy}px)`;
-      const i = nearestSeat(seats.xs, ev.clientX - seats.left);
-      if (i !== at) {
-        at = i;
-        setRowHint(seats.xs[i]);
-      }
+      target = dropTargetAt(ev.clientX, ev.clientY, id);
+      const rect = target?.rect ?? null;
+      setPreview((cur) =>
+        cur === rect ||
+        (cur && rect && cur.x === rect.x && cur.y === rect.y && cur.w === rect.w && cur.h === rect.h)
+          ? cur
+          : rect
+      );
     };
     const finish = (apply: boolean) => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
       window.removeEventListener("keydown", key, true);
       document.body.classList.remove("dragging-panel");
-      card.classList.remove("moving");
       card.style.transform = "";
-      setMovingRow(null);
-      setRowHint(null);
-      if (apply && live && at !== null) applyRowDrop(member, at, seats.vis);
+      setDraggingId(null);
+      setPreview(null);
+      if (apply && live && target) {
+        if (target.kind === "pane") tree.moveLeaf(id, target.id, target.side);
+        else tree.moveLeafToRoot(id, target.side);
+      }
     };
     const up = () => finish(true);
     const key = (ev: KeyboardEvent) => {
@@ -677,129 +564,108 @@ export const Workspace = memo(function Workspace({
   };
 
   /**
-   * The divider between two columns. Between a fixed column and the editor
-   * the fixed one resizes — the editor takes whatever is left. Between two
-   * fixed columns (sidebar and terminal side by side) the width transfers
-   * from one to the other, so the editor stands still while the pair trades.
+   * Drag a seam to change how two visible neighbours share their split.
+   * Shares are recomputed from the sizes captured at mousedown, so a long
+   * gesture can't accumulate rounding drift. Everything is stored shares of
+   * the full split — hidden siblings keep holding theirs — so the pointer's
+   * travel across the visible span converts through visSum on the way in.
    */
-  const startColResize = (e: React.MouseEvent, a: RowMember, b: RowMember) => {
-    if (a === "editor" || b === "editor") {
-      const m = a === "editor" ? b : a;
-      const [min, max] =
-        m === "sidebar" ? [170, 560] : [240, Math.max(320, window.innerWidth - 400)];
-      startDrag(
-        e,
-        "x",
-        a === "editor" ? -1 : 1,
-        m === "sidebar" ? sidebarWidth : termWidth,
-        min,
-        max,
-        m === "sidebar" ? setSidebarWidth : setTermWidth
-      );
-      return;
-    }
+  const startDividerResize = (e: React.MouseEvent, d: Divider) => {
+    const root = rootRef.current;
+    const node = nodeAt(tree.root, d.path);
+    if (!root || !node || node.type !== "split") return;
     e.preventDefault();
+    // only the divider in hand lights
     const handle = e.currentTarget as HTMLElement;
     handle.classList.add("live");
-    document.body.classList.add("dragging-col");
-    const startX = e.clientX;
-    const lim = (m: RowMember): [number, number] => (m === "sidebar" ? [170, 560] : [240, 4000]);
-    const l0 = a === "sidebar" ? sidebarWidth : termWidth;
-    const r0 = b === "sidebar" ? sidebarWidth : termWidth;
-    const [lmin, lmax] = lim(a);
-    const [rmin, rmax] = lim(b);
+    const base = sizesOf(node);
+    const rr = root.getBoundingClientRect();
+    const span = d.dir === "row" ? (rr.width * d.host.w) / 100 : (rr.height * d.host.h) / 100;
+    if (span <= 0) return;
+    // neither side may be squeezed below a usable pane
+    const min = Math.min(0.15, 60 / span) * d.visSum;
+    const start = d.dir === "row" ? e.clientX : e.clientY;
+
     const move = (ev: MouseEvent) => {
-      const d = clamp(ev.clientX - startX, Math.max(lmin - l0, r0 - rmax), Math.min(lmax - l0, r0 - rmin));
-      (a === "sidebar" ? setSidebarWidth : setTermWidth)(l0 + d);
-      (b === "sidebar" ? setSidebarWidth : setTermWidth)(r0 - d);
+      const travelled = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
+      const delta = (travelled / span) * d.visSum;
+      const room = { back: base[d.li] - min, fwd: base[d.ri] - min };
+      const step = Math.max(-room.back, Math.min(room.fwd, delta));
+      const sizes = [...base];
+      sizes[d.li] = base[d.li] + step;
+      sizes[d.ri] = base[d.ri] - step;
+      tree.setSizes(d.path, sizes);
     };
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
       handle.classList.remove("live");
-      document.body.classList.remove("dragging-col");
+      document.body.classList.remove("dragging-col", "dragging-row");
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+    document.body.classList.add(d.dir === "row" ? "dragging-col" : "dragging-row");
   };
 
-  // ----- the grid the row draws as -----
-  // One container, fixed child slots, and every arrangement is nothing but
-  // track sizes and cell assignments. That is the load-bearing part: a move
-  // never puts a component under a different parent, so React never remounts
-  // a relocated panel — the terminal keeps its shells through the move, and
-  // the editor keeps its undo history.
-  const colOf = (m: RowMember) => `${2 * visibleRow.indexOf(m) + 1}`;
-  const gridTemplateColumns = visibleRow
-    .map((m) => (m === "editor" ? "minmax(0, 1fr)" : `${memberWidth(m)}px`))
-    .join(" var(--float-gap) ");
-  // at the bottom the terminal leaves the columns and takes a full-width row
-  // of its own — under the sidebar too, which stops where the terminal starts
-  const bottomDock = terminalVisible && termDock === "bottom";
-  const termLayout: React.CSSProperties = !terminalVisible
-    ? {}
-    : bottomDock
-      ? { gridColumn: "1 / -1", gridRow: "3" }
-      : { gridColumn: colOf("term"), gridRow: "1" };
-
-  // how far the columns beside the editor (each with the gap it floats in)
-  // unbalance the window's centre — positive when the left side is heavier.
-  // Anything that wants the true centre reads this and backs out half of it.
-  const eIdx = visibleRow.indexOf("editor");
-  const skew = visibleRow
-    .filter((m) => m !== "editor")
-    .map(
-      (m) =>
-        `${visibleRow.indexOf(m) < eIdx ? "" : "-1 * "}(${memberWidth(m)}px + var(--float-gap))`
-    );
+  /** the arming mousemove for a wrapper whose pill lives here — the
+   *  sidebar's and the editor's; `reach` ducks under whatever chrome the
+   *  card keeps at its top (the editor's tabs sit lower than the sidebar's
+   *  icon strip) */
+  const armWrapper = (kind: "sidebar" | "editor", reach: number) => (e: React.MouseEvent) => {
+    if (draggingId) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const grab = e.clientY - r.top < reach && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
+    setGrabArmed((cur) => (grab ? kind : cur === kind ? null : cur));
+  };
+  const disarmWrapper = (kind: "sidebar" | "editor") => () =>
+    setGrabArmed((cur) => (cur === kind ? null : cur));
 
   return (
-    <div
-      ref={rootRef}
-      className={`workspace ${active ? "" : "inactive"}`}
-      // the tracks ARE the layout: where each panel hangs and how much room it
-      // holds are said here and nowhere else — the children only name their
-      // cell. Rebuilding the strings per render is nothing; what they describe
-      // changes only when a divider or a card is let go of.
-      style={
-        {
-          gridTemplateColumns,
-          gridTemplateRows: bottomDock
-            ? `minmax(0, 1fr) var(--float-gap) ${termHeight}px`
-            : "minmax(0, 1fr)",
-          "--center-skew": skew.length ? `calc(${skew.join(" + ")})` : "0px",
-        } as React.CSSProperties
-      }
-      onMouseMove={armGrabs}
-      onMouseLeave={() => setGrabArmed(null)}
-    >
+    <div ref={rootRef} className={`workspace ${active ? "" : "inactive"}`}>
       {sidebarVisible && (
-        <Sidebar
-          project={project}
-          tab={sidebarTab}
-          onTab={setSidebarTab}
-          onOpenView={openView}
-          active={active}
-          width={sidebarWidth}
-          layout={{ gridColumn: colOf("sidebar"), gridRow: "1" }}
-          search={search}
-          memos={memos}
-          activeMemo={activeMemo}
-          activeKey={shown?.key ?? null}
-          reveal={reveal}
-          onRevealInTree={revealInTree}
-        />
-      )}
-      {/* one divider per seam of the row, resizing whatever pair it parts */}
-      {visibleRow.slice(1).map((b, i) => (
         <div
-          key={`seam-${visibleRow[i]}-${b}`}
-          className="resizer-col"
-          style={{ gridColumn: `${2 * (i + 1)}`, gridRow: "1" }}
-          onMouseDown={(e) => startColResize(e, visibleRow[i], b)}
+          className={`pane-abs ${draggingId === SIDEBAR ? "moving" : ""}`}
+          data-pane-id={SIDEBAR}
+          style={paneStyle(rectOf(SIDEBAR))}
+          onMouseMove={armWrapper("sidebar", 14)}
+          onMouseLeave={disarmWrapper("sidebar")}
+        >
+          <div
+            className={`pane-grab ${grabArmed === "sidebar" ? "armed" : ""} ${
+              draggingId === SIDEBAR ? "live" : ""
+            }`}
+            title="move sidebar"
+            onMouseDown={(e) => startPaneDrag(e, SIDEBAR)}
+          />
+          <Sidebar
+            project={project}
+            tab={sidebarTab}
+            onTab={setSidebarTab}
+            onOpenView={openView}
+            active={active}
+            search={search}
+            memos={memos}
+            activeMemo={activeMemo}
+            activeKey={shown?.key ?? null}
+            reveal={reveal}
+            onRevealInTree={revealInTree}
+          />
+        </div>
+      )}
+      <div
+        className={`pane-abs main-col ${draggingId === EDITOR ? "moving" : ""}`}
+        data-pane-id={EDITOR}
+        style={paneStyle(rectOf(EDITOR))}
+        onMouseMove={armWrapper("editor", 12)}
+        onMouseLeave={disarmWrapper("editor")}
+      >
+        <div
+          className={`pane-grab ${grabArmed === "editor" ? "armed" : ""} ${
+            draggingId === EDITOR ? "live" : ""
+          }`}
+          title="move editor"
+          onMouseDown={(e) => startPaneDrag(e, EDITOR)}
         />
-      ))}
-      <div className="main-col" style={{ gridColumn: colOf("editor"), gridRow: "1" }}>
         <EditorPane
           views={views}
           activeView={activeView}
@@ -816,47 +682,47 @@ export const Workspace = memo(function Workspace({
           memos={memos}
         />
       </div>
-      {terminalVisible && bottomDock && (
-        <div
-          className="resizer-row"
-          style={{ gridColumn: "1 / -1", gridRow: "2" }}
-          onMouseDown={(e) =>
-            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight, termCell())
-          }
-        />
-      )}
-      <Terminals
-        tree={term}
-        visible={terminalVisible}
-        layout={termLayout}
+      <TerminalPanes
+        tree={tree}
+        panes={termPanes}
         active={active}
-        group={group}
+        draggingId={draggingId}
+        onPaneDragStart={startPaneDrag}
         onOpenFile={openFile}
       />
-      {/* the pills a card is carried by, each lying in its card's own cell so
-          it stays centred over the card without the card knowing. The
-          terminal panes carry their own — see Terminals. */}
-      {sidebarVisible && (
+      {/* one divider per visible seam of the tree */}
+      {dividers.map((d) => (
         <div
-          className={`panel-grab ${grabArmed === "sidebar" ? "armed" : ""} ${
-            movingRow === "sidebar" ? "live" : ""
-          }`}
-          style={{ gridColumn: colOf("sidebar"), gridRow: "1" }}
-          title="move sidebar"
-          onMouseDown={(e) => startRowMove(e, "sidebar")}
+          key={`${d.path.join(".")}:${d.li}`}
+          className={`term-divider ${d.dir}`}
+          style={
+            d.dir === "row"
+              ? {
+                  left: `${d.host.x + d.host.w * d.at}%`,
+                  top: `${d.host.y}%`,
+                  height: `${d.host.h}%`,
+                }
+              : {
+                  top: `${d.host.y + d.host.h * d.at}%`,
+                  left: `${d.host.x}%`,
+                  width: `${d.host.w}%`,
+                }
+          }
+          onMouseDown={(e) => startDividerResize(e, d)}
+        />
+      ))}
+      {/* the room a drop would take, drawn by the same numbers the drop uses */}
+      {preview && (
+        <div
+          className="drop-preview"
+          style={{
+            left: `${preview.x}%`,
+            top: `${preview.y}%`,
+            width: `${preview.w}%`,
+            height: `${preview.h}%`,
+          }}
         />
       )}
-      <div
-        className={`panel-grab ${grabArmed === "editor" ? "armed" : ""} ${
-          movingRow === "editor" ? "live" : ""
-        }`}
-        style={{ gridColumn: colOf("editor"), gridRow: "1" }}
-        title="move editor"
-        onMouseDown={(e) => startRowMove(e, "editor")}
-      />
-      {/* where the carried card would land */}
-      {rowHint !== null && <div className="dock-hint row" style={{ left: rowHint - 2 }} />}
-      {bottomHint && <div className="dock-hint bottom" />}
       {quickOpen && (
         <QuickOpen
           root={project.root}
