@@ -176,7 +176,14 @@ export function EditorPane({
   if (views.length === 0) {
     return (
       <div className="editor-pane empty">
-        <div className="editor-empty-hint">zero</div>
+        <div className="editor-empty">
+          <div className="editor-empty-hint">zero</div>
+          {/* the same place the launcher puts it — under the mark, not in a
+              corner — so the one screen with nothing on it says which zero
+              this is. A self-updated copy is a different number by the time
+              anyone looks again, and this is where they'd look. */}
+          <div className="editor-empty-version">{__APP_VERSION__}</div>
+        </div>
       </div>
     );
   }
