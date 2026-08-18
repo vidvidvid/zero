@@ -6,6 +6,7 @@ import { indentWithTab } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import { editorTheme } from "../lib/cmTheme";
 import { charDiff } from "../lib/diffChars";
+import { lineDiff } from "../lib/lineDiff";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor } from "../lib/lang";
 import { diffRuler } from "../lib/scrollRuler";
@@ -118,6 +119,10 @@ export function DiffView({
         revertControls: staged ? undefined : "a-to-b",
         // the whole file, no collapsed bands — Cursor's way: everything is
         // there to scroll, and where you land is the first change
+        //
+        // and diff by lines, the way git does — see lineDiff.ts for what the
+        // stock character diff does to a file with more than a few changes
+        diffConfig: { override: lineDiff },
       });
 
       // the charDiff plugins were built while mergeRef was still null and
@@ -148,12 +153,12 @@ export function DiffView({
       if (disposed || !mergeRef.current) return;
       const mv = mergeRef.current;
       if (docs.a !== loadedRef.current.a) {
-        mv.a.dispatch({ changes: { from: 0, to: mv.a.state.doc.length, insert: docs.a } });
+        mv.a.dispatch({ changes: minimalChange(loadedRef.current.a, docs.a) });
         loadedRef.current = { ...loadedRef.current, a: docs.a };
       }
       // never clobber unsaved edits on the working-tree side
       if (!dirtyRef.current && docs.b !== loadedRef.current.b) {
-        mv.b.dispatch({ changes: { from: 0, to: mv.b.state.doc.length, insert: docs.b } });
+        mv.b.dispatch({ changes: minimalChange(loadedRef.current.b, docs.b) });
         dirtyRef.current = false;
         loadedRef.current = { ...loadedRef.current, b: docs.b };
       }
@@ -168,4 +173,32 @@ export function DiffView({
   }, [worktree, relPath, staged]);
 
   return <div className="cm-host" ref={hostRef} />;
+}
+
+/**
+ * The smallest change that turns `old` into `next`: trim what the two share at
+ * each end and replace the rest.
+ *
+ * Handing CodeMirror the whole document instead — which is what this did —
+ * says every character changed, and everything downstream believes it. The
+ * merge view re-diffs the file end to end, the parser drops the syntax tree
+ * and reparses, the highlighter repaints, and the cursor and scroll position
+ * have nothing to be mapped through. All of it every two seconds, because an
+ * agent touched one line.
+ */
+function minimalChange(old: string, next: string) {
+  const max = Math.min(old.length, next.length);
+  let head = 0;
+  while (head < max && old.charCodeAt(head) === next.charCodeAt(head)) head++;
+  let tail = 0;
+  while (
+    tail < max - head &&
+    old.charCodeAt(old.length - tail - 1) === next.charCodeAt(next.length - tail - 1)
+  )
+    tail++;
+  // a surrogate pair is one character in two units; cutting between them would
+  // leave a lone half in the document
+  if (head > 0 && (old.charCodeAt(head - 1) & 0xfc00) === 0xd800) head--;
+  if (tail > 0 && (old.charCodeAt(old.length - tail) & 0xfc00) === 0xdc00) tail--;
+  return { from: head, to: old.length - tail, insert: next.slice(head, next.length - tail) };
 }

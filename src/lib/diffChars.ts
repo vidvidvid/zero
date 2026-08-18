@@ -17,6 +17,14 @@ import { diff, getChunks } from "@codemirror/merge";
  *   but with VS Code's word heuristic on top: a change that covers most of the
  *   word it sits in extends to the whole word on both sides, so a word swapped
  *   for another doesn't read as surgery on its letters (see [`smartChanges`]).
+ * - Two changes with only a short run of common text between them are one
+ *   change. A raw character diff is happy to call `save` → `cancel` three
+ *   separate edits because it found the `a` and the `e` in both, and marking
+ *   them that way is the disconnected-letters read (see [`smartChanges`]).
+ * - And a line marked nearly end to end is marked all the way. A rewritten
+ *   sentence keeps a scattering of common words — `the`, `per domain`, a
+ *   plural `s` — and drawing around them says the line was picked at rather
+ *   than replaced (see the fill in [`changedRanges`]).
  *
  * They are drawn as a layer — the machinery selections are painted with —
  * rather than mark decorations, because an inline span's background stops at
@@ -78,13 +86,20 @@ function changedRanges(view: EditorView, otherDoc: Text | null): { from: number;
   const isA = info.side === "a";
   const doc = view.state.doc;
   const { from: vFrom, to: vTo } = view.viewport;
-  const ranges: { from: number; to: number }[] = [];
+  const byLine = new Map<number, { from: number; to: number }[]>();
 
   for (const chunk of info.chunks) {
     // pure insertions and deletions keep their flat line wash
     if (chunk.fromA >= chunk.toA || chunk.fromB >= chunk.toB) continue;
     // geometry is only measurable (and only needed) inside the viewport
     if ((isA ? chunk.fromA : chunk.fromB) > vTo || (isA ? chunk.endA : chunk.endB) < vFrom)
+      continue;
+    // A chunk this size is a rewritten region, not an edit, and marking
+    // letters inside it says nothing its line wash hasn't already said. It is
+    // also the only place left where the character diff below could cost
+    // real time — this runs on every scroll — so it is capped rather than
+    // trusted to stay small.
+    if (chunk.endA - chunk.fromA > MAX_CHAR_DIFF || chunk.endB - chunk.fromB > MAX_CHAR_DIFF)
       continue;
     const aText = (isA ? doc : otherDoc).sliceString(chunk.fromA, chunk.endA);
     const bText = (isA ? otherDoc : doc).sliceString(chunk.fromB, chunk.endB);
@@ -100,15 +115,49 @@ function changedRanges(view: EditorView, otherDoc: Text | null): { from: number;
       while (pos < to) {
         const line = doc.lineAt(pos);
         const end = Math.min(to, line.to);
-        if (pos < end) ranges.push({ from: pos, to: end });
+        if (pos < end) {
+          let marks = byLine.get(line.number);
+          if (!marks) byLine.set(line.number, (marks = []));
+          marks.push({ from: pos, to: end });
+        }
         pos = line.to + 1;
       }
+    }
+  }
+
+  // A line this thoroughly marked has been rewritten, not edited, and the gaps
+  // left bare are only the words that happened to survive — `the`, `per
+  // domain`, the `s` on a plural. Marking around them is the disconnected
+  // read; filling the line is what VS Code shows, and it is also the truth.
+  // Indentation stays out of it: it is structure, not text.
+  const ranges: { from: number; to: number }[] = [];
+  for (const [num, marks] of byLine) {
+    const line = doc.line(num);
+    const from = line.from + (line.text.length - line.text.trimStart().length);
+    const covered = marks.reduce((sum, m) => sum + (m.to - m.from), 0);
+    if (line.to > from && covered >= (line.to - from) * MOSTLY_REWRITTEN) {
+      ranges.push({ from, to: line.to });
+    } else {
+      ranges.push(...marks);
     }
   }
   return ranges;
 }
 
+/** Past this many characters on either side, a chunk gets no character marks
+ *  — see the cull in [`changedRanges`]. About 600 lines. */
+const MAX_CHAR_DIFF = 20000;
+
+/** The character diff inside a chunk is bounded too. Chunks are line-sized
+ *  now, so nothing realistic comes near this; it exists so that no input can
+ *  make a scroll frame quadratic. */
+const CHAR_DIFF = { scanLimit: 500, timeout: 50 };
+
 const WORD = /[A-Za-z0-9_]/;
+
+/** How much of a line has to be marked before the whole line is — see the fill
+ *  at the end of [`changedRanges`]. */
+const MOSTLY_REWRITTEN = 2 / 3;
 
 interface Change {
   fromA: number;
@@ -129,7 +178,11 @@ interface Change {
  */
 function smartChanges(a: string, b: string): Change[] {
   const out: Change[] = [];
-  for (const ch of diff(a, b)) {
+  // the length of the last change on its own, which is not the length of the
+  // run it may have been merged into — comparing against the run would let one
+  // merge widen the bar for the next and swallow the whole line a gap at a time
+  let prevWidth = 0;
+  for (const ch of diff(a, b, CHAR_DIFF)) {
     let { fromA, toA, fromB, toB } = ch;
     let left = 0;
     while (fromA - left > 0 && fromB - left > 0 && WORD.test(a[fromA - left - 1])) left++;
@@ -142,13 +195,18 @@ function smartChanges(a: string, b: string): Change[] {
       toA += right;
       toB += right;
     }
+    const width = Math.max(toA - fromA, toB - fromB);
     const prev = out[out.length - 1];
-    if (prev && (fromA <= prev.toA || fromB <= prev.toB)) {
+    // The text between two changes is common to both sides, so its length is
+    // the same on both; take either.
+    const gap = prev ? Math.min(fromA - prev.toA, fromB - prev.toB) : Infinity;
+    if (prev && gap <= Math.max(prevWidth, width) / 2) {
       prev.toA = Math.max(prev.toA, toA);
       prev.toB = Math.max(prev.toB, toB);
     } else {
       out.push({ fromA, toA, fromB, toB });
     }
+    prevWidth = width;
   }
   return out;
 }
