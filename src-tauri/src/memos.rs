@@ -129,10 +129,14 @@ pub struct Memo {
     /// its elapsed timer off this, and off nothing else: a take's row would
     /// otherwise count up from the memo's age.
     recording_since: Option<String>,
-    /// the human half of the on-disk error; the frontend has no use for the
-    /// stage and code, which exist for the log and for a future that wants to
-    /// tell failures apart.
+    /// the human half of the on-disk error; the stage and code stay behind,
+    /// for the log and for a future that wants to tell failures apart —
+    /// except the one code the panel can act on, which crosses as the flag
+    /// below.
     error: Option<String>,
+    /// the error is claude saying it has no usable login — the one failure a
+    /// button can fix, by opening a terminal on `claude /login`
+    needs_login: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -259,6 +263,7 @@ fn wire(memo: &MemoFile, live: Live) -> Memo {
             },
         }),
         error: memo.error.as_ref().map(|e| e.message.clone()),
+        needs_login: memo.error.as_ref().is_some_and(|e| e.code == NEEDS_LOGIN),
     }
 }
 
@@ -402,6 +407,18 @@ fn repaired_path() -> String {
         Ok(home) => format!("{home}/.local/bin:{home}/.claude/local:{repaired}"),
         Err(_) => repaired,
     }
+}
+
+/// The error code for a cleanup that failed because `claude` has no usable
+/// login — the one failure the panel offers to fix rather than just retry.
+const NEEDS_LOGIN: &str = "needs_login";
+
+/// Whether a failure is claude asking for a login, in every phrasing it has
+/// used: the OAuth pair when a session expires or a refresh is refused, and
+/// the /login hint when there are no credentials at all.
+fn login_needed(text: &str) -> bool {
+    let t = text.to_ascii_lowercase();
+    ["authenticate", "oauth", "/login", "api key"].iter().any(|needle| t.contains(needle))
 }
 
 /// The first few lines of a failure, which is where a CLI puts the reason.
@@ -1739,7 +1756,8 @@ fn cleanup_job(ctx: &JobCtx, root: &str, id: &str) {
         }
         Err(message) => {
             memo.status = CLEANUP_FAILED.to_string();
-            memo.error = Some(MemoError { stage: "cleanup".into(), code: "engine".into(), message });
+            let code = if login_needed(&message) { NEEDS_LOGIN } else { "engine" };
+            memo.error = Some(MemoError { stage: "cleanup".into(), code: code.into(), message });
         }
     }
     ctx.publish(root, &dir, &memo);

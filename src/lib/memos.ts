@@ -499,6 +499,10 @@ export interface Memos {
    *  only the take if it was a follow-up */
   cancel: () => void;
   retry: (id: string) => void;
+  /** open a terminal on `claude /login`, for the one failure that is fixed by
+   *  logging in rather than by trying again. The workspace supplies it,
+   *  because the terminals are the workspace's. */
+  signIn?: () => void;
   remove: (id: string) => void;
   /** absolute path, creating the file if it's missing; null if that failed */
   vocabularyPath: () => Promise<string | null>;
@@ -511,7 +515,12 @@ export interface Memos {
  *  so the workspace can open its thread — the ramble ends in reading. The id
  *  rather than the path it used to be: a thread is opened by memo, and the
  *  files it reads are its own business. */
-export function useMemos(root: string, viewing: boolean, onReady?: (id: string) => void): Memos {
+export function useMemos(
+  root: string,
+  viewing: boolean,
+  onReady?: (id: string) => void,
+  onSignIn?: () => void
+): Memos {
   const [memos, setMemos] = useState<Memo[]>([]);
   const [probe, setProbe] = useState<MemoProbe | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -790,6 +799,7 @@ export function useMemos(root: string, viewing: boolean, onReady?: (id: string) 
     resume,
     cancel,
     retry,
+    signIn: onSignIn,
     remove,
     vocabularyPath,
     refresh,

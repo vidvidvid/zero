@@ -121,7 +121,13 @@ export const Workspace = memo(function Workspace({
     active && sidebarVisible && sidebarTab === "memos",
     // a memo recorded here lands in the editor the moment it comes back ready,
     // as the same thread its row opens
-    (id) => openView({ kind: "memo", key: `memo:${id}`, id })
+    (id) => openView({ kind: "memo", key: `memo:${id}`, id }),
+    // a cleanup that failed for want of a login is fixed in a terminal, and
+    // the terminals are this component's to open
+    () => {
+      setTerminalVisible(true);
+      term.newTerminal("claude /login");
+    }
   );
 
   useEffect(() => {

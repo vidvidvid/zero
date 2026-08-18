@@ -553,6 +553,17 @@ export function MemoThread({
           {wrong ? (
             <div className="memo-turn pending fail">
               <span className="memo-thread-why">{wrong}</span>
+              {/* the one failure a retry alone can't fix: claude wants a
+                  login, and the login lives in a terminal */}
+              {memo?.needs_login && memos.signIn && (
+                <button
+                  className="memo-thread-act"
+                  title="open a terminal on claude /login"
+                  onClick={memos.signIn}
+                >
+                  sign in
+                </button>
+              )}
               <button
                 className="memo-thread-act"
                 title="run this stage again"

@@ -135,6 +135,9 @@ export interface Memo {
    *  side only has to stop the clock rather than keep books on it. */
   paused: boolean;
   error: string | null;
+  /** the error is claude saying it has no usable login — the one failure a
+   *  button can fix, by opening a terminal on `claude /login` */
+  needs_login: boolean;
 }
 
 export const api = {
