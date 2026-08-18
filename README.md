@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Twenty-one thousand lines, a 14 MB app. It exists because Cursor was an 860 MB
+Twenty-three thousand lines, an 18 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -11,8 +11,8 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-21,596 lines of source   (17,855 code, 3,741 CSS)
-    14 MB app bundle            Cursor: 860 MB
+22,980 lines of source   (19,177 code, 3,803 CSS)
+    18 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
 ```
@@ -24,8 +24,8 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **14 MB** | 860 MB | 61× |
-| Files in the bundle | **5** | 17,035 | |
+| App bundle | **18 MB** | 860 MB | 47× |
+| Files in the bundle | **7** | 17,035 | |
 | Shipped JS | **1.4 MB** at startup, 2.7 MB in all | 256 MB in 12,021 files | 183× |
 | Bundled runtime | 0, system WebKit | 259 MB of Electron | |
 | Bundled extensions | 0 | 116 | |
@@ -34,10 +34,11 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 | Memory, one project | **354 MB** | 687 MB | 1.9× |
 | Idle CPU | **1.10%** of a core | 2.66% | |
 
-The disk rows are the 0.2.0 build, voice memos included — the fifth file is the
-175 KB compiled Swift helper. Launch, memory and idle CPU are still 0.1.0's and
-say so rather than being adjusted on paper; the helper is spawned per recording,
-not at startup, so it isn't in the path either measures.
+The disk rows are the 0.13.0 build — the 189 KB compiled Swift helper included,
+and two of the seven files are the code signature a notarized app carries.
+Launch, memory and idle CPU are still 0.1.0's and say so rather than being
+adjusted on paper; the helper is spawned per recording, not at startup, so it
+isn't in the path either measures.
 
 Memory is `phys_footprint` — what Activity Monitor shows. Summed RSS would
 have said 256 MB against 2,057 MB, but it counts a shared framework page once
