@@ -3,7 +3,17 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 import { constNames } from "./constNames";
+import { undefinedNames } from "./undefinedName";
 import { EditorTheme, getSettings, onSettingsChange, resolvedAppearance } from "./settings";
+
+/**
+ * `undefined` has no highlight tag to hang a colour on — see undefinedName.ts
+ * — so it arrives as a decoration class, and each theme paints it whatever it
+ * already paints `null`. The `*` rule is for the highlighting span nested
+ * inside the decoration's, which would otherwise keep its own colour.
+ */
+const undefinedColor = (color: string) =>
+  EditorView.theme({ ".cm-undefined": { color }, ".cm-undefined *": { color } });
 
 // VS Code / Cursor "Dark Modern" (Dark+) — editor chrome
 const darkModernChrome = EditorView.theme(
@@ -96,7 +106,13 @@ const darkModernHighlight = HighlightStyle.define([
   { tag: [t.invalid], color: "#f44747" },
 ]);
 
-export const darkModern = [darkModernChrome, syntaxHighlighting(darkModernHighlight), constNames];
+export const darkModern = [
+  darkModernChrome,
+  syntaxHighlighting(darkModernHighlight),
+  undefinedColor("#569cd6"),
+  undefinedNames,
+  constNames,
+];
 
 // VS Code / Cursor "Light Modern" (Light+) — the same port, in daylight
 const lightModernChrome = EditorView.theme(
@@ -184,7 +200,13 @@ const lightModernHighlight = HighlightStyle.define([
   { tag: [t.invalid], color: "#cd3131" },
 ]);
 
-export const lightModern = [lightModernChrome, syntaxHighlighting(lightModernHighlight), constNames];
+export const lightModern = [
+  lightModernChrome,
+  syntaxHighlighting(lightModernHighlight),
+  undefinedColor("#0000ff"),
+  undefinedNames,
+  constNames,
+];
 
 // TRMNL — the theme from trmnl.com's JSON editor, dark variant. Ported as
 // written except for the font: the source pins Space Mono at 0.75rem, but
@@ -301,7 +323,12 @@ const trmnlHighlight = HighlightStyle.define([
   { tag: t.meta, color: "#6d6d6d" },
 ]);
 
-export const trmnl = [trmnlChrome, syntaxHighlighting(trmnlHighlight)];
+export const trmnl = [
+  trmnlChrome,
+  syntaxHighlighting(trmnlHighlight),
+  undefinedColor("rgba(255,255,255,0.36)"),
+  undefinedNames,
+];
 
 // TRMNL, light variant — same source file as the dark one (trmnl.com's JSON
 // editor, codemirror_trmnl_theme.js), ported under the same rules: the font
@@ -416,7 +443,12 @@ const trmnlLightHighlight = HighlightStyle.define([
   { tag: t.meta, color: "#6b7280" },
 ]);
 
-export const trmnlLight = [trmnlLightChrome, syntaxHighlighting(trmnlLightHighlight)];
+export const trmnlLight = [
+  trmnlLightChrome,
+  syntaxHighlighting(trmnlLightHighlight),
+  undefinedColor("#4b5563"),
+  undefinedNames,
+];
 
 /** What the settings panel lists: label plus the token colours it shows as a
  *  swatch strip — keyword, string, function, type, number, in that order. */
