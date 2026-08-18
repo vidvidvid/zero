@@ -637,7 +637,7 @@ fn search(root: &str, query: &Query) -> Result<SearchResult, String> {
 
 #[tauri::command]
 pub async fn search_project(root: String, query: Query) -> Result<SearchResult, String> {
-    search(&root, &query)
+    crate::git::blocking(move || search(&root, &query)).await
 }
 
 /* ---------- replace ---------- */
@@ -668,7 +668,7 @@ pub async fn replace_matches(
     replacement: String,
     targets: Vec<Target>,
 ) -> Result<u32, String> {
-    replace(&root, &query, &replacement, &targets)
+    crate::git::blocking(move || replace(&root, &query, &replacement, &targets)).await
 }
 
 fn replace(root: &str, query: &Query, replacement: &str, targets: &[Target]) -> Result<u32, String> {

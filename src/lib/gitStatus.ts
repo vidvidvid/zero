@@ -30,15 +30,23 @@ const snapshots = new Map<string, GitSnapshot>();
 const listeners = new Map<string, Set<() => void>>();
 const timers = new Map<string, number>();
 const running = new Set<string>();
+/** roots poked while their sweep was in flight — owed a fresh one after */
+const stale = new Set<string>();
 
 function emit(root: string) {
   listeners.get(root)?.forEach((fn) => fn());
 }
 
 async function sweep(root: string) {
-  // a sweep already in flight is a sweep already about to deliver; a second one
-  // would only queue more git processes behind the first
-  if (running.has(root)) return;
+  // A sweep already in flight is a sweep already about to deliver; a second
+  // one would only queue more git processes behind the first. But its answer
+  // predates whatever prompted this call — a worktree removed while its
+  // neighbours were being read stays on screen if the poke just vanishes — so
+  // the debt is remembered rather than dropped.
+  if (running.has(root)) {
+    stale.add(root);
+    return;
+  }
   running.add(root);
   const started = performance.now();
   try {
@@ -62,7 +70,10 @@ async function sweep(root: string) {
     running.delete(root);
   }
   emit(root);
-  if (listeners.get(root)?.size) {
+  if (!listeners.get(root)?.size) return;
+  if (stale.delete(root)) {
+    void sweep(root);
+  } else {
     schedule(root, performance.now() - started);
   }
 }
@@ -107,6 +118,7 @@ export function useGitStatus(root: string, active: boolean): GitSnapshot {
         listeners.delete(root);
         window.clearTimeout(timers.get(root));
         timers.delete(root);
+        stale.delete(root);
       }
     };
   }, [root, active]);
