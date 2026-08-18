@@ -134,6 +134,12 @@ function newLeaf(): TermNode {
   return { type: "leaf", id: crypto.randomUUID() };
 }
 
+/** Commands to type into a terminal the moment its shell is up, keyed by the
+ *  leaf created to run them. Module state rather than tree state so a restored
+ *  layout can never replay one: only `newTerminal(boot)` writes here, and the
+ *  pane consumes its entry on first spawn. */
+const boots = new Map<string, string>();
+
 // a split with no sizes yet is an even one
 function sizesOf(node: Extract<TermNode, { type: "split" }>): number[] {
   const n = node.children.length;
@@ -216,7 +222,8 @@ export interface TerminalTree {
   cwd: string;
   focusedId: string | null;
   setFocused: (id: string) => void;
-  newTerminal: () => void;
+  /** `boot`, when given, is a command typed into the new shell once it's up */
+  newTerminal: (boot?: string) => void;
   splitFocused: (dir: "row" | "col") => void;
   splitPane: (id: string, side: Side) => void;
   removePane: (id: string) => void;
@@ -238,8 +245,9 @@ export function useTerminalTree(
     return saved && hasLeaf(root, saved) ? saved : firstLeafId(root);
   });
 
-  const newTerminal = useCallback(() => {
+  const newTerminal = useCallback((boot?: string) => {
     const leaf = newLeaf();
+    if (boot) boots.set((leaf as { id: string }).id, boot);
     setRoot((r) => {
       if (!r) return leaf;
       if (r.type === "split" && r.dir === "row") {
@@ -916,9 +924,20 @@ function TerminalPane({
     ptyBus.onOutput(id, (bytes) => term.write(bytes));
     ptyBus.onExit(id, () => onExit(id));
 
-    api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).catch((e) => {
-      term.write(`\r\n\x1b[31mzero: failed to start shell: ${e}\x1b[0m\r\n`);
-    });
+    api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
+      () => {
+        // the command this pane was opened to run, if it was opened to run
+        // one: typed rather than executed behind the scenes, so it lands in
+        // the user's own shell, in front of them, editable and re-runnable
+        const boot = boots.get(id);
+        if (!boot) return;
+        boots.delete(id);
+        api.ptyWrite(id, `${boot}\r`).catch(() => {});
+      },
+      (e) => {
+        term.write(`\r\n\x1b[31mzero: failed to start shell: ${e}\x1b[0m\r\n`);
+      }
+    );
     term.onData((data) =>
       api.ptyWrite(id, data).catch((e) => {
         term.write(`\r\n\x1b[31mzero: shell unreachable: ${e}\x1b[0m\r\n`);

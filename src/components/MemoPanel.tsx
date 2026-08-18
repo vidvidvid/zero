@@ -398,6 +398,8 @@ export function MemoPanel({
                   { text: "Open Thread", run: () => open(m, false) },
                   { text: "Open Raw Transcript", enabled: !!memoRaw(root, m), run: () => open(m, true) },
                   failed(m) && { text: "Retry", run: () => memos.retry(m.id) },
+                  m.needs_login &&
+                    !!memos.signIn && { text: "Sign In to Claude", run: () => memos.signIn?.() },
                   "sep",
                   ...fileEntries(memoPaths(root, m.id).md, { root, writes: "none" }),
                   "sep",
