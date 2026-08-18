@@ -8,7 +8,7 @@ import { editorTheme } from "../lib/cmTheme";
 import { charDiff } from "../lib/diffChars";
 import { lineDiff } from "../lib/lineDiff";
 import { api } from "../lib/api";
-import { langFor, lazyLangFor } from "../lib/lang";
+import { langFor, lazyLangFor, lazyLangForShebang } from "../lib/lang";
 import { diffRuler } from "../lib/scrollRuler";
 import { pokeGit } from "../lib/gitStatus";
 
@@ -137,10 +137,15 @@ export function DiffView({
         });
       }
 
-      langLater.then((ext) => {
-        if (disposed || !ext || !mergeRef.current) return;
-        mergeRef.current.a.dispatch({ effects: langA.reconfigure(ext) });
-        mergeRef.current.b.dispatch({ effects: langB.reconfigure(ext) });
+      langLater.then(async (ext) => {
+        // a name that said nothing might still open with #!/bin/bash; the
+        // working-tree side is the live copy, the other covers deletions
+        const mode =
+          ext ??
+          (langFor(relPath).length ? null : await lazyLangForShebang(docs.b || docs.a));
+        if (disposed || !mode || !mergeRef.current) return;
+        mergeRef.current.a.dispatch({ effects: langA.reconfigure(mode) });
+        mergeRef.current.b.dispatch({ effects: langB.reconfigure(mode) });
       });
     });
 
