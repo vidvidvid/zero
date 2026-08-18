@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { WorktreePanel } from "./WorktreePanel";
@@ -65,6 +65,7 @@ export function Sidebar({
   onOpenView,
   active,
   width,
+  layout,
   search,
   memos,
   activeMemo,
@@ -78,6 +79,9 @@ export function Sidebar({
   onOpenView: (v: View) => void;
   active: boolean;
   width: number;
+  /** which cell of the workspace's grid this panel lives in — the side it
+   *  hangs on is the grid's business, not this component's */
+  layout: CSSProperties;
   search: Search;
   memos: Memos;
   /** the memo whose thread is the view on screen, so its row can say so —
@@ -104,7 +108,7 @@ export function Sidebar({
         : "";
 
   return (
-    <div className="sidebar" style={{ width }}>
+    <div className="sidebar" style={{ width, ...layout }}>
       <div className="sidebar-tabs">
         {TABS.map((t) => (
           <button

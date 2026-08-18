@@ -89,6 +89,29 @@ export function Settings({ onClose }: { onClose: () => void }) {
             );
           })}
         </div>
+        <div className="settings-group">
+          <div className="settings-label">terminal</div>
+          {/* the one panel that can take its chrome off — see settings.ts for
+              why this isn't offered per panel */}
+          {(
+            [
+              { id: "panel", label: "panel" },
+              { id: "plain", label: "plain" },
+            ] as const
+          ).map((c) => {
+            const on = settings.termStyle === c.id;
+            return (
+              <button
+                key={c.id}
+                className={`settings-choice ${on ? "on" : ""}`}
+                onClick={() => updateSettings({ termStyle: c.id })}
+              >
+                <span className="settings-dot" aria-hidden />
+                <span className="settings-choice-name">{c.label}</span>
+              </button>
+            );
+          })}
+        </div>
         {/* the other half of where a version belongs: the launcher is where
             you see it, this is where you go to look it up */}
         <div className="settings-version">zero {__APP_VERSION__}</div>

@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
-import { onSettingsChange, resolvedAppearance } from "../lib/settings";
+import { onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
@@ -354,17 +354,22 @@ function collectRects(
 export function Terminals({
   tree,
   visible,
-  height,
+  layout,
   active,
   onOpenFile,
 }: {
   tree: TerminalTree;
   visible: boolean;
-  height: number;
+  /** where the workspace's grid puts this panel — its size comes from the
+   *  tracks, so the panel itself no longer holds a height */
+  layout: CSSProperties;
   active: boolean;
   /** a ⌘-clicked path that belongs to this project */
   onOpenFile: (abs: string, line?: number) => void;
 }) {
+  // whether this panel wears the shared card or goes plain — a live setting,
+  // so flipping it in ⌘, restyles every open terminal on the spot
+  const { termStyle } = useSettings();
   // The pane toolbar only exists near the top edge of a pane, so working in
   // the middle of a session never puts chrome on screen.
   const [armed, setArmed] = useState<string | null>(null);
@@ -443,7 +448,10 @@ export function Terminals({
   if (tree.root) collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], panes, dividers);
 
   return (
-    <div className="term-panel" style={{ display: visible ? "flex" : "none", height }}>
+    <div
+      className={`term-panel ${termStyle === "plain" ? "plain" : ""}`}
+      style={{ ...layout, display: visible ? "flex" : "none" }}
+    >
       <div className="term-body" ref={bodyRef}>
         {tree.root ? (
           (() => {
@@ -595,12 +603,12 @@ const TERM_THEME_LIGHT = {
 };
 
 /* Appearance picks the palette; the background is blanked in all of them.
-   The terminal has no panel of its own any more — it sits on the window's
-   field, or on glass — so a background here would be the one thing painting a
-   pane behind text that is meant to have none. The palette keeps its own
-   background value for the cases that derive from it (xterm inverts it for
-   the selection and the cursor), which is why this blanks the alpha rather
-   than dropping the key.
+   Whatever is behind the text — the panel's own card, the window's field when
+   the terminal is set plain, or glass — is painted by the panel, so a
+   background here would be xterm painting a second pane over the one that
+   already carries the tone. The palette keeps its own background value for
+   the cases that derive from it (xterm inverts it for the selection and the
+   cursor), which is why this blanks the alpha rather than dropping the key.
    Read from the settings store, not the DOM: store listeners fire before
    React has moved the html classes, and the store is never behind. */
 function termTheme() {

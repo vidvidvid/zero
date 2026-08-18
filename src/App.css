@@ -27,9 +27,22 @@
   --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
   /* how far a floating panel stands off the window edge and its neighbours.
      One number, because the look only holds while every gap around the card
-     is the same one — the resizer between the sidebar and the editor makes up
-     half of its own gap, which is why it is this divided by two. */
+     is the same one — the dividers live inside these gaps and fill them
+     exactly, so the gap and the grab area are the same band. */
   --float-gap: 8px;
+  /* The card every floating panel wears, said once: one radius, one hairline,
+     one lift. The hairline is the edge that stays an edge wherever the card
+     happens to be — over the field at rest, over every tone in the window
+     while it is being carried — and the pair of hairline and soft shadow is
+     the grammar the Claude desktop app draws its own panels in, which is the
+     company these cards keep.
+     Both shadow layers keep their reach pulled in under the card (offset and
+     negative spread together beat the blur): above the cards is the title
+     bar, and a wash creeping up into it makes the buttons centred there read
+     as sitting high. */
+  --panel-radius: 10px;
+  --panel-border: var(--border);
+  --panel-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
 }
 
 /* ===== light appearance =====
@@ -58,6 +71,8 @@ html.light {
   --green: #388a34;
   --red: #cd3131;
   --yellow: #b89500;
+  /* the same lift over white, where near-black's opacities read as smudges */
+  --panel-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.16), 0 2px 6px -2px rgba(0, 0, 0, 0.07);
 }
 
 /* the colors that aren't tokens, in the same roles Light Modern gives them */
@@ -113,6 +128,7 @@ html.light .pane-actions .pane-close:hover {
 html.light.glass {
   --bg: rgba(248, 248, 248, 0.58);
   --bg-panel: rgba(248, 248, 248, 0.58);
+  --panel-border: rgba(0, 0, 0, 0.08);
 }
 
 /* under glass the field is the glass itself — the panels are the only thing
@@ -168,6 +184,10 @@ html.glass {
      panels float, and the gap of clear glass between them does it instead. */
   --bg: rgba(24, 24, 24, 0.58);
   --bg-panel: rgba(24, 24, 24, 0.58);
+  /* the solid hairline is a theme colour, and a theme colour on glass is a
+     line drawn in ink on a material; a whisper of white reads as the card's
+     own edge catching light instead */
+  --panel-border: rgba(255, 255, 255, 0.09);
 }
 
 html.glass,
@@ -181,10 +201,11 @@ html.glass body {
    carry its own tone — so there is nothing left for this to fix up. */
 
 /* the editor paints itself from a JS theme, opaquely and in whatever color
-   the chosen syntax theme says — under glass it goes clear and the pane
-   behind it (.main-col) carries the one scrim layer, so every theme glasses
-   the same way. The terminal's surfaces used to be listed here too; they are
-   clear in every appearance now, so they say so where they are defined. */
+   the chosen syntax theme says — under glass it goes clear and the card
+   behind it carries the one scrim layer, so every theme glasses the same
+   way. The terminal works the same, one level down: xterm's background is
+   blanked where it is defined and the panel behind it carries the scrim —
+   or, set plain, carries nothing and the text sits on bare glass. */
 html.glass .cm-editor,
 html.glass .cm-gutters {
   background: transparent !important;
@@ -673,59 +694,45 @@ body.dragging-tab .editor-tab * {
 /* Every project stays laid out AND painted; switching is a compositor swap.
    `display:none` forced a re-fit of every terminal, and `visibility:hidden`
    still dropped the paint, so the incoming project had to be re-rasterised
-   on the switch frame. Its own layer + opacity keeps it resident on the GPU. */
-.workspace {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  will-change: opacity;
-  transform: translateZ(0);
-}
+   on the switch frame. Its own layer + opacity keeps it resident on the GPU.
 
-/* sidebar + editor; the terminal is this row's sibling, not the editor's.
-   The float gap lives here as padding rather than on each card, so the one
-   place that knows how far a panel stands off the window is the box that
-   holds them — and the outer three gaps stay equal whether or not the sidebar
-   is showing, which margins on the cards themselves could not manage.
+   A grid, and the template lives on the element rather than here: which side
+   the sidebar hangs on, where the terminal is docked and how much room each
+   holds are state, and the workspace writes them as tracks. What is fixed is
+   the frame — the float gap as padding, so the one place that knows how far
+   a panel stands off the window is the box that holds them all, and the
+   outer gaps stay equal whatever is docked where.
    No gap on top, and that is what makes the title bar look centred rather
    than merely being centred. Everything up there sits on the traffic lights'
    axis, 16px down, because macOS put them there and won't move them. Add a
    gap under the bar and the band a person reads as "the top bar" becomes the
-   bar plus the gap — 40px, whose middle is 20 — and the tabs that are dead
-   centre on the buttons look four pixels high in it. The bar's own 32px is
+   bar plus the gap — whose middle the tabs are no longer on — and buttons
+   dead centre on the traffic lights look high in it. The bar's own height is
    the gap. */
-.workspace-top {
-  flex: 1;
-  min-height: 0;
-  display: flex;
+.workspace {
+  position: absolute;
+  inset: 0;
+  display: grid;
   padding: 0 var(--float-gap) var(--float-gap);
+  will-change: opacity;
+  transform: translateZ(0);
 }
 
 /* ===== floating panels =====
-   The three surfaces that lie on the field: the sidebar, the editor column
-   and the terminal. Same radius, same lift — the language is only a language
-   if every panel speaks it.
-   No outline on any of them. A hairline is how you say "this is a separate
-   thing" to two panes that share an edge, and none of these share one any
-   more: the gap says it, the shadow says it again, and a line drawn on top of
-   both is a frame around something already framed. */
+   The three surfaces that lie on the field: the sidebar, the editor card and
+   — unless preferences say plain — the terminal. Same radius, same hairline,
+   same lift; the language is only a language if every panel speaks it.
+   The hairline is new since the cards learned to be picked up. Gap and
+   shadow told two resting panels apart and could have gone on doing it, but
+   a card being carried crosses every tone in the window, and mid-flight the
+   border is what keeps its edge an edge. The shadow softened in the same
+   change: with a line to say "ends here", it only has to say "lifted". */
 .sidebar,
-.editor-card {
-  border-radius: 10px;
-  /* The negative spread is the point: a plain `0 4px 16px` reaches twelve
-     pixels *above* the card as well as below it, and above the cards is the
-     title bar — a 32px strip with a dark wash across its bottom third, which
-     is enough to make three buttons centred in it look like they are sitting
-     high. Pulling the spread back by the blur keeps the shadow under the card
-     where the light says it should be. */
-  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.5);
-}
-
-/* the same lift over white, where a shadow tuned for near-black is a smudge */
-html.light .sidebar,
-html.light .editor-card {
-  box-shadow: 0 5px 12px -6px rgba(0, 0, 0, 0.22);
+.editor-card,
+.term-panel {
+  border-radius: var(--panel-radius);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
 }
 
 .workspace.inactive {
@@ -737,18 +744,17 @@ html.light .editor-card {
 
 /* A floating card rather than a column butted against the window edge — the
    shape macOS 26 gives a sidebar, and the one Telegram has had for years.
-   Its own margin is only half the gap to the editor; the resizer standing in
-   the middle is the other half.
+   Which side it hangs on is the workspace grid's business; the gap to the
+   editor is the divider's own track, so the card carries no margin.
    `overflow: hidden` is what makes the radius real here: the tab strip's rule
    runs to both edges and the tree's hover fills do too, and either one squares
    off a corner it isn't clipped at. Nothing in this panel pops out of it — no
    menus, no tooltips — so there is nothing for the clip to cost. */
 .sidebar {
-  flex: none;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
-  margin-right: calc(var(--float-gap) / 2);
   overflow: hidden;
 }
 
@@ -815,43 +821,58 @@ html.light .editor-card {
 
 /* ===== resizers ===== */
 
-/* No rule at rest any more, on either of them: the gap between two cards is
-   the divider now, and a line down the middle of it would only be the seam
-   put back. They keep their width as a hit area and still light up under the
-   pointer — and because the workspace's padding already insets them, the bar
-   each one paints runs exactly the length of the cards it parts. */
-.resizer-col {
-  flex: none;
-  width: calc(var(--float-gap) / 2);
-  cursor: col-resize;
-  background: transparent;
-  background-clip: content-box;
-  padding: 0 1.5px;
-  z-index: 10;
-}
-
-/* it lies in the workspace's bottom padding rather than below it — that band
-   is already the gap between the editor and the terminal, and a divider that
-   added its own height would double it */
+/* The gaps between cards are the dividers. Each one is a grid track exactly
+   one float gap wide, so the whole band is the hit area, and it shows nothing
+   at rest; reach for it and a grab pill surfaces in the middle of the gap —
+   the handle the Claude app hangs between its panels — which steps up to the
+   accent for the length of a drag. `.live` is set by the drag itself, so only
+   the divider in hand lights, never every divider on screen. */
+.resizer-col,
 .resizer-row {
-  flex: none;
-  height: var(--float-gap);
-  margin-top: calc(var(--float-gap) * -1);
-  cursor: row-resize;
-  background: transparent;
-  background-clip: content-box;
-  /* padded to a 1px content box, so what lights up is a line and not the
-     whole band */
-  padding: 3.5px var(--float-gap);
+  position: relative;
   z-index: 10;
 }
 
-.resizer-col:hover,
-.resizer-row:hover,
-body.dragging-col .resizer-col,
-body.dragging-row .resizer-row {
-  background-color: var(--accent);
-  background-clip: content-box;
+.resizer-col {
+  cursor: col-resize;
+}
+
+.resizer-row {
+  cursor: row-resize;
+}
+
+.resizer-col::after,
+.resizer-row::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 2.5px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.resizer-col::after {
+  width: 5px;
+  height: 44px;
+}
+
+.resizer-row::after {
+  width: 44px;
+  height: 5px;
+}
+
+.resizer-col:hover::after,
+.resizer-row:hover::after {
+  opacity: 1;
+}
+
+.resizer-col.live::after,
+.resizer-row.live::after {
+  opacity: 1;
+  background: var(--accent);
 }
 
 body.dragging-col,
@@ -865,6 +886,99 @@ body.dragging-col {
 
 body.dragging-row {
   cursor: row-resize;
+}
+
+/* ===== moving panels =====
+   The pill a panel is carried by, at the top centre of its card — the same
+   handle, in the same place, the Claude app hangs on its movable panels. It
+   lies in the panel's grid cell as a sibling rather than inside the panel,
+   so the card never knows it is there; and it only takes the pointer while
+   armed (see armGrabs in Workspace), because a strip that was always
+   hittable would be a dead zone in the middle of a terminal's top line. */
+.panel-grab {
+  justify-self: center;
+  align-self: start;
+  z-index: 6;
+  width: 64px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  cursor: grab;
+}
+
+.panel-grab.armed,
+.panel-grab.live {
+  pointer-events: auto;
+}
+
+.panel-grab::after {
+  content: "";
+  width: 44px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.panel-grab.armed::after {
+  opacity: 1;
+}
+
+.panel-grab.live::after {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* the card in hand: it rides the pointer as itself — live terminal, live
+   tree — a shade lifted and a shade let through, and the layout holds its
+   breath until the drop. Only a transform moves, so nothing under it reflows
+   and nothing inside it is disturbed. */
+.sidebar.moving,
+.term-panel.moving {
+  opacity: 0.82;
+  z-index: 40;
+  pointer-events: none;
+  will-change: transform;
+}
+
+body.dragging-panel,
+body.dragging-panel * {
+  cursor: grabbing !important;
+}
+
+/* where the carried card would land: an accent line standing at the edge it
+   would dock to — the insertion mark the Claude app draws in blue, drawn
+   here in this theme's one highlight, brightness */
+.dock-hint {
+  position: absolute;
+  z-index: 30;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.dock-hint.left {
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.dock-hint.right {
+  right: 2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.dock-hint.bottom {
+  left: var(--float-gap);
+  right: var(--float-gap);
+  bottom: 2px;
+  height: 4px;
 }
 
 .panel-error {
@@ -2924,23 +3038,20 @@ html.light.glass .prompt-box {
 
 /* ===== main column ===== */
 
-/* Not a surface — a column, holding a strip of window with tabs on it and the
-   card below. It used to be the card itself, and moving that one step down is
-   what lets the tab strip be the window's own colour rather than the page's:
-   a strip painted like the field but wrapped in the card's fill, radius and
-   shadow would have been a card pretending not to be one, shadow and all. */
+/* Not a surface — the cell the editor's card stands in. It held the tab strip
+   too while the tabs lay out on the window; the strip is the card's own top
+   row now (see .editor-tabs), and what is left here is a steady slot in the
+   grid whether or not any view is open. */
 .main-col {
-  flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* The page the tabs belong to, and the card the editor column carries. Square
-   at the top left, which is the corner the tabs stand on: a curve there cuts
-   the run of tabs off from the page they open into, and the whole point of an
-   active tab wearing the page's tone is that the two are one shape. The other
-   three corners are the card's own.
+/* The editor's card. It used to start under the tab strip and stand square at
+   the corner the tabs stood on; with the strip inside it, all four corners
+   are the card's own and it wears the same chrome as every other panel.
    Clipped to its radius, which is what keeps every view's own background —
    CodeMirror's, the diff's, a memo thread's — from painting the corners
    square again; they all paint this card's tone, and a corner is meant to
@@ -2952,7 +3063,6 @@ html.light.glass .prompt-box {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  border-top-left-radius: 0;
   overflow: hidden;
 }
 
@@ -2971,11 +3081,11 @@ html.light.glass .prompt-box {
 }
 
 /* the mark belongs to the window, not to the editor pane: back out half of
-   whatever the sidebar is taking so it sits on the window's centre line. On
-   the group rather than the mark alone, so the version under it is on the
-   same line and there is one place the offset is written down. */
+   whatever the side panels are taking so it sits on the window's centre
+   line. On the group rather than the mark alone, so the version under it is
+   on the same line and there is one place the offset is written down. */
 .editor-empty {
-  transform: translateX(calc(var(--sidebar-offset, 0px) / -2));
+  transform: translateX(calc(var(--center-skew, 0px) / -2));
 }
 
 .editor-empty-hint {
@@ -3002,23 +3112,23 @@ html.light.glass .prompt-box {
   opacity: 0.32;
 }
 
-/* the card's own radius, exactly: with no border between them there is no
-   inner curve to sit inside of. Its own `overflow-x` is what clips the first
-   tab's fill to it. */
-/* Nothing of its own — no fill and no rule under it, so what shows through
-   is the field the whole window is built on, the same surface the cards float
-   over. That is the point: the tabs are objects lying on the window, not a
-   coloured band across the top of the page. The panel tone belongs to the
-   tabs, and it stops where they stop. The tab you are on wears the page's own
-   tone instead and sits directly on the card below it, with no edge in
-   between, because it is the top of that page. */
+/* Inside the card, the way the sidebar's strip has always been: a row of
+   names over a hairline, the body of the panel below. The tabs used to lie
+   out on the window with the active one wearing the page's tone flush into
+   the page — a construction that couldn't survive the card growing an edge,
+   since a border across the top of the page severs a tab from it, and a tab
+   outside the border is outside the panel it names. So the strip stepped in,
+   and "which one" is said the way every strip in this window says it: the
+   name's own brightness, and a hairline mark under the one you are on. */
 .editor-tabs {
   flex: none;
   box-sizing: border-box;
   height: 32px;
   display: flex;
+  gap: 2px;
+  padding: 0 6px;
   overflow-x: auto;
-  background: transparent;
+  border-bottom: 1px solid var(--border);
   scrollbar-width: none;
 }
 
@@ -3026,49 +3136,31 @@ html.light.glass .prompt-box {
   position: relative;
   display: flex;
   align-items: center;
-  border-right: 1px solid var(--border);
-  background: var(--bg-panel);
+  border-radius: 5px;
   color: var(--text-faint);
   cursor: grab;
 }
 
-/* Both ends of the run are rounded on top, and only on top — the bottoms are
-   square because they stand on the card. The left one used to get its corner
-   from the card's own clip, back when the card still contained the strip;
-   with the tabs out on the field it has to be given one, and it may as well
-   be given the same one the right end already had.
-   The last tab keeps its hairline as well: it is what marks where the run
-   stops. The border curves into the radius and tapers out at the top, there
-   being no top border to meet — a tick rather than a line, which is all the
-   end of a run needs. */
-.editor-tab:first-child {
-  border-top-left-radius: 10px;
+.editor-tab:hover {
+  color: var(--text-dim);
 }
 
-.editor-tab:last-child {
-  border-top-right-radius: 10px;
-}
-
-/* The tab you are on wears the page's tone, and it should meet the page with
-   nothing at all in between — so the separator on its right goes, and so does
-   the one the tab before it would land on its left. Those hairlines part two
-   tabs of the same colour; an active tab is parted from its neighbours by
-   being a different colour already, and a line around it only draws a box
-   where a continuation belongs.
-   Repainted, never removed. `border-right: none` takes a pixel of width off
-   the tab as it becomes active and gives it back as it stops being one, so
-   every tab to its right steps sideways each time you switch — the layout has
-   to be identical in both states, which means the border stays and only its
-   colour moves. Each takes its own background, so the pixel joins the tab it
-   belongs to instead of showing a line of window between them. */
 .editor-tab.active {
-  background: var(--bg);
-  border-right-color: var(--bg);
   color: var(--text);
 }
 
-.editor-tab:has(+ .editor-tab.active) {
-  border-right-color: var(--bg-panel);
+/* on the strip's rule, the same mark the sidebar's active tab wears — inset
+   to the label rather than run edge to edge, so two neighbouring tabs could
+   never read as one underlined stretch */
+.editor-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 /* reorder — same rules as the project tabs above */
@@ -3148,10 +3240,6 @@ html.light.glass .prompt-box {
   flex: none;
   display: flex;
   align-items: center;
-  /* it used to sit under a tab strip with a rule across it, which gave the
-     line an edge to hang from; the strip has no rule and no fill now, so the
-     breadcrumb has to hold its own space or it reads as a caption stuck to
-     the tabs */
   padding: 7px 12px;
   font-size: 11.5px;
   color: var(--text-faint);
@@ -3475,19 +3563,26 @@ html.light.glass .prompt-box {
 
 /* ===== terminals ===== */
 
-/* Not a card, and the only one of the three that isn't: no fill, no radius,
-   no lift. A terminal is text, and once the panels around it stopped being
-   flush with the window there was nothing left for a panel behind it to
-   separate it from — so it sits on the field directly and the window shows
-   through between its lines. It keeps the gaps, so its text still lines up
-   under the cards rather than running out to the window's edge. */
+/* A card like the others by default — the panel fill behind the text, the
+   shared hairline and lift, and a clip to keep the panes inside its corners.
+   The terminal went without for a while, text straight on the field, and
+   that look survives as `terminal: plain` in preferences: no fill, no
+   border, no shadow, the window showing through between the lines — and
+   under glass, the text on bare glass. Its cell in the workspace grid sizes
+   it, so the panel holds no height or margin of its own. */
 .term-panel {
-  flex: none;
-  min-height: 100px;
-  display: flex;
+  min-width: 0;
+  min-height: 0;
   flex-direction: column;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+.term-panel.plain {
   background: transparent;
-  margin: 0 var(--float-gap) var(--float-gap);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .term-body {

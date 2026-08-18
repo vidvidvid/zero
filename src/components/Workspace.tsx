@@ -26,6 +26,11 @@ export type View =
   // a memo rather than a second place it lives.
   | { kind: "memo"; key: string; id: string };
 
+/** which edge a movable panel hangs on. The sidebar takes a side; the
+ *  terminal takes any of the three, and at the bottom it spans the window. */
+export type PanelSide = "left" | "right";
+export type TermDock = PanelSide | "bottom";
+
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 function persisted(key: string, fallback: number): number {
@@ -68,6 +73,10 @@ function startDrag(
 ) {
   e.preventDefault();
   const startPos = axis === "x" ? e.clientX : e.clientY;
+  // the handle in hand carries its own highlight: with more than one divider
+  // on screen, the body class alone would light every one of them
+  const handle = e.currentTarget as HTMLElement;
+  handle.classList.add("live");
   document.body.classList.add(axis === "x" ? "dragging-col" : "dragging-row");
   const move = (ev: MouseEvent) => {
     const delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
@@ -81,6 +90,7 @@ function startDrag(
   const up = () => {
     window.removeEventListener("mousemove", move);
     window.removeEventListener("mouseup", up);
+    handle.classList.remove("live");
     document.body.classList.remove("dragging-col", "dragging-row");
   };
   window.addEventListener("mousemove", move);
@@ -107,6 +117,18 @@ export const Workspace = memo(function Workspace({
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const revealCount = useRef(0);
   const [termHeight, setTermHeight] = useState(() => persisted("zero-term-h", 300));
+  // Where the movable panels hang. Stored beside the widths rather than in the
+  // per-project session because they are the same kind of fact: which side
+  // your sidebar lives on is a preference of the hand, not of the project —
+  // like the widths, read once per workspace mount.
+  const [sidebarSide, setSidebarSide] = useState<PanelSide>(() =>
+    localStorage.getItem("zero-sidebar-side") === "right" ? "right" : "left"
+  );
+  const [termDock, setTermDock] = useState<TermDock>(() => {
+    const v = localStorage.getItem("zero-term-dock");
+    return v === "left" || v === "right" ? v : "bottom";
+  });
+  const [termWidth, setTermWidth] = useState(() => persisted("zero-term-w", 420));
   const [views, setViews] = useState<View[]>(saved.views ?? []);
   const [activeView, setActiveView] = useState(saved.activeView ?? 0);
   const untitledRef = useRef(0);
@@ -136,6 +158,15 @@ export const Workspace = memo(function Workspace({
   useEffect(() => {
     localStorage.setItem("zero-term-h", String(termHeight));
   }, [termHeight]);
+  useEffect(() => {
+    localStorage.setItem("zero-term-w", String(termWidth));
+  }, [termWidth]);
+  useEffect(() => {
+    localStorage.setItem("zero-sidebar-side", sidebarSide);
+  }, [sidebarSide]);
+  useEffect(() => {
+    localStorage.setItem("zero-term-dock", termDock);
+  }, [termDock]);
 
   // everything this project should look like next launch. The store debounces,
   // so a divider drag firing this per mousemove costs one write at the end.
@@ -451,79 +482,273 @@ export const Workspace = memo(function Workspace({
     return h > 1 ? h : 0;
   };
 
+  // ----- moving a panel -----
+  // The gesture: pick a card up by the pill at its top, carry it, and an
+  // accent line stands at the edge it would dock to; release to dock it,
+  // ⎋ to put it back. The card itself only translates — the layout doesn't
+  // reflow until the drop — so a live terminal is never disturbed mid-air.
+
+  /** which panel is in hand, for the pill's own highlight */
+  const [movingPanel, setMovingPanel] = useState<"sidebar" | "terminal" | null>(null);
+  /** the edge the drop would dock to, or null while nothing is being carried */
+  const [dockHint, setDockHint] = useState<TermDock | null>(null);
+  /** the pill under the pointer. Armed by proximity rather than by :hover
+   *  because the pill must not take the pointer at rest: an always-hittable
+   *  strip at the terminal's top centre would be a dead zone in the middle of
+   *  a line of text. Armed, it takes clicks; disarmed, clicks fall through. */
+  const [grabArmed, setGrabArmed] = useState<"sidebar" | "terminal" | null>(null);
+
+  const armGrabs = (e: React.MouseEvent) => {
+    if (movingPanel) return;
+    const root = rootRef.current;
+    if (!root) return;
+    let next: "sidebar" | "terminal" | null = null;
+    for (const kind of ["sidebar", "terminal"] as const) {
+      if (kind === "sidebar" ? !sidebarVisible : !terminalVisible) continue;
+      const el = root.querySelector<HTMLElement>(kind === "sidebar" ? ".sidebar" : ".term-panel");
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      // the pill's reach: the top 10px of the card, 32px either side of its
+      // centre — under the sidebar's tab icons and beside the terminal's
+      // pane actions, so neither loses a click to it
+      if (
+        e.clientY >= r.top &&
+        e.clientY < r.top + 10 &&
+        Math.abs(e.clientX - (r.left + r.width / 2)) < 32
+      ) {
+        next = kind;
+        break;
+      }
+    }
+    setGrabArmed((cur) => (cur === next ? cur : next));
+  };
+
+  const startPanelMove = useCallback((e: React.MouseEvent, panel: "sidebar" | "terminal") => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const root = rootRef.current;
+    const card = root?.querySelector<HTMLElement>(panel === "sidebar" ? ".sidebar" : ".term-panel");
+    if (!root || !card) return;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    // nothing happens until the pointer has clearly left the press — a click
+    // with a shake in it must not send a card an inch into the air
+    let live = false;
+    let at: TermDock | null = null;
+
+    const move = (ev: MouseEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (!live) {
+        if (Math.hypot(dx, dy) < 5) return;
+        live = true;
+        document.body.classList.add("dragging-panel");
+        card.classList.add("moving");
+        setMovingPanel(panel);
+      }
+      card.style.transform = `translate(${dx}px, ${dy}px)`;
+      const r = root.getBoundingClientRect();
+      let next: TermDock;
+      if (panel === "sidebar") {
+        next = ev.clientX < r.left + r.width / 2 ? "left" : "right";
+      } else {
+        const dl = ev.clientX - r.left;
+        const dr = r.right - ev.clientX;
+        const db = r.bottom - ev.clientY;
+        next = db <= dl && db <= dr ? "bottom" : dl < dr ? "left" : "right";
+      }
+      if (next !== at) {
+        at = next;
+        setDockHint(next);
+      }
+    };
+    const finish = (apply: boolean) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("keydown", key, true);
+      document.body.classList.remove("dragging-panel");
+      card.classList.remove("moving");
+      card.style.transform = "";
+      setMovingPanel(null);
+      setDockHint(null);
+      if (apply && live && at) {
+        if (panel === "sidebar") {
+          if (at !== "bottom") setSidebarSide(at);
+        } else {
+          setTermDock(at);
+        }
+      }
+    };
+    const up = () => finish(true);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finish(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", key, true);
+  }, []);
+
+  // ----- the grid the panels dock into -----
+  // One container, fixed child slots, and every arrangement is nothing but
+  // track sizes and cell assignments. That is the load-bearing part: a dock
+  // change never moves a component to a different parent, so React never
+  // remounts a relocated panel — the terminal keeps its shells through the
+  // move, and the editor keeps its undo history. Reading order of the
+  // segments is the window's left-to-right; the sidebar stands outermost when
+  // it shares a side with the terminal, since it is the panel about the
+  // project and the terminal is a panel about the editor beside it.
+  const segs: { key: "sidebar" | "sbRes" | "term" | "tRes" | "main"; size: string }[] = [];
+  if (sidebarVisible && sidebarSide === "left")
+    segs.push({ key: "sidebar", size: `${sidebarWidth}px` }, { key: "sbRes", size: "var(--float-gap)" });
+  if (terminalVisible && termDock === "left")
+    segs.push({ key: "term", size: `${termWidth}px` }, { key: "tRes", size: "var(--float-gap)" });
+  segs.push({ key: "main", size: "minmax(0, 1fr)" });
+  if (terminalVisible && termDock === "right")
+    segs.push({ key: "tRes", size: "var(--float-gap)" }, { key: "term", size: `${termWidth}px` });
+  if (sidebarVisible && sidebarSide === "right")
+    segs.push({ key: "sbRes", size: "var(--float-gap)" }, { key: "sidebar", size: `${sidebarWidth}px` });
+  const col = (k: (typeof segs)[number]["key"]) => `${segs.findIndex((s) => s.key === k) + 1}`;
+  // at the bottom the terminal leaves the columns and takes a full-width row
+  // of its own — under the sidebar too, which stops where the terminal starts
+  const bottomDock = terminalVisible && termDock === "bottom";
+  const termLayout: React.CSSProperties = !terminalVisible
+    ? {}
+    : bottomDock
+      ? { gridColumn: "1 / -1", gridRow: "3" }
+      : { gridColumn: col("term"), gridRow: "1" };
+
+  // how far the side panels (each with the gap it floats in) unbalance the
+  // window's centre — positive when the left side is heavier. Anything that
+  // wants the true centre reads this and backs out half of it.
+  const skew: string[] = [];
+  if (sidebarVisible)
+    skew.push(`${sidebarSide === "left" ? "" : "-1 * "}(${sidebarWidth}px + var(--float-gap))`);
+  if (terminalVisible && termDock !== "bottom")
+    skew.push(`${termDock === "left" ? "" : "-1 * "}(${termWidth}px + var(--float-gap))`);
+
   return (
     <div
       ref={rootRef}
       className={`workspace ${active ? "" : "inactive"}`}
-      // how much width the sidebar (plus the gaps it floats in, plus its
-      // resizer) is stealing from the right-hand side — anything that wants
-      // the window's centre reads this
+      // the tracks ARE the layout: where each panel hangs and how much room it
+      // holds are said here and nowhere else — the children only name their
+      // cell. Rebuilding the strings per render is nothing; what they describe
+      // changes only when a divider or a card is let go of.
       style={
         {
-          "--sidebar-offset": sidebarVisible
-            ? `calc(${sidebarWidth}px + var(--float-gap))`
-            : "0px",
+          gridTemplateColumns: segs.map((s) => s.size).join(" "),
+          gridTemplateRows: bottomDock
+            ? `minmax(0, 1fr) var(--float-gap) ${termHeight}px`
+            : "minmax(0, 1fr)",
+          "--center-skew": skew.length ? `calc(${skew.join(" + ")})` : "0px",
         } as React.CSSProperties
       }
+      onMouseMove={armGrabs}
+      onMouseLeave={() => setGrabArmed(null)}
     >
-      {/* the terminal spans the window, so the sidebar stops where it starts
-          rather than running the full height beside it */}
-      <div className="workspace-top">
-        {sidebarVisible && (
-          <>
-            <Sidebar
-              project={project}
-              tab={sidebarTab}
-              onTab={setSidebarTab}
-              onOpenView={openView}
-              active={active}
-              width={sidebarWidth}
-              search={search}
-              memos={memos}
-              activeMemo={activeMemo}
-              activeKey={shown?.key ?? null}
-              reveal={reveal}
-              onRevealInTree={revealInTree}
-            />
-            <div
-              className="resizer-col"
-              onMouseDown={(e) => startDrag(e, "x", 1, sidebarWidth, 170, 560, setSidebarWidth)}
-            />
-          </>
-        )}
-        <div className="main-col">
-          <EditorPane
-            views={views}
-            activeView={activeView}
-            onSelect={setActiveView}
-            onClose={closeView}
-            onCloseOthers={closeOthers}
-            onReplace={replaceView}
-            onReorder={reorderViews}
-            onOpenFile={openFile}
-            onRevealInTree={revealInTree}
-            root={project.root}
-            // a memo tab draws its own live title and records its own
-            // follow-ups, both of which are this object
-            memos={memos}
-          />
-        </div>
-      </div>
-      {terminalVisible && (
+      {sidebarVisible && (
+        <Sidebar
+          project={project}
+          tab={sidebarTab}
+          onTab={setSidebarTab}
+          onOpenView={openView}
+          active={active}
+          width={sidebarWidth}
+          layout={{ gridColumn: col("sidebar"), gridRow: "1" }}
+          search={search}
+          memos={memos}
+          activeMemo={activeMemo}
+          activeKey={shown?.key ?? null}
+          reveal={reveal}
+          onRevealInTree={revealInTree}
+        />
+      )}
+      {sidebarVisible && (
         <div
-          className="resizer-row"
+          className="resizer-col"
+          style={{ gridColumn: col("sbRes"), gridRow: "1" }}
           onMouseDown={(e) =>
-            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight, termCell())
+            startDrag(e, "x", sidebarSide === "left" ? 1 : -1, sidebarWidth, 170, 560, setSidebarWidth)
           }
         />
       )}
+      <div className="main-col" style={{ gridColumn: col("main"), gridRow: "1" }}>
+        <EditorPane
+          views={views}
+          activeView={activeView}
+          onSelect={setActiveView}
+          onClose={closeView}
+          onCloseOthers={closeOthers}
+          onReplace={replaceView}
+          onReorder={reorderViews}
+          onOpenFile={openFile}
+          onRevealInTree={revealInTree}
+          root={project.root}
+          // a memo tab draws its own live title and records its own
+          // follow-ups, both of which are this object
+          memos={memos}
+        />
+      </div>
+      {terminalVisible &&
+        (bottomDock ? (
+          <div
+            className="resizer-row"
+            style={{ gridColumn: "1 / -1", gridRow: "2" }}
+            onMouseDown={(e) =>
+              startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight, termCell())
+            }
+          />
+        ) : (
+          <div
+            className="resizer-col"
+            style={{ gridColumn: col("tRes"), gridRow: "1" }}
+            onMouseDown={(e) =>
+              startDrag(
+                e,
+                "x",
+                termDock === "left" ? 1 : -1,
+                termWidth,
+                240,
+                Math.max(320, window.innerWidth - 400),
+                setTermWidth
+              )
+            }
+          />
+        ))}
       <Terminals
         tree={term}
         visible={terminalVisible}
-        height={termHeight}
+        layout={termLayout}
         active={active}
         onOpenFile={openFile}
       />
+      {/* the pills a panel is carried by, each lying in its panel's own cell
+          so it stays centred over the card without the card knowing */}
+      {sidebarVisible && (
+        <div
+          className={`panel-grab ${grabArmed === "sidebar" ? "armed" : ""} ${
+            movingPanel === "sidebar" ? "live" : ""
+          }`}
+          style={{ gridColumn: col("sidebar"), gridRow: "1" }}
+          title="move sidebar"
+          onMouseDown={(e) => startPanelMove(e, "sidebar")}
+        />
+      )}
+      {terminalVisible && (
+        <div
+          className={`panel-grab ${grabArmed === "terminal" ? "armed" : ""} ${
+            movingPanel === "terminal" ? "live" : ""
+          }`}
+          style={termLayout}
+          title="move terminal"
+          onMouseDown={(e) => startPanelMove(e, "terminal")}
+        />
+      )}
+      {/* the edge the carried card would dock to */}
+      {dockHint && <div className={`dock-hint ${dockHint}`} />}
       {quickOpen && (
         <QuickOpen
           root={project.root}
