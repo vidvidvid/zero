@@ -5,11 +5,16 @@ use std::process::{Command, Output};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-// Every command here is `async` on purpose. Tauri runs a *synchronous* command
-// on the main thread, so a `git status` sweep — let alone `worktree remove`,
-// which can take seconds — froze the whole window while it ran. Async commands
-// are dispatched to the runtime's worker threads instead. The bodies stay
-// blocking; it's the thread they block that matters.
+// Every command here is `async` on purpose, and every body runs through
+// `blocking` on purpose — the two halves of the same fix. Tauri runs a
+// *synchronous* command on the main thread, so a `git status` sweep — let
+// alone `worktree remove`, which can take seconds — froze the whole window
+// while it ran. But `async` alone only moves the block onto tokio's worker
+// pool, and that pool is one thread per core: a slow removal, plus the status
+// sweep the panel runs per worktree, plus the claude poll, could park every
+// worker at once — and then each command in the app, down to opening a file,
+// queues behind a deletion. The bodies stay blocking; `blocking` hands them
+// the pool that's allowed to be blocked.
 
 /// A repository can name programs for git to run in its own `.git/config`, and
 /// several of them fire on plain reads: `core.fsmonitor` and a
@@ -123,6 +128,15 @@ fn run_git_trusted(cwd: &str, args: &[&str]) -> Result<String, String> {
     finish(out)
 }
 
+/// A blocking body, run where blocking is free: tokio's blocking pool, which
+/// grows into the hundreds of threads rather than stopping at the core count.
+/// See the note at the top of this file for why `async fn` isn't enough.
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .expect("blocking task panicked")
+}
+
 #[derive(Serialize)]
 pub struct Worktree {
     pub path: String,
@@ -132,44 +146,50 @@ pub struct Worktree {
 
 #[tauri::command]
 pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
-    let out = run_git(&root, &["worktree", "list", "--porcelain"])?;
-    let mut result = Vec::new();
-    let mut path = String::new();
-    let mut branch = String::new();
-    for line in out.lines().chain(std::iter::once("")) {
-        if line.is_empty() {
-            if !path.is_empty() {
-                let is_main = Path::new(&path).join(".git").is_dir();
-                result.push(Worktree {
-                    path: path.clone(),
-                    branch: branch.clone(),
-                    is_main,
-                });
+    blocking(move || {
+        let out = run_git(&root, &["worktree", "list", "--porcelain"])?;
+        let mut result = Vec::new();
+        let mut path = String::new();
+        let mut branch = String::new();
+        for line in out.lines().chain(std::iter::once("")) {
+            if line.is_empty() {
+                if !path.is_empty() {
+                    let is_main = Path::new(&path).join(".git").is_dir();
+                    result.push(Worktree {
+                        path: path.clone(),
+                        branch: branch.clone(),
+                        is_main,
+                    });
+                }
+                path.clear();
+                branch.clear();
+            } else if let Some(p) = line.strip_prefix("worktree ") {
+                path = p.to_string();
+            } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
+                branch = b.to_string();
+            } else if line == "detached" {
+                branch = "(detached)".to_string();
             }
-            path.clear();
-            branch.clear();
-        } else if let Some(p) = line.strip_prefix("worktree ") {
-            path = p.to_string();
-        } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
-            branch = b.to_string();
-        } else if line == "detached" {
-            branch = "(detached)".to_string();
         }
-    }
-    Ok(result)
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
-    let mut args = vec!["worktree", "remove"];
-    if force {
-        args.push("--force");
-    }
-    // `--` so a worktree whose path begins with a dash isn't read as an option
-    args.push("--");
-    args.push(&path);
-    run_git_trusted(&root, &args)?;
-    Ok(())
+    blocking(move || {
+        let mut args = vec!["worktree", "remove"];
+        if force {
+            args.push("--force");
+        }
+        // `--` so a worktree whose path begins with a dash isn't read as an option
+        args.push("--");
+        args.push(&path);
+        run_git_trusted(&root, &args)?;
+        Ok(())
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -181,53 +201,62 @@ pub struct FileChange {
 
 #[tauri::command]
 pub async fn git_status(worktree: String) -> Result<Vec<FileChange>, String> {
-    let out = run_git(&worktree, &["status", "--porcelain=v1"])?;
-    let mut result = Vec::new();
-    for line in out.lines() {
-        if line.len() < 4 {
-            continue;
+    blocking(move || {
+        let out = run_git(&worktree, &["status", "--porcelain=v1"])?;
+        let mut result = Vec::new();
+        for line in out.lines() {
+            if line.len() < 4 {
+                continue;
+            }
+            let x = line.chars().next().unwrap();
+            let y = line.chars().nth(1).unwrap();
+            let mut path = line[3..].to_string();
+            // renames come as "old -> new"; show the new path
+            if let Some(idx) = path.find(" -> ") {
+                path = path[idx + 4..].to_string();
+            }
+            if x == '?' {
+                result.push(FileChange { path, status: "U".into(), staged: false });
+                continue;
+            }
+            // a file can be in both lists at once ("MM" = staged edit + newer edit)
+            if x != ' ' {
+                result.push(FileChange { path: path.clone(), status: x.to_string(), staged: true });
+            }
+            if y != ' ' {
+                result.push(FileChange { path, status: y.to_string(), staged: false });
+            }
         }
-        let x = line.chars().next().unwrap();
-        let y = line.chars().nth(1).unwrap();
-        let mut path = line[3..].to_string();
-        // renames come as "old -> new"; show the new path
-        if let Some(idx) = path.find(" -> ") {
-            path = path[idx + 4..].to_string();
-        }
-        if x == '?' {
-            result.push(FileChange { path, status: "U".into(), staged: false });
-            continue;
-        }
-        // a file can be in both lists at once ("MM" = staged edit + newer edit)
-        if x != ' ' {
-            result.push(FileChange { path: path.clone(), status: x.to_string(), staged: true });
-        }
-        if y != ' ' {
-            result.push(FileChange { path, status: y.to_string(), staged: false });
-        }
-    }
-    Ok(result)
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn git_stage(worktree: String, paths: Vec<String>) -> Result<(), String> {
-    let mut args = vec!["add", "--"];
-    args.extend(paths.iter().map(|s| s.as_str()));
-    run_git_trusted(&worktree, &args)?;
-    Ok(())
+    blocking(move || {
+        let mut args = vec!["add", "--"];
+        args.extend(paths.iter().map(|s| s.as_str()));
+        run_git_trusted(&worktree, &args)?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn git_unstage(worktree: String, paths: Vec<String>) -> Result<(), String> {
-    let mut args = vec!["restore", "--staged", "--"];
-    args.extend(paths.iter().map(|s| s.as_str()));
-    // repos without a commit yet have no HEAD to restore from
-    if run_git_trusted(&worktree, &args).is_err() {
-        let mut fallback = vec!["rm", "--cached", "-r", "-q", "--"];
-        fallback.extend(paths.iter().map(|s| s.as_str()));
-        run_git_trusted(&worktree, &fallback)?;
-    }
-    Ok(())
+    blocking(move || {
+        let mut args = vec!["restore", "--staged", "--"];
+        args.extend(paths.iter().map(|s| s.as_str()));
+        // repos without a commit yet have no HEAD to restore from
+        if run_git_trusted(&worktree, &args).is_err() {
+            let mut fallback = vec!["rm", "--cached", "-r", "-q", "--"];
+            fallback.extend(paths.iter().map(|s| s.as_str()));
+            run_git_trusted(&worktree, &fallback)?;
+        }
+        Ok(())
+    })
+    .await
 }
 
 /// Discard working-tree changes. Tracked paths go back to what the *index*
@@ -242,37 +271,46 @@ pub async fn git_discard(
     tracked: Vec<String>,
     untracked: Vec<String>,
 ) -> Result<(), String> {
-    if !tracked.is_empty() {
-        let mut args = vec!["restore", "--worktree", "--"];
-        args.extend(tracked.iter().map(|s| s.as_str()));
-        run_git_trusted(&worktree, &args)?;
-    }
-    if !untracked.is_empty() {
-        let mut args = vec!["clean", "-fdq", "--"];
-        args.extend(untracked.iter().map(|s| s.as_str()));
-        run_git_trusted(&worktree, &args)?;
-    }
-    Ok(())
+    blocking(move || {
+        if !tracked.is_empty() {
+            let mut args = vec!["restore", "--worktree", "--"];
+            args.extend(tracked.iter().map(|s| s.as_str()));
+            run_git_trusted(&worktree, &args)?;
+        }
+        if !untracked.is_empty() {
+            let mut args = vec!["clean", "-fdq", "--"];
+            args.extend(untracked.iter().map(|s| s.as_str()));
+            run_git_trusted(&worktree, &args)?;
+        }
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn git_commit(worktree: String, message: String) -> Result<String, String> {
-    if message.trim().is_empty() {
-        return Err("empty commit message".into());
-    }
-    run_git_trusted(&worktree, &["commit", "-m", &message])
+    blocking(move || {
+        if message.trim().is_empty() {
+            return Err("empty commit message".into());
+        }
+        run_git_trusted(&worktree, &["commit", "-m", &message])
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn git_push(worktree: String) -> Result<String, String> {
-    // no upstream yet: publish the branch instead of failing
-    match run_git_trusted(&worktree, &["push"]) {
-        Ok(out) => Ok(out),
-        Err(e) if e.contains("no upstream") || e.contains("--set-upstream") => {
-            run_git_trusted(&worktree, &["push", "--set-upstream", "origin", "HEAD"])
+    blocking(move || {
+        // no upstream yet: publish the branch instead of failing
+        match run_git_trusted(&worktree, &["push"]) {
+            Ok(out) => Ok(out),
+            Err(e) if e.contains("no upstream") || e.contains("--set-upstream") => {
+                run_git_trusted(&worktree, &["push", "--set-upstream", "origin", "HEAD"])
+            }
+            Err(e) => Err(e),
         }
-        Err(e) => Err(e),
-    }
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -285,32 +323,38 @@ pub struct BranchInfo {
 
 #[tauri::command]
 pub async fn git_branch_info(worktree: String) -> Result<BranchInfo, String> {
-    let branch = run_git(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    // "<behind>\t<ahead>" relative to the upstream, or an error when unset
-    match run_git(&worktree, &["rev-list", "--left-right", "--count", "@{u}...HEAD"]) {
-        Ok(counts) => {
-            let mut it = counts.split_whitespace();
-            let behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-            let ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-            Ok(BranchInfo { branch, upstream: true, ahead, behind })
+    blocking(move || {
+        let branch = run_git(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        // "<behind>\t<ahead>" relative to the upstream, or an error when unset
+        match run_git(&worktree, &["rev-list", "--left-right", "--count", "@{u}...HEAD"]) {
+            Ok(counts) => {
+                let mut it = counts.split_whitespace();
+                let behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                let ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                Ok(BranchInfo { branch, upstream: true, ahead, behind })
+            }
+            Err(_) => {
+                let ahead = run_git(&worktree, &["rev-list", "--count", "HEAD"])
+                    .ok()
+                    .and_then(|s| s.trim().parse().ok())
+                    .unwrap_or(0);
+                Ok(BranchInfo { branch, upstream: false, ahead, behind: 0 })
+            }
         }
-        Err(_) => {
-            let ahead = run_git(&worktree, &["rev-list", "--count", "HEAD"])
-                .ok()
-                .and_then(|s| s.trim().parse().ok())
-                .unwrap_or(0);
-            Ok(BranchInfo { branch, upstream: false, ahead, behind: 0 })
-        }
-    }
+    })
+    .await
 }
 
 /// File content at HEAD; empty string for files that don't exist there (new files).
 #[tauri::command]
 pub async fn git_head_file(worktree: String, path: String) -> String {
-    run_git(&worktree, &["show", &format!("HEAD:{}", path)]).unwrap_or_default()
+    blocking(move || {
+        run_git(&worktree, &["show", &format!("HEAD:{}", path)]).unwrap_or_default()
+    })
+    .await
 }
 
 /// File content on the index side — what a commit right now would record.
@@ -324,7 +368,10 @@ pub async fn git_head_file(worktree: String, path: String) -> String {
 /// deletion — which is the same all-added diff a new file gets.
 #[tauri::command]
 pub async fn git_index_file(worktree: String, path: String) -> String {
-    run_git(&worktree, &["show", &format!(":{}", path)]).unwrap_or_default()
+    blocking(move || {
+        run_git(&worktree, &["show", &format!(":{}", path)]).unwrap_or_default()
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -348,18 +395,21 @@ pub struct Baseline {
 /// path arrives through a symlink.
 #[tauri::command]
 pub async fn git_baseline(path: String) -> Baseline {
-    let untracked = || Baseline { content: String::new(), tracked: false };
-    let p = Path::new(&path);
-    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else {
-        return untracked();
-    };
-    match run_git(
-        &dir.to_string_lossy(),
-        &["show", &format!("HEAD:./{}", name.to_string_lossy())],
-    ) {
-        Ok(content) => Baseline { content, tracked: true },
-        Err(_) => untracked(),
-    }
+    blocking(move || {
+        let untracked = || Baseline { content: String::new(), tracked: false };
+        let p = Path::new(&path);
+        let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else {
+            return untracked();
+        };
+        match run_git(
+            &dir.to_string_lossy(),
+            &["show", &format!("HEAD:./{}", name.to_string_lossy())],
+        ) {
+            Ok(content) => Baseline { content, tracked: true },
+            Err(_) => untracked(),
+        }
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -424,29 +474,32 @@ fn ignored_names(dir: &str, entries: &[(String, bool)]) -> HashSet<String> {
 
 #[tauri::command]
 pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
-    let mut entries: Vec<(String, bool)> = std::fs::read_dir(&path)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name == ".git" {
-                return None;
-            }
-            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            Some((name, is_dir))
-        })
-        .collect();
-    entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+    blocking(move || {
+        let mut entries: Vec<(String, bool)> = std::fs::read_dir(&path)
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name == ".git" {
+                    return None;
+                }
+                let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                Some((name, is_dir))
+            })
+            .collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
 
-    let ignored = ignored_names(&path, &entries);
-    Ok(entries
-        .into_iter()
-        .map(|(name, is_dir)| DirEntry {
-            ignored: ignored.contains(&name),
-            name,
-            is_dir,
-        })
-        .collect())
+        let ignored = ignored_names(&path, &entries);
+        Ok(entries
+            .into_iter()
+            .map(|(name, is_dir)| DirEntry {
+                ignored: ignored.contains(&name),
+                name,
+                is_dir,
+            })
+            .collect())
+    })
+    .await
 }
 
 /// Past this, the list is more than anyone scrolls and the filter starts to
@@ -473,7 +526,10 @@ pub fn project_files(root: &str) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
-    project_files(&root)
+    blocking(move || {
+        project_files(&root)
+    })
+    .await
 }
 
 /// A file as bytes rather than text, for the things that aren't text.
@@ -485,18 +541,27 @@ pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
 /// wrap in a Blob directly.
 #[tauri::command]
 pub async fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-    Ok(tauri::ipc::Response::new(bytes))
+    blocking(move || {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    blocking(move || {
+        std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn write_file(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+    blocking(move || {
+        std::fs::write(&path, content).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 

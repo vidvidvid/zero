@@ -52,24 +52,22 @@ export function WorktreePanel({
       return next;
     });
 
-  const removeWt = async (wt: WtState) => {
-    try {
-      await api.worktreeRemove(project.root, wt.path, false);
-    } catch (e) {
-      const force = await confirm(
-        `Worktree has uncommitted changes:\n${e}\n\nForce delete? Changes will be lost.`,
-        { title: "Delete worktree", kind: "warning" }
-      );
-      if (!force) return;
+  // through run() like every other action, so the row shows it's working —
+  // a remove walks the whole checkout off the disk, which on a big worktree
+  // is seconds, and a ✕ that does nothing visible for seconds reads as a hang
+  const removeWt = (wt: WtState) =>
+    run(`remove:${wt.path}`, async () => {
       try {
+        await api.worktreeRemove(project.root, wt.path, false);
+      } catch (e) {
+        const force = await confirm(
+          `Worktree has uncommitted changes:\n${e}\n\nForce delete? Changes will be lost.`,
+          { title: "Delete worktree", kind: "warning" }
+        );
+        if (!force) return;
         await api.worktreeRemove(project.root, wt.path, true);
-      } catch (err) {
-        setFailed(String(err));
-        return;
       }
-    }
-    pokeGit();
-  };
+    });
 
   const deletable = worktrees.filter((w) => !w.is_main);
 
@@ -289,7 +287,11 @@ export function WorktreePanel({
                     text: "Unstage All",
                     run: () => unstage(wt, wt.changes.filter((c) => c.staged).map((c) => c.path)),
                   },
-                  !wt.is_main && { text: "Delete Worktree", run: () => removeWt(wt) },
+                  !wt.is_main && {
+                    text: "Delete Worktree",
+                    enabled: busy !== `remove:${wt.path}`,
+                    run: () => removeWt(wt),
+                  },
                   "sep",
                   ...fileEntries(wt.path, { root: project.root, isDir: true, writes: "none" }),
                 ])
@@ -300,14 +302,15 @@ export function WorktreePanel({
               <span className="wt-count">{wt.changes.length || ""}</span>
               {!wt.is_main && (
                 <button
-                  className="wt-delete"
+                  className={`wt-delete ${busy === `remove:${wt.path}` ? "busy" : ""}`}
                   title="delete worktree"
+                  disabled={busy === `remove:${wt.path}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     removeWt(wt);
                   }}
                 >
-                  ✕
+                  {busy === `remove:${wt.path}` ? "…" : "✕"}
                 </button>
               )}
             </div>

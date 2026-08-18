@@ -242,26 +242,34 @@ pub struct ClaudeStat {
 /// Async because this polls once a second: as a sync command Tauri would run
 /// the `ps` sweep on the main thread, and every sweep was a hitch in whatever
 /// the window was doing — a tab drag twitching once a second, for instance.
+/// The sweep itself goes through the blocking pool for the same reason every
+/// body in git.rs does — a parked tokio worker is a parked command slot.
 #[tauri::command]
 pub async fn claude_status(state: tauri::State<'_, PtyManager>) -> Result<Vec<ClaudeStat>, ()> {
-    let out = std::process::Command::new("/bin/ps")
-        .args(["-axo", "pid=,ppid=,comm="])
-        .output();
-    let mut children: HashMap<u32, Vec<(u32, String)>> = HashMap::new();
-    if let Ok(out) = out {
-        for line in String::from_utf8_lossy(&out.stdout).lines() {
-            // ps pads its columns ("  1609  1257 claude"), so split on runs of
-            // whitespace — splitn on single chars yields empty fields here
-            let mut it = line.split_whitespace();
-            let (Some(pid), Some(ppid), Some(comm)) = (it.next(), it.next(), it.next()) else {
-                continue;
-            };
-            if let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) {
-                let name = comm.rsplit('/').next().unwrap_or("").to_string();
-                children.entry(ppid).or_default().push((pid, name));
+    let children = crate::git::blocking(|| {
+        let out = std::process::Command::new("/bin/ps")
+            .args(["-axo", "pid=,ppid=,comm="])
+            .output();
+        let mut children: HashMap<u32, Vec<(u32, String)>> = HashMap::new();
+        if let Ok(out) = out {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                // ps pads its columns ("  1609  1257 claude"), so split on
+                // runs of whitespace — splitn on single chars yields empty
+                // fields here
+                let mut it = line.split_whitespace();
+                let (Some(pid), Some(ppid), Some(comm)) = (it.next(), it.next(), it.next())
+                else {
+                    continue;
+                };
+                if let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) {
+                    let name = comm.rsplit('/').next().unwrap_or("").to_string();
+                    children.entry(ppid).or_default().push((pid, name));
+                }
             }
         }
-    }
+        children
+    })
+    .await;
 
     fn has_claude(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> bool {
         if depth > 6 {

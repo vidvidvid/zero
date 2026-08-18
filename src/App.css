@@ -983,6 +983,15 @@ body.dragging-row {
   color: var(--red);
 }
 
+/* mid-delete it stays up regardless of the pointer, same as delete-all —
+   the … is the only sign the removal is running */
+.wt-delete.busy,
+.wt-header:hover .wt-delete.busy {
+  opacity: 1;
+  pointer-events: none;
+  color: var(--text-dim);
+}
+
 /* commit box */
 
 .wt-commit {
