@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-23,906 lines of source   (20,034 code, 3,872 CSS)
+24,667 lines of source   (20,795 code, 3,872 CSS)
     18 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -242,6 +242,14 @@ pills stop arming and nothing can be picked up, while splits and the resize
 handles keep working. And for terminals with no chrome at all — no card,
 text straight on the window — set `terminal: plain` in preferences.
 
+**Documents come in panes too.** A tab's right-click menu moves it — into a
+fresh pane split right or below, or over to the next pane along — and each
+pane keeps its own tabs. Whichever pane you last touched is where the next
+open lands: the accent under an active tab is that promise, and it stands in
+one pane at a time. A document is only ever open once across the window —
+opening it again goes to it, wherever it is — and a pane follows its last
+tab out. `⌘⇧[` and `⌘⇧]` walk the active pane's tabs, wrapping.
+
 Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 `⌘+` / `⌘-` / `⌘0` zoom.
 
@@ -257,6 +265,7 @@ Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 | `⌘⇧F` / `⌘⇧H` | search / search and replace |
 | `⌘E` / `⌃⇧G` / `⌘⇧M` | files — walks the tree to the file you're on / worktrees / memos |
 | `⌘N` / `⌘W` | new file / close file |
+| `⌘⇧[` / `⌘⇧]` | previous / next tab in the pane |
 | `⌘\`` | cycle projects |
 | `⌘⇧O` | open a project |
 | `⌘,` | settings |

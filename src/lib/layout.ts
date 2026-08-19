@@ -25,12 +25,16 @@ export type LayoutNode =
 
 export type Side = "left" | "right" | "up" | "down";
 
-/** the two leaves that aren't terminals. Terminal ids are uuids, so the names
- *  can never collide with one. */
+/** the named leaves. Terminal ids are bare uuids and extra editor panes wear
+ *  an `edit:` prefix, so neither can collide with these. */
 export const SIDEBAR = "sidebar";
+/** the first document pane — the name is old enough that sessions know it */
 export const EDITOR = "editor";
 
-export const isTerm = (id: string) => id !== SIDEBAR && id !== EDITOR;
+/** a document pane: the original `editor`, or any pane split off it since */
+export const isEditorPane = (id: string) => id === EDITOR || id.startsWith("edit:");
+
+export const isTerm = (id: string) => id !== SIDEBAR && !isEditorPane(id);
 
 export interface Rect {
   x: number;
@@ -416,6 +420,11 @@ export interface LayoutTree {
   splitFocused: (dir: "row" | "col") => void;
   splitPane: (id: string, side: Side) => void;
   removePane: (id: string) => void;
+  /** a fresh document pane against `anchorId`'s `side`; returns its id, so
+   *  the caller can seat a tab in it in the same breath */
+  splitEditorPane: (anchorId: string, side: Side) => string;
+  /** a document pane whose last tab left — never the last one standing */
+  removeEditorPane: (id: string) => void;
   /** split another pane with this one — out of the tree, back in on `side` */
   moveLeaf: (id: string, targetId: string, side: Side) => void;
   /** split the whole window's edge off for this pane */
@@ -438,7 +447,9 @@ const freshLeaf = (): LayoutNode => ({ type: "leaf", id: crypto.randomUUID() });
  * survives here as the default for a fresh project, no longer as a rule.
  */
 function migrated(saved?: { layout?: LayoutNode | null; term?: LayoutNode | null }): LayoutNode {
-  if (saved?.layout && hasLeaf(saved.layout, EDITOR)) {
+  // any document pane will do — the original `editor` may have been closed
+  // in favour of panes split off it, and the layout is no less usable for it
+  if (saved?.layout && leafIds(saved.layout).some(isEditorPane)) {
     // a corrupt tree without a sidebar still opens; the leaf is re-seated
     return hasLeaf(saved.layout, SIDEBAR)
       ? saved.layout
@@ -545,9 +556,24 @@ export function useLayoutTree(
     if (!isTerm(id)) return;
     setRoot((r) => {
       const next = removeLeaf(r, id);
-      if (!next) return r; // can't happen: the editor leaf always survives
+      if (!next) return r; // can't happen: a document pane always survives
       setFocused((f) => (f === id ? firstTermId(next) : f));
       return next;
+    });
+  }, []);
+
+  const splitEditorPane = useCallback((anchorId: string, side: Side) => {
+    const id = `edit:${crypto.randomUUID()}`;
+    setRoot((r) => (hasLeaf(r, anchorId) ? insertAt(r, anchorId, side, { type: "leaf", id }) : r));
+    return id;
+  }, []);
+
+  const removeEditorPane = useCallback((id: string) => {
+    setRoot((r) => {
+      // the last document pane stays whatever happens to its tabs — the
+      // migration reads an editorless tree as no layout at all
+      if (!isEditorPane(id) || leafIds(r).filter(isEditorPane).length < 2) return r;
+      return removeLeaf(r, id) ?? r;
     });
   }, []);
 
@@ -576,6 +602,8 @@ export function useLayoutTree(
     splitFocused,
     splitPane,
     removePane,
+    splitEditorPane,
+    removeEditorPane,
     moveLeaf,
     moveLeafToRoot,
     seatLeaf,

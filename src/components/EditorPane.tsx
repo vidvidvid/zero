@@ -12,6 +12,7 @@ import { pickLanguage } from "../lib/langPick";
 import { FileIconSpan } from "./FileIcon";
 import { memoLabel, memoPaths, type Memos } from "../lib/memos";
 import { useTabReorder } from "../lib/tabReorder";
+import type { Side } from "../lib/layout";
 
 function viewLabel(v: View, memos: Memos): string {
   if (v.kind === "new") return v.name;
@@ -104,6 +105,8 @@ function Breadcrumb({
 export function EditorPane({
   views,
   activeView,
+  focused,
+  panes,
   onSelect,
   onClose,
   onCloseOthers,
@@ -111,11 +114,19 @@ export function EditorPane({
   onOpenFile,
   onRevealInTree,
   onReorder,
+  onMoveToNewPane,
+  onMoveToNextPane,
   root,
   memos,
 }: {
   views: View[];
   activeView: number;
+  /** whether this is the pane opens land in — the one whose active tab wears
+   *  the full accent, and the one the tab-cycling keys walk */
+  focused: boolean;
+  /** how many document panes the window holds — one means "Move to Next
+   *  Pane" has nowhere to go and stays off the menu */
+  panes: number;
   onSelect: (i: number) => void;
   onClose: (i: number) => void;
   onCloseOthers: (keep: number) => void;
@@ -123,6 +134,10 @@ export function EditorPane({
   onOpenFile: (abs: string, line?: number) => void;
   onRevealInTree: (abs: string) => void;
   onReorder: (from: number, to: number) => void;
+  /** carry this tab into a fresh pane split off this one's `side` */
+  onMoveToNewPane: (i: number, side: Side) => void;
+  /** carry this tab to the next pane along, wrapping */
+  onMoveToNextPane: (i: number) => void;
   root: string;
   /** this project's memos — a memo tab reads its title, its status and its
    *  record button off the same object the panel does */
@@ -150,6 +165,14 @@ export function EditorPane({
       { text: "Close", run: () => onClose(i) },
       views.length > 1 && { text: "Close Others", run: () => onCloseOthers(i) },
       "sep",
+      // The moves. A lone tab can't leave for a new pane — the pane it left
+      // would follow it out, a shuffle wearing a split's name — but it can
+      // move to a pane that already exists. Both land the tab selected, in a
+      // pane that opens then land in: moving a tab somewhere is going there.
+      views.length > 1 && { text: "Move to New Pane Right", run: () => onMoveToNewPane(i, "right") },
+      views.length > 1 && { text: "Move to New Pane Below", run: () => onMoveToNewPane(i, "down") },
+      panes > 1 && { text: "Move to Next Pane", run: () => onMoveToNextPane(i) },
+      (views.length > 1 || panes > 1) && ("sep" as const),
       ...(file
         ? [
             { text: "Reveal in Sidebar", run: () => onRevealInTree(file) },
@@ -188,7 +211,7 @@ export function EditorPane({
 
   if (views.length === 0) {
     return (
-      <div className="editor-pane empty">
+      <div className={`editor-pane empty ${focused ? "focused" : ""}`}>
         <div className="editor-empty">
           <div className="editor-empty-hint">zero</div>
           {/* the same place the launcher puts it — under the mark, not in a
@@ -202,7 +225,7 @@ export function EditorPane({
   }
 
   return (
-    <div className="editor-pane">
+    <div className={`editor-pane ${focused ? "focused" : ""}`}>
       {/* The strip is the card's own top row now, the way the sidebar's tab
           strip is — it used to lie outside on the window, with the active tab
           wearing the page's tone flush into the page, and that construction
