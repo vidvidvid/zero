@@ -451,32 +451,15 @@ kbd {
   line-height: 16px;
 }
 
-/* A tick between one project and the next, in the gap they already leave.
-   Half the pill's height and grey rather than a rule edge to edge: the pills
-   are objects lying on the window, and a full-height line between them would
-   go back to drawing the cells they stopped being.
-   It belongs to the tab on its right — hence the sibling selector, which also
-   means the first tab never has one, there being nothing to its left to part
-   it from. */
-.titlebar-tab + .titlebar-tab::before {
-  content: "";
-  position: absolute;
-  left: -1.5px;
-  top: 50%;
-  width: 1px;
-  height: 14px;
-  transform: translateY(-50%);
-  background: var(--text-faint);
-}
-
 /* No fill on either state, which is the rule the sidebar's tabs have followed
    all along: "the icon's own brightness says which is which". A filled pill
    was a box drawn around a word on a bar that has no surface of its own —
    solid it read as a slab, a wash it read as a smudge, and either way it was
    the loudest thing in a strip whose job is to name four projects. What is
    left is the word, in three brightnesses: faint, dim under the pointer, full
-   for the one you are in. The tick between two tabs parts them; nothing has
-   to be boxed to be told apart from its neighbour. */
+   for the one you are in. Nothing parts them but the gap and the brightness —
+   the tick that used to sit in that gap was one more mark on a bar whose job
+   is to name four projects, and the names do that on their own. */
 .titlebar-tab:hover {
   color: var(--text-dim);
 }
