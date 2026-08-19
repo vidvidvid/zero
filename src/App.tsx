@@ -224,7 +224,26 @@ export default function App() {
     // and every drag handle by exactly the zoom factor
     getCurrentWebview().setZoom(zoom).catch(() => {});
     localStorage.setItem("zero-zoom", String(zoom));
+    // The traffic lights are the window's, not the page's: they stay 14pt
+    // tall and 63pt wide whatever the zoom does. Their height is answered by
+    // moving them onto the bar's new axis (below), but sideways they can't be
+    // moved out of the tabs' way, so the inset that clears them is grown back
+    // by what the zoom took off. See --chrome in App.css.
+    document.documentElement.style.setProperty("--chrome", String(1 / Math.min(zoom, 1)));
   }, [zoom]);
+
+  // Where the bar's middle is, in window points, for the traffic lights to be
+  // centred on. Measured rather than computed: App.css owns the height, and a
+  // second copy of it here would be a second thing to change. The launcher
+  // has no bar and doesn't ask for one — the buttons keep the axis they were
+  // placed on at launch.
+  const hasTitlebar = projects.length > 0;
+  useEffect(() => {
+    if (!hasTitlebar) return;
+    const bar = document.querySelector<HTMLElement>(".titlebar");
+    if (!bar) return;
+    api.titlebarHeight(bar.getBoundingClientRect().height * zoom).catch(() => {});
+  }, [zoom, hasTitlebar]);
 
   const [showSettings, setShowSettings] = useState(false);
 

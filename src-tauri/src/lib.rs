@@ -8,6 +8,7 @@ mod memos;
 mod pty;
 mod recents;
 mod search;
+mod traffic_lights;
 
 use pty::PtyManager;
 
@@ -81,12 +82,30 @@ pub fn run() {
                             Err(e) => println!("[fps] still clamped to 60: {e}"),
                         }
                     });
+
+                    // The traffic lights go on the bar's axis before the
+                    // window is on screen, at the height the bar has at zoom
+                    // 1 — the frontend sends the real one as soon as it has
+                    // measured itself, which is a frame or two later and only
+                    // a different number if the UI is zoomed in.
+                    if let Ok(ns) = window.ns_window() {
+                        let _ = traffic_lights::centre(ns, 40.0);
+                    }
+                    // and stay there: AppKit puts them back at its own
+                    // default every time it lays the titlebar out, which is
+                    // every frame of a live resize
+                    if let Ok(ns) = window.ns_window() {
+                        if let Err(e) = traffic_lights::watch(ns) {
+                            println!("[titlebar] traffic lights left to macOS: {e}");
+                        }
+                    }
                 }
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             debug_log,
+            traffic_lights::titlebar_height,
             links::open_url,
             links::reveal_path,
             links::resolve_paths,

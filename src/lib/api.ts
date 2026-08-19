@@ -151,6 +151,9 @@ export const api = {
   /** print to the stdout of `tauri dev` — the webview console isn't forwarded */
   debugLog: (msg: string) => invoke<void>("debug_log", { msg }),
   claudeStatus: () => invoke<ClaudeStat[]>("claude_status"),
+  /** how tall the top bar is in window points, so macOS's traffic lights can
+   *  be put on its axis — see src-tauri/src/traffic_lights.rs */
+  titlebarHeight: (height: number) => invoke<void>("titlebar_height", { height }),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
   addRecent: (path: string) => invoke<void>("add_recent", { path }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),

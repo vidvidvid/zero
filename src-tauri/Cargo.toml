@@ -35,4 +35,10 @@ tauri-plugin-liquid-glass = "0.1"
 # means talking to WebKit's private feature flags directly (see high_refresh.rs)
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+# NSRect/NSPoint, for moving the traffic lights onto the top bar's axis
+# (traffic_lights.rs). Already in the tree — tao and wry build it — so this
+# only names it.
+objc2-core-foundation = { version = "0.3", features = ["objc2"] }
+# the ObjC block the frame-change observer is registered with, same story
+block2 = "0.6"
 
