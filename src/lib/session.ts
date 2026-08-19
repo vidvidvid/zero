@@ -23,8 +23,15 @@ const KEY = "zero-session";
 /** how long changes settle before hitting disk — dragging a divider fires per mousemove */
 const WRITE_DELAY_MS = 150;
 
+/** one document pane's open tabs and which of them is up */
+export interface DocPane {
+  views: View[];
+  activeView: number;
+}
+
 export interface ProjectSession {
-  /** the whole window's split tree — sidebar, editor and terminals as leaves */
+  /** the whole window's split tree — sidebar, document panes and terminals
+   *  as leaves */
   layout: LayoutNode | null;
   /** the terminal region's own tree from before the one-tree layout — read
    *  once by the migration, never written again */
@@ -33,8 +40,14 @@ export interface ProjectSession {
   sidebarTab: SidebarTab;
   sidebarVisible: boolean;
   terminalVisible: boolean;
+  /** the era of the single document pane — read once by the migration into
+   *  `docPanes`, never written again */
   views: View[];
   activeView: number;
+  /** every document pane's tabs, keyed the way the tree keys its leaves */
+  docPanes: Record<string, DocPane>;
+  /** the pane an open lands in */
+  activePane: string;
 }
 
 interface Session {
@@ -115,6 +128,23 @@ function validViews(v: unknown): View[] {
   });
 }
 
+/** each pane's list goes through the same sieve the single list always did */
+function validDocPanes(v: unknown): Record<string, DocPane> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, DocPane> = {};
+  for (const [id, dp] of Object.entries(v as Record<string, unknown>)) {
+    if (!id || !dp || typeof dp !== "object") continue;
+    const views = validViews((dp as DocPane).views);
+    const raw = (dp as DocPane).activeView;
+    out[id] = {
+      views,
+      activeView:
+        typeof raw === "number" ? Math.min(Math.max(raw, 0), Math.max(views.length - 1, 0)) : 0,
+    };
+  }
+  return out;
+}
+
 function validProjectSession(v: unknown): Partial<ProjectSession> {
   if (!v || typeof v !== "object") return {};
   const p = v as Partial<ProjectSession>;
@@ -136,6 +166,8 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     // dropped untitled tabs can leave the index past the end
     activeView:
       typeof p.activeView === "number" ? Math.min(Math.max(p.activeView, 0), views.length - 1) : 0,
+    docPanes: validDocPanes(p.docPanes),
+    activePane: typeof p.activePane === "string" ? p.activePane : undefined,
   };
 }
 

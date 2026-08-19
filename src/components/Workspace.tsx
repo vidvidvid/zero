@@ -10,6 +10,7 @@ import {
   EDITOR,
   SIDEBAR,
   collectRects,
+  isEditorPane,
   isTerm,
   leafIds,
   parentDirOf,
@@ -27,7 +28,7 @@ import {
 import { flushSync } from "react-dom";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
-import { projectSession, saveProject } from "../lib/session";
+import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { useSearch } from "../lib/search";
 import { useMemos } from "../lib/memos";
 
@@ -125,10 +126,43 @@ export const Workspace = memo(function Workspace({
   const [quickOpen, setQuickOpen] = useState(false);
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const revealCount = useRef(0);
-  const [views, setViews] = useState<View[]>(saved.views ?? []);
-  const [activeView, setActiveView] = useState(saved.activeView ?? 0);
   const untitledRef = useRef(0);
   const tree = useLayoutTree(project.root, saved);
+  /**
+   * Every document pane's tabs, keyed the way the tree keys its leaves. The
+   * tree says where the panes stand; this says what each one is holding —
+   * two facts about the same ids, reconciled only where a pane appears or
+   * goes (see the effect below the movers).
+   */
+  const [docPanes, setDocPanes] = useState<Record<string, DocPane>>(() => {
+    // the pre-pane era stored one list; it becomes the original pane's
+    const stored = saved.docPanes ?? {
+      [EDITOR]: { views: saved.views ?? [], activeView: saved.activeView ?? 0 },
+    };
+    const live = leafIds(tree.root).filter(isEditorPane);
+    const out: Record<string, DocPane> = {};
+    const orphans: View[] = [];
+    for (const [id, dp] of Object.entries(stored)) {
+      if (live.includes(id)) out[id] = dp;
+      else orphans.push(...dp.views);
+    }
+    // tabs whose pane didn't survive the tree's own validation land in the
+    // first pane rather than nowhere — a mangled layout shouldn't cost tabs
+    if (orphans.length && live[0]) {
+      const dp = out[live[0]] ?? { views: [], activeView: 0 };
+      const open = new Set(Object.values(out).flatMap((d) => d.views.map((v) => v.key)));
+      out[live[0]] = { ...dp, views: [...dp.views, ...orphans.filter((v) => !open.has(v.key))] };
+    }
+    return out;
+  });
+  /** the pane opens land in — held as a preference rather than reconciled:
+   *  if the pane it names has gone, `currentPane` below answers with the
+   *  first one the tree still holds */
+  const [activePane, setActivePane] = useState<string>(saved.activePane ?? EDITOR);
+
+  const paneIds = leafIds(tree.root).filter(isEditorPane);
+  const currentPane = paneIds.includes(activePane) ? activePane : (paneIds[0] ?? EDITOR);
+  const paneDocs = (id: string): DocPane => docPanes[id] ?? { views: [], activeView: 0 };
   // held here rather than in the panel so a result list survives a look at the
   // file tree — the sidebar renders one tab at a time
   const search = useSearch(project.root);
@@ -157,8 +191,8 @@ export const Workspace = memo(function Workspace({
       sidebarTab,
       sidebarVisible,
       terminalVisible,
-      views,
-      activeView,
+      docPanes,
+      activePane: currentPane,
     });
   }, [
     project.root,
@@ -167,28 +201,47 @@ export const Workspace = memo(function Workspace({
     sidebarTab,
     sidebarVisible,
     terminalVisible,
-    views,
-    activeView,
+    docPanes,
+    currentPane,
   ]);
 
+  /**
+   * Open a view in the pane opens land in — unless it is already open in
+   * some pane, in which case that pane comes forward and its tab is
+   * selected instead. One tab per document across the whole window: two
+   * live copies of one file would be two editors with two undo histories,
+   * each blind to the other's keystrokes.
+   */
   const openView = useCallback((v: View) => {
-    setViews((prev) => {
-      const idx = prev.findIndex((x) => x.key === v.key);
-      if (idx >= 0) {
-        // refresh line target for file views (search jumps)
-        const next = [...prev];
-        next[idx] = v;
-        setActiveView(idx);
-        return next;
+    setDocPanes((prev) => {
+      for (const pid of paneIdsRef.current) {
+        const dp = prev[pid];
+        const idx = dp ? dp.views.findIndex((x) => x.key === v.key) : -1;
+        if (dp && idx >= 0) {
+          setActivePane(pid);
+          // refresh in place — a search jump carries a new line target
+          const views = [...dp.views];
+          views[idx] = v;
+          return { ...prev, [pid]: { views, activeView: idx } };
+        }
       }
-      setActiveView(prev.length);
-      return [...prev, v];
+      const pid = currentPaneRef.current;
+      setActivePane(pid);
+      const dp = prev[pid] ?? { views: [], activeView: 0 };
+      return { ...prev, [pid]: { views: [...dp.views, v], activeView: dp.views.length } };
     });
   }, []);
 
   // an untitled buffer turns into a real file view once it's saved somewhere
-  const replaceView = useCallback((idx: number, v: View) => {
-    setViews((prev) => prev.map((old, i) => (i === idx ? v : old)));
+  const replaceView = useCallback((paneId: string, idx: number, v: View) => {
+    setDocPanes((prev) => {
+      const dp = prev[paneId];
+      if (!dp) return prev;
+      return {
+        ...prev,
+        [paneId]: { ...dp, views: dp.views.map((old, i) => (i === idx ? v : old)) },
+      };
+    });
   }, []);
 
   /**
@@ -208,34 +261,40 @@ export const Workspace = memo(function Workspace({
   useEffect(
     () =>
       onPathMoved((from, to) => {
-        setViews((prev) => {
-          let touched = false;
-          const next: View[] = [];
-          for (const v of prev) {
-            if (v.kind === "file" && under(v.absPath, from)) {
-              touched = true;
-              if (to === null) continue;
-              const moved = to + v.absPath.slice(from.length);
-              next.push({ ...v, key: `file:${moved}`, absPath: moved });
-            } else if (v.kind === "diff" && under(`${v.worktree}/${v.relPath}`, from)) {
-              touched = true;
-              if (to === null) continue;
-              const moved = to + `${v.worktree}/${v.relPath}`.slice(from.length);
-              // the same key the changes panel builds, or the tab would keep an
-              // identity naming a path it no longer points at — and a second
-              // click on that row would open a duplicate of it
-              const rel = moved.slice(v.worktree.length + 1);
-              const key = v.staged
-                ? `diff:staged:${v.worktree}:${rel}`
-                : `diff:${v.worktree}:${rel}`;
-              next.push({ ...v, key, relPath: rel });
-            } else {
-              next.push(v);
+        setDocPanes((prev) => {
+          let touchedAny = false;
+          const nextPanes: Record<string, DocPane> = {};
+          for (const [pid, dp] of Object.entries(prev)) {
+            let touched = false;
+            const next: View[] = [];
+            for (const v of dp.views) {
+              if (v.kind === "file" && under(v.absPath, from)) {
+                touched = true;
+                if (to === null) continue;
+                const moved = to + v.absPath.slice(from.length);
+                next.push({ ...v, key: `file:${moved}`, absPath: moved });
+              } else if (v.kind === "diff" && under(`${v.worktree}/${v.relPath}`, from)) {
+                touched = true;
+                if (to === null) continue;
+                const moved = to + `${v.worktree}/${v.relPath}`.slice(from.length);
+                // the same key the changes panel builds, or the tab would keep
+                // an identity naming a path it no longer points at — and a
+                // second click on that row would open a duplicate of it
+                const rel = moved.slice(v.worktree.length + 1);
+                const key = v.staged
+                  ? `diff:staged:${v.worktree}:${rel}`
+                  : `diff:${v.worktree}:${rel}`;
+                next.push({ ...v, key, relPath: rel });
+              } else {
+                next.push(v);
+              }
             }
+            nextPanes[pid] = touched
+              ? { views: next, activeView: Math.min(dp.activeView, Math.max(next.length - 1, 0)) }
+              : dp;
+            touchedAny ||= touched;
           }
-          if (!touched) return prev;
-          setActiveView((cur) => Math.min(cur, Math.max(next.length - 1, 0)));
-          return next;
+          return touchedAny ? nextPanes : prev;
         });
       }),
     []
@@ -257,31 +316,125 @@ export const Workspace = memo(function Workspace({
     [openView]
   );
 
-  const reorderViews = useCallback((from: number, to: number) => {
-    setViews((prev) => {
-      if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
-      setActiveView((cur) => movedIndex(cur, from, to));
-      return moveItem(prev, from, to);
+  const reorderViews = useCallback((paneId: string, from: number, to: number) => {
+    setDocPanes((prev) => {
+      const dp = prev[paneId];
+      if (!dp) return prev;
+      if (from === to || from < 0 || to < 0 || from >= dp.views.length || to >= dp.views.length)
+        return prev;
+      return {
+        ...prev,
+        [paneId]: {
+          views: moveItem(dp.views, from, to),
+          activeView: movedIndex(dp.activeView, from, to),
+        },
+      };
     });
   }, []);
 
-  // Closed tabs, newest last, with the slot each one held. Kept in a ref
-  // rather than in state: nothing renders from it, and a stack that triggered
-  // a re-render on every close would re-render the whole workspace to record
-  // something nobody is looking at. Bounded, because it costs a View apiece
-  // and the twentieth undo of a close is not a thing anyone reaches for.
-  const closedRef = useRef<{ view: View; idx: number; seq: number }[]>([]);
+  /** a tab selected is a pane chosen: clicking a tab also makes its pane the
+   *  one opens land in */
+  const selectView = useCallback((paneId: string, i: number) => {
+    setActivePane(paneId);
+    setDocPanes((prev) =>
+      prev[paneId] && prev[paneId].activeView !== i
+        ? { ...prev, [paneId]: { ...prev[paneId], activeView: i } }
+        : prev
+    );
+  }, []);
 
-  const closeView = useCallback((idx: number) => {
-    setViews((prev) => {
-      const gone = prev[idx];
-      if (gone) {
-        closedRef.current.push({ view: gone, idx, seq: closeSeq() });
-        if (closedRef.current.length > 20) closedRef.current.shift();
-      }
-      const next = prev.filter((_, i) => i !== idx);
-      setActiveView((cur) => Math.min(cur > idx ? cur - 1 : cur, Math.max(next.length - 1, 0)));
-      return next;
+  /**
+   * Carry one tab to another pane — the move the tab's menu offers. The tab
+   * leaves one strip and lands selected at the end of the other, and the
+   * pane it lands in becomes the one opens land in: moving a tab somewhere
+   * is going there. A pane emptied by the move follows its last tab out
+   * (the effect below).
+   */
+  const moveViewToPane = useCallback((fromPane: string, idx: number, toPane: string) => {
+    if (fromPane === toPane || !docPanesRef.current[fromPane]?.views[idx]) return;
+    setActivePane(toPane);
+    setDocPanes((prev) => {
+      const from = prev[fromPane];
+      const view = from?.views[idx];
+      if (!from || !view) return prev;
+      const to = prev[toPane] ?? { views: [], activeView: 0 };
+      const remaining = from.views.filter((_, i) => i !== idx);
+      return {
+        ...prev,
+        [fromPane]: {
+          views: remaining,
+          activeView: Math.min(
+            from.activeView > idx ? from.activeView - 1 : from.activeView,
+            Math.max(remaining.length - 1, 0)
+          ),
+        },
+        [toPane]: { views: [...to.views, view], activeView: to.views.length },
+      };
+    });
+  }, []);
+
+  /** a fresh pane split off this one, with this tab carried into it. Guarded
+   *  behind a second tab — splitting a lone tab into a new pane would only
+   *  close the pane it left, a shuffle wearing a split's name. */
+  const openInNewPane = useCallback(
+    (fromPane: string, idx: number, side: Side) => {
+      if ((docPanesRef.current[fromPane]?.views.length ?? 0) < 2) return;
+      moveViewToPane(fromPane, idx, tree.splitEditorPane(fromPane, side));
+    },
+    [moveViewToPane, tree.splitEditorPane]
+  );
+
+  /** where "Move to Next Pane" sends a tab: the pane after this one in tree
+   *  order, wrapping */
+  const moveViewToNextPane = useCallback(
+    (fromPane: string, idx: number) => {
+      const ids = paneIdsRef.current;
+      const next = ids[(ids.indexOf(fromPane) + 1) % ids.length];
+      if (next && next !== fromPane) moveViewToPane(fromPane, idx, next);
+    },
+    [moveViewToPane]
+  );
+
+  // A document pane follows its last tab out — closed, moved away, or its
+  // file trashed from under it, the answer is the same, so it is given once
+  // here rather than at every remover. Never the last pane standing: an
+  // empty editor is the app's opening state, not a bug. One removal per
+  // pass; the effect re-runs on the state it just changed.
+  useEffect(() => {
+    if (paneIds.length < 2) return;
+    const empty = paneIds.find((pid) => (docPanes[pid]?.views.length ?? 0) === 0);
+    if (!empty) return;
+    tree.removeEditorPane(empty);
+    setDocPanes(({ [empty]: _gone, ...rest }) => rest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docPanes, tree.root, tree.removeEditorPane]);
+
+  // Closed tabs, newest last, with the slot — and now the pane — each one
+  // held. Kept in a ref rather than in state: nothing renders from it, and a
+  // stack that triggered a re-render on every close would re-render the whole
+  // workspace to record something nobody is looking at. Bounded, because it
+  // costs a View apiece and the twentieth undo of a close is not a thing
+  // anyone reaches for.
+  const closedRef = useRef<{ view: View; idx: number; paneId: string; seq: number }[]>([]);
+
+  const closeView = useCallback((paneId: string, idx: number) => {
+    setDocPanes((prev) => {
+      const dp = prev[paneId];
+      const gone = dp?.views[idx];
+      if (!dp || !gone) return prev;
+      closedRef.current.push({ view: gone, idx, paneId, seq: closeSeq() });
+      if (closedRef.current.length > 20) closedRef.current.shift();
+      const views = dp.views.filter((_, i) => i !== idx);
+      return {
+        ...prev,
+        [paneId]: {
+          views,
+          activeView: Math.min(
+            dp.activeView > idx ? dp.activeView - 1 : dp.activeView,
+            Math.max(views.length - 1, 0)
+          ),
+        },
+      };
     });
   }, []);
 
@@ -293,16 +446,16 @@ export const Workspace = memo(function Workspace({
    * That's the behaviour the stack already has for a run of ⌘W presses, and a
    * menu item is no different to a fast hand.
    */
-  const closeOthers = useCallback((keep: number) => {
-    setViews((prev) => {
-      if (prev.length < 2) return prev;
-      prev.forEach((view, i) => {
+  const closeOthers = useCallback((paneId: string, keep: number) => {
+    setDocPanes((prev) => {
+      const dp = prev[paneId];
+      if (!dp || dp.views.length < 2) return prev;
+      dp.views.forEach((view, i) => {
         if (i === keep) return;
-        closedRef.current.push({ view, idx: i, seq: closeSeq() });
+        closedRef.current.push({ view, idx: i, paneId, seq: closeSeq() });
         if (closedRef.current.length > 20) closedRef.current.shift();
       });
-      setActiveView(0);
-      return prev.filter((_, i) => i === keep);
+      return { ...prev, [paneId]: { views: dp.views.filter((_, i) => i === keep), activeView: 0 } };
     });
   }, []);
 
@@ -319,10 +472,12 @@ export const Workspace = memo(function Workspace({
    * you are standing on and look like it did nothing.
    */
   const peekClosed = useCallback(() => {
-    const open = viewsRef.current;
+    const open = new Set(
+      Object.values(docPanesRef.current).flatMap((d) => d.views.map((v) => v.key))
+    );
     while (closedRef.current.length) {
       const top = closedRef.current[closedRef.current.length - 1];
-      if (!open.some((v) => v.key === top.view.key)) return top;
+      if (!open.has(top.view.key)) return top;
       closedRef.current.pop();
     }
     return null;
@@ -332,10 +487,22 @@ export const Workspace = memo(function Workspace({
     const entry = peekClosed();
     if (!entry) return;
     closedRef.current.pop();
-    setViews((prev) => {
-      const at = Math.min(entry.idx, prev.length);
-      setActiveView(at);
-      return [...prev.slice(0, at), entry.view, ...prev.slice(at)];
+    // back into the pane it was closed from, while that pane still stands —
+    // a tab whose pane went with it comes back to wherever opens land now
+    const pid = paneIdsRef.current.includes(entry.paneId)
+      ? entry.paneId
+      : currentPaneRef.current;
+    setActivePane(pid);
+    setDocPanes((prev) => {
+      const dp = prev[pid] ?? { views: [], activeView: 0 };
+      const at = Math.min(entry.idx, dp.views.length);
+      return {
+        ...prev,
+        [pid]: {
+          views: [...dp.views.slice(0, at), entry.view, ...dp.views.slice(at)],
+          activeView: at,
+        },
+      };
     });
   }, [peekClosed]);
 
@@ -391,7 +558,23 @@ export const Workspace = memo(function Workspace({
         setTerminalVisible((v) => !v);
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
-        closeView(activeViewRefValue.current);
+        const pid = currentPaneRef.current;
+        closeView(pid, docPanesRef.current[pid]?.activeView ?? 0);
+      } else if (meta && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
+        // walk the active pane's tabs, wrapping at either end. By code, not
+        // key: with shift held the character is { or }, and on plenty of
+        // layouts not even that — the same reason Backquote and Backslash
+        // below are matched this way.
+        e.preventDefault();
+        const pid = currentPaneRef.current;
+        const dp = docPanesRef.current[pid];
+        if (dp && dp.views.length > 1) {
+          const dir = e.code === "BracketRight" ? 1 : -1;
+          const at = (dp.activeView + dir + dp.views.length) % dp.views.length;
+          setDocPanes((prev) =>
+            prev[pid] ? { ...prev, [pid]: { ...prev[pid], activeView: at } } : prev
+          );
+        }
       } else if (meta && e.shiftKey && e.key.toLowerCase() === "t") {
         // ⌘⇧T, the way Cursor and VS Code spell it — and not ⌘⇧Tab, which
         // never arrives: macOS keeps that one for walking the app switcher
@@ -404,7 +587,8 @@ export const Workspace = memo(function Workspace({
         e.preventDefault();
         setSidebarVisible(true);
         setSidebarTab("files");
-        const v = viewsRef.current[activeViewRefValue.current];
+        const dp = docPanesRef.current[currentPaneRef.current];
+        const v = dp?.views[dp.activeView];
         const abs =
           v?.kind === "file" ? v.absPath : v?.kind === "diff" ? `${v.worktree}/${v.relPath}` : null;
         if (abs) revealInTree(abs);
@@ -458,9 +642,11 @@ export const Workspace = memo(function Workspace({
     tree.splitFocused,
   ]);
 
-  // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
-  const activeViewRefValue = useStateRef(activeView);
-  const viewsRef = useStateRef(views);
+  // ref-like holders so the key handler and the open/move callbacks don't
+  // rebind on every keystroke's worth of state
+  const docPanesRef = useStateRef(docPanes);
+  const paneIdsRef = useStateRef(paneIds);
+  const currentPaneRef = useStateRef(currentPane);
   const lastClosedProjectRef = useStateRef(lastClosedProject);
   // and one for the memos, for a stronger version of the same reason: this
   // object is rebuilt on every tick of the elapsed timer, so a handler that
@@ -473,8 +659,11 @@ export const Workspace = memo(function Workspace({
   // what you are reading is a fact about the editor's tabs — which the workspace
   // owns and the sidebar has never been told about. The alternative was handing
   // the panel the view list so it could work out the same answer, which is a
-  // panel that knows what a tab is in order to draw a background.
-  const shown = views[activeView];
+  // panel that knows what a tab is in order to draw a background. With panes
+  // plural, "reading" means the active pane's active tab — a thread visible in
+  // an unfocused pane is on screen, but it isn't where you are.
+  const shownDocs = paneDocs(currentPane);
+  const shown = shownDocs.views[shownDocs.activeView];
   const activeMemo = shown?.kind === "memo" ? shown.id : null;
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -499,10 +688,11 @@ export const Workspace = memo(function Workspace({
   const [previewRoot, setPreviewRoot] = useState<LayoutNode | null>(null);
   /** the line a split shows, along the edge of the pane it would cut */
   const [splitHint, setSplitHint] = useState<{ rect: Rect; side: Side } | null>(null);
-  /** the pill under the pointer, for the two panes that arm here (terminals
-   *  arm their own). Armed by proximity rather than :hover so the pill never
-   *  takes the pointer at rest from the tabs and icons it floats over. */
-  const [grabArmed, setGrabArmed] = useState<"sidebar" | "editor" | null>(null);
+  /** the pill under the pointer, for the panes that arm here — the sidebar
+   *  and every document pane (terminals arm their own). Armed by proximity
+   *  rather than :hover so the pill never takes the pointer at rest from
+   *  the tabs and icons it floats over. */
+  const [grabArmed, setGrabArmed] = useState<string | null>(null);
   // locking while a pill happens to be lit must put it out — the mousemove
   // that armed it is gated from then on and would never disarm it
   useEffect(() => {
@@ -859,16 +1049,16 @@ export const Workspace = memo(function Workspace({
   };
 
   /** the arming mousemove for a wrapper whose pill lives here — the
-   *  sidebar's and the editor's; `reach` ducks under whatever chrome the
-   *  card keeps at its top (the editor's tabs sit lower than the sidebar's
-   *  icon strip) */
-  const armWrapper = (kind: "sidebar" | "editor", reach: number) => (e: React.MouseEvent) => {
+   *  sidebar's and each document pane's; `reach` ducks under whatever chrome
+   *  the card keeps at its top (a document pane's tabs sit lower than the
+   *  sidebar's icon strip) */
+  const armWrapper = (kind: string, reach: number) => (e: React.MouseEvent) => {
     if (draggingId || locked) return;
     const r = e.currentTarget.getBoundingClientRect();
     const grab = e.clientY - r.top < reach && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
     setGrabArmed((cur) => (grab ? kind : cur === kind ? null : cur));
   };
-  const disarmWrapper = (kind: "sidebar" | "editor") => () =>
+  const disarmWrapper = (kind: string) => () =>
     setGrabArmed((cur) => (cur === kind ? null : cur));
 
   return (
@@ -903,36 +1093,49 @@ export const Workspace = memo(function Workspace({
           />
         </div>
       )}
-      <div
-        className={`pane-abs main-col ${draggingId === EDITOR ? "moving" : ""}`}
-        data-pane-id={EDITOR}
-        style={paneStyle(rectOf(EDITOR), previewShift(EDITOR))}
-        onMouseMove={armWrapper("editor", 12)}
-        onMouseLeave={disarmWrapper("editor")}
-      >
+      {/* every document pane, rendered in an order that never changes with
+          the layout — the terminals' own rule — so re-seating panes never
+          walks live editor DOM around the tree. A mousedown anywhere in a
+          pane makes it the one opens land in; capture, so the choosing isn't
+          at the mercy of what was clicked. */}
+      {[...paneIds].sort().map((pid) => (
         <div
-          className={`pane-grab ${grabArmed === "editor" ? "armed" : ""} ${
-            draggingId === EDITOR ? "live" : ""
-          }`}
-          title="move editor"
-          onMouseDown={(e) => startPaneDrag(e, EDITOR)}
-        />
-        <EditorPane
-          views={views}
-          activeView={activeView}
-          onSelect={setActiveView}
-          onClose={closeView}
-          onCloseOthers={closeOthers}
-          onReplace={replaceView}
-          onReorder={reorderViews}
-          onOpenFile={openFile}
-          onRevealInTree={revealInTree}
-          root={project.root}
-          // a memo tab draws its own live title and records its own
-          // follow-ups, both of which are this object
-          memos={memos}
-        />
-      </div>
+          key={pid}
+          className={`pane-abs main-col ${draggingId === pid ? "moving" : ""}`}
+          data-pane-id={pid}
+          style={paneStyle(rectOf(pid), previewShift(pid))}
+          onMouseMove={armWrapper(pid, 12)}
+          onMouseLeave={disarmWrapper(pid)}
+          onMouseDownCapture={() => setActivePane(pid)}
+        >
+          <div
+            className={`pane-grab ${grabArmed === pid ? "armed" : ""} ${
+              draggingId === pid ? "live" : ""
+            }`}
+            title="move editor"
+            onMouseDown={(e) => startPaneDrag(e, pid)}
+          />
+          <EditorPane
+            views={paneDocs(pid).views}
+            activeView={paneDocs(pid).activeView}
+            focused={pid === currentPane}
+            panes={paneIds.length}
+            onSelect={(i) => selectView(pid, i)}
+            onClose={(i) => closeView(pid, i)}
+            onCloseOthers={(i) => closeOthers(pid, i)}
+            onReplace={(i, v) => replaceView(pid, i, v)}
+            onReorder={(from, to) => reorderViews(pid, from, to)}
+            onMoveToNewPane={(i, side) => openInNewPane(pid, i, side)}
+            onMoveToNextPane={(i) => moveViewToNextPane(pid, i)}
+            onOpenFile={openFile}
+            onRevealInTree={revealInTree}
+            root={project.root}
+            // a memo tab draws its own live title and records its own
+            // follow-ups, both of which are this object
+            memos={memos}
+          />
+        </div>
+      ))}
       <TerminalPanes
         tree={tree}
         panes={termPanes}

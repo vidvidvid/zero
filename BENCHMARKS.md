@@ -15,7 +15,7 @@ Machine   Apple M3 Max · 36 GB · macOS 26.5.1
 Cursor    3.15.6, with the extensions I actually have installed
 zero      0.1.0 for launch, memory and CPU; 0.13.0 for disk and code
 Project   the zero repo itself — 5.0k lines when these were run, a git
-          worktree, node_modules present (it is 23.9k now; see Code below)
+          worktree, node_modules present (it is 24.7k now; see Code below)
 Method    3 launches each, median reported, apps quit between runs
 ```
 
@@ -192,7 +192,7 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **23,906 lines** (12,031 TS/TSX · 7,195 Rust · 3,872 CSS · 808 Swift) | closed, VS Code fork |
+| Source | **24,667 lines** (12,519 TS/TSX · 7,468 Rust · 3,872 CSS · 808 Swift) | closed, VS Code fork |
 | npm dependencies | **24** direct, 65 in the production tree | — |
 | Rust crates | 443 | — |
 

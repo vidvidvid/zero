@@ -3107,6 +3107,15 @@ html.light.glass .prompt-box {
   color: var(--text);
 }
 
+/* An unfocused pane's active tab gives up the accent: with panes plural,
+   every strip still has an active tab, and only one of them is where the
+   next open lands. The accent under a tab is that promise, so it can only
+   stand in one pane at a time — the others keep the mark but in the faint
+   tone, the way an unfocused window keeps its close button grey. */
+.editor-pane:not(.focused) .editor-tab.active::after {
+  background: var(--text-faint);
+}
+
 /* on the strip's rule, the same mark the sidebar's active tab wears — inset
    to the label rather than run edge to edge, so two neighbouring tabs could
    never read as one underlined stretch */
