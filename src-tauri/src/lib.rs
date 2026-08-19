@@ -33,15 +33,23 @@ pub fn run() {
         .manage(PtyManager::default())
         .manage(memos::MemoManager::default())
         .setup(|_app| {
-            // zero → Preferences…, the mouse path to the settings overlay. The
-            // menu is the stock one with a single item slotted into Apple's
-            // spot for it (after About and its separator); everything else in
-            // the default is already right. The accelerator shown is ⌘,, but
-            // the webview's own keydown handler consumes that press before it
-            // reaches the menu — here it is the printed hint, and clicking is
-            // what emits.
+            // zero → Preferences… and zero → Check for Updates…, the mouse
+            // paths to the settings overlay and the updater. The menu is the
+            // stock one with the two of them slotted into Apple's spot for
+            // preferences — under About and its separator — and everything
+            // else in the default is already right. The accelerator shown on
+            // Preferences is ⌘,, but the webview's own keydown handler
+            // consumes that press before it reaches the menu; here it is the
+            // printed hint, and clicking is what emits.
+            //
+            // The check carries a native icon because everything around it
+            // does: macOS 26 draws a symbol beside About, Services, Hide and
+            // Quit on its own, and a bare row in that column reads as an item
+            // that hasn't finished loading. Refresh is the system's own image
+            // for looking again, so it is the one that matches rather than
+            // resembles.
             {
-                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+                use tauri::menu::{IconMenuItem, Menu, MenuItem, NativeIcon, PredefinedMenuItem};
                 let handle = _app.handle();
                 let menu = Menu::default(handle)?;
                 if let Some(app_menu) = menu.items()?.first().and_then(|i| i.as_submenu().cloned())
@@ -53,13 +61,35 @@ pub fn run() {
                         true,
                         Some("Cmd+,"),
                     )?;
-                    app_menu.insert_items(&[&prefs, &PredefinedMenuItem::separator(handle)?], 2)?;
+                    let updates = IconMenuItem::with_id_and_native_icon(
+                        handle,
+                        "check-for-updates",
+                        "Check for Updates…",
+                        true,
+                        Some(NativeIcon::Refresh),
+                        None::<&str>,
+                    )?;
+                    // the default opens About, separator, Services…, so 2 is
+                    // under that separator and above Services
+                    app_menu.insert_items(
+                        &[&prefs, &updates, &PredefinedMenuItem::separator(handle)?],
+                        2,
+                    )?;
                 }
                 _app.set_menu(menu)?;
                 _app.on_menu_event(|app, event| {
-                    if event.id().as_ref() == "preferences" {
-                        use tauri::Emitter;
-                        let _ = app.emit("open-settings", ());
+                    use tauri::Emitter;
+                    match event.id().as_ref() {
+                        "preferences" => {
+                            let _ = app.emit("open-settings", ());
+                        }
+                        // the frontend owns the updater — it is the half that
+                        // can say what it found, and it already holds the
+                        // check the app runs on its own every six hours
+                        "check-for-updates" => {
+                            let _ = app.emit("check-for-updates", ());
+                        }
+                        _ => {}
                     }
                 });
             }
