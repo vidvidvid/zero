@@ -18,6 +18,8 @@ export function Titlebar({
   onReorder,
   onPick,
   onSettings,
+  locked,
+  onLocked,
 }: {
   projects: Project[];
   activeIdx: number;
@@ -26,6 +28,9 @@ export function Titlebar({
   onReorder: (from: number, to: number) => void;
   onPick: () => void;
   onSettings: () => void;
+  /** the layout lock — on, panes cannot be picked up and carried */
+  locked: boolean;
+  onLocked: (on: boolean) => void;
 }) {
   const claude = useClaudeStatus(projects.map((p) => p.root));
   const icons = useProjectIcons(projects.map((p) => p.root));
@@ -195,6 +200,34 @@ export function Titlebar({
                 : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
           </button>
         )}
+        {/* The layout lock. On, the furniture is fixed: grab pills never arm
+            and no pane can be picked up and carried — while everything that
+            doesn't rearrange the window stays, splits and divider resizes
+            included. It lives here rather than in preferences because a
+            state the window can be in has to be readable from wherever you
+            are in it: filled means locked. */}
+        <button
+          className={`titlebar-lock ${locked ? "on" : ""}`}
+          title={locked ? "unlock layout" : "lock layout"}
+          aria-pressed={locked}
+          onClick={() => onLocked(!locked)}
+        >
+          {/* the window as the tree sees it: one split, drawn on the gear's
+              grid at the gear's weight so the three read as one cluster */}
+          <svg width="16" height="16" viewBox="0 0 14 14">
+            <rect
+              x="2.1"
+              y="2.6"
+              width="9.8"
+              height="8.8"
+              rx="1.6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+            />
+            <path d="M5.9 2.6 V11.4" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </button>
         <button className="titlebar-add" title="open project (⌘⇧N / ⌘⇧O)" onClick={onPick}>
           {/* drawn on the gear's own 16/14 grid, at the gear's stroke weight,
               for the reason the gear gives below: a ＋ from a font sits where

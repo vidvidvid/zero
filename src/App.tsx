@@ -166,6 +166,23 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
 
+  /**
+   * Whether the pane layout is locked in place. Locked, nothing can be
+   * picked up and carried — the grab pills never arm, and a press on one is
+   * a press on the card under it — while everything that doesn't rearrange
+   * the furniture stays: splits still open, dividers still resize. One flag
+   * for the window rather than per project, because it says whether the
+   * furniture is fixed, not what any project holds; and it survives a
+   * launch, because a lock that quietly unlocked itself overnight would
+   * not be one.
+   */
+  const [layoutLocked, setLayoutLocked] = useState(
+    () => localStorage.getItem("zero-layout-lock") === "1"
+  );
+  useEffect(() => {
+    localStorage.setItem("zero-layout-lock", layoutLocked ? "1" : "0");
+  }, [layoutLocked]);
+
   // zero → Preferences… in the menu bar; the keyboard path is ⌘, below
   useEffect(() => {
     const stop = listen("open-settings", () => setShowSettings(true));
@@ -239,10 +256,12 @@ export default function App() {
         onReorder={reorderProjects}
         onPick={pickProject}
         onSettings={() => setShowSettings(true)}
+        locked={layoutLocked}
+        onLocked={setLayoutLocked}
       />
       <div className="workspaces">
         {projects.map((p, i) => (
-          <Workspace key={p.root} project={p} active={i === activeIdx} />
+          <Workspace key={p.root} project={p} active={i === activeIdx} locked={layoutLocked} />
         ))}
       </div>
       {overlays}

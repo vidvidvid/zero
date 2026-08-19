@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-23,805 lines of source   (19,962 code, 3,843 CSS)
+23,906 lines of source   (20,034 code, 3,872 CSS)
     18 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -237,8 +237,10 @@ at the top of a card picks it up, and the drop shows itself as what it is:
 aim a re-seat and the layout rearranges under your hand, live and animated,
 the gap that opens being the seat; aim a true split and a single accent line
 stands on the edge it would cut. The gaps between cards are the resize
-handles. And for terminals with no chrome at all — no card, text straight on
-the window — set `terminal: plain` in preferences.
+handles. A lock in the titlebar fixes the arrangement once you like it —
+pills stop arming and nothing can be picked up, while splits and the resize
+handles keep working. And for terminals with no chrome at all — no card,
+text straight on the window — set `terminal: plain` in preferences.
 
 Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 `⌘+` / `⌘-` / `⌘0` zoom.

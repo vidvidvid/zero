@@ -89,9 +89,14 @@ const typing = (e: KeyboardEvent) =>
 export const Workspace = memo(function Workspace({
   project,
   active,
+  locked,
 }: {
   project: Project;
   active: boolean;
+  /** the titlebar's layout lock. On, panes cannot be picked up: the grab
+   *  pills never arm and startPaneDrag is inert — only the carrying is
+   *  locked, so splits and divider resizes go on working. */
+  locked: boolean;
 }) {
   // last session's layout for this project. Read once: the component is keyed
   // by root, so a mount is always a project arriving, never one changing.
@@ -455,6 +460,11 @@ export const Workspace = memo(function Workspace({
    *  arm their own). Armed by proximity rather than :hover so the pill never
    *  takes the pointer at rest from the tabs and icons it floats over. */
   const [grabArmed, setGrabArmed] = useState<"sidebar" | "editor" | null>(null);
+  // locking while a pill happens to be lit must put it out — the mousemove
+  // that armed it is gated from then on and would never disarm it
+  useEffect(() => {
+    if (locked) setGrabArmed(null);
+  }, [locked]);
 
   // ----- the layout, drawn -----
   // One tree, one absolute field. Hidden panes stay leaves — the sidebar
@@ -617,7 +627,7 @@ export const Workspace = memo(function Workspace({
   };
 
   const startPaneDrag = (e: React.MouseEvent, id: string) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || locked) return;
     e.preventDefault();
     const root = rootRef.current;
     const card = root?.querySelector<HTMLElement>(`[data-pane-id="${id}"]`);
@@ -810,7 +820,7 @@ export const Workspace = memo(function Workspace({
    *  card keeps at its top (the editor's tabs sit lower than the sidebar's
    *  icon strip) */
   const armWrapper = (kind: "sidebar" | "editor", reach: number) => (e: React.MouseEvent) => {
-    if (draggingId) return;
+    if (draggingId || locked) return;
     const r = e.currentTarget.getBoundingClientRect();
     const grab = e.clientY - r.top < reach && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
     setGrabArmed((cur) => (grab ? kind : cur === kind ? null : cur));
@@ -884,6 +894,7 @@ export const Workspace = memo(function Workspace({
         tree={tree}
         panes={termPanes}
         active={active}
+        locked={locked}
         draggingId={draggingId}
         onPaneDragStart={startPaneDrag}
         onOpenFile={openFile}

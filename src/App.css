@@ -627,6 +627,35 @@ body.dragging-tab .editor-tab * {
   gap: 2px;
 }
 
+/* The layout lock, a button among the buttons. At rest it is a glyph like
+   its neighbours; locked it fills with the accent, because a state the
+   window is in has to be readable from across the room, not discovered by
+   trying a drag that quietly does nothing. The rounded corners keep the
+   fill from reading as a selection. */
+.titlebar-lock {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+.titlebar-lock svg {
+  display: block;
+}
+
+.titlebar-lock:hover {
+  color: var(--text);
+}
+
+.titlebar-lock.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+
 /* Always there, like the gear beside it. It used to appear only while the
    pointer was in the bar, which was a way of keeping a stray click off a file
    dialog back when it sat alone in the middle of an empty strip — next to the

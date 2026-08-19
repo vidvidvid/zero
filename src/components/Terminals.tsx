@@ -130,6 +130,7 @@ export function TerminalPanes({
   tree,
   panes,
   active,
+  locked,
   draggingId,
   onPaneDragStart,
   onOpenFile,
@@ -142,6 +143,8 @@ export function TerminalPanes({
    *  laid out again */
   panes: { id: string; rect: Rect | null; shift?: string }[];
   active: boolean;
+  /** the titlebar's layout lock — the grab pill never arms under it */
+  locked: boolean;
   /** the pane being carried, for its card's lift and its pill's light */
   draggingId: string | null;
   /** the workspace owns every drag now — a terminal is a peer of the sidebar
@@ -157,6 +160,11 @@ export function TerminalPanes({
   // the middle of a session never puts chrome on screen.
   const [armed, setArmed] = useState<string | null>(null);
   const [grabArmed, setGrabArmed] = useState<string | null>(null);
+  // locking while a pill happens to be lit must put it out — the mousemove
+  // that armed it computes `grab` as false from then on, but only if it fires
+  useEffect(() => {
+    if (locked) setGrabArmed(null);
+  }, [locked]);
 
   // ⌘F presses so far, 0 while the bar is closed — a count rather than a
   // flag so a press with the bar already up still reaches it (see TermFind)
@@ -224,7 +232,8 @@ export function TerminalPanes({
             // — beside the pane actions, over nothing else. Armed by
             // proximity rather than :hover so that at rest it never takes
             // the pointer from the text under it.
-            const grab = e.clientY - r.top < 14 && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
+            const grab =
+              !locked && e.clientY - r.top < 14 && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
             setGrabArmed((cur) => (grab ? id : cur === id ? null : cur));
           }}
           onMouseLeave={() => {
