@@ -284,6 +284,7 @@ export function EditorPane({
                   worktree={v.worktree}
                   relPath={v.relPath}
                   staged={v.staged}
+                  from={v.from}
                   visible={i === activeView}
                 />
               ) : v.kind === "memo" ? (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
@@ -10,7 +10,9 @@ import { Settings } from "./components/Settings";
 import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { moveItem, movedIndex } from "./lib/tabReorder";
-import { restoreSession, saveProjects } from "./lib/session";
+import { projectSession, restoreSession, saveProject, saveProjects } from "./lib/session";
+import type { ProjectSession } from "./lib/session";
+import { closeSeq } from "./lib/closeOrder";
 import { resolvedAppearance, useSettings } from "./lib/settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isGlassSupported, setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
@@ -143,13 +145,73 @@ export default function App() {
     });
   }, []);
 
+  /**
+   * Projects closed this run, newest last: what ⌘⇧T puts back.
+   *
+   * Each entry carries the project's session as well as its name, because
+   * closing one throws its layout away (see `saveProjects`) — and a reopen
+   * that handed back the project with its panes, terminals and open files
+   * forgotten would undo the accident in name only. The stack is the one
+   * place that still holds it between the close and the undo.
+   *
+   * Not persisted, deliberately: this undoes a misplaced click, and a
+   * misplaced click from two launches ago is not one you are still trying to
+   * take back. Bounded for the same reason the tab stack is.
+   */
+  const [closedProjects, setClosedProjects] = useState<
+    { project: Project; idx: number; seq: number; session: Partial<ProjectSession> }[]
+  >([]);
+
   const closeProject = useCallback((idx: number) => {
     setProjects((prev) => {
+      const gone = prev[idx];
+      if (gone) {
+        // read here rather than in the reopen: the effect above prunes this
+        // project's layout out of the store the moment it leaves the list
+        const session = projectSession(gone.root);
+        setClosedProjects((stack) =>
+          [...stack, { project: gone, idx, seq: closeSeq(), session }].slice(-10)
+        );
+      }
       const next = prev.filter((_, i) => i !== idx);
       setActiveIdx((cur) => Math.min(cur > idx ? cur - 1 : cur, Math.max(next.length - 1, 0)));
       return next;
     });
   }, []);
+
+  /** The stamp of the newest closed project that isn't open again already —
+      what a workspace weighs its own closed tabs against. Entries reopened by
+      hand are skipped rather than counted, or ⌘⇧T would weigh a project that
+      is already in front of you and then appear to do nothing. */
+  const lastClosedProject = useMemo(() => {
+    for (let i = closedProjects.length - 1; i >= 0; i--) {
+      if (!projects.some((p) => p.root === closedProjects[i].project.root)) {
+        return closedProjects[i].seq;
+      }
+    }
+    return null;
+  }, [closedProjects, projects]);
+
+  const reopenProject = useCallback(() => {
+    setClosedProjects((stack) => {
+      const rest = [...stack];
+      let entry = rest.pop();
+      while (entry && projects.some((p) => p.root === entry!.project.root)) entry = rest.pop();
+      if (!entry) return rest;
+      const back = entry;
+      // before the workspace mounts: it reads the session once, on mount
+      saveProject(back.project.root, back.session);
+      api.addRecent(back.project.root).catch(() => {});
+      setProjects((prev) => {
+        // back into the slot it was closed from, clamped — the tabs to its
+        // right may have gone since, the same way a reopened editor tab is
+        const at = Math.min(back.idx, prev.length);
+        setActiveIdx(at);
+        return [...prev.slice(0, at), back.project, ...prev.slice(at)];
+      });
+      return rest;
+    });
+  }, [projects]);
 
   // UI zoom, cmd+/- like Cursor
   const [zoom, setZoom] = useState(() => {
@@ -207,6 +269,17 @@ export default function App() {
       } else if (e.shiftKey && (e.key.toLowerCase() === "o" || e.key.toLowerCase() === "n")) {
         e.preventDefault();
         pickProject();
+      } else if (e.shiftKey && e.key.toLowerCase() === "t") {
+        // Normally the active workspace owns this key — it weighs its own
+        // closed tabs against the closed projects and picks the newer. With
+        // no project open there is no workspace to do that, and nothing but
+        // projects can have been closed anyway, so it lands here instead.
+        // Guarded rather than unconditional: both listeners are on the window,
+        // and handling it in both would undo two closes for one press.
+        if (projects.length === 0) {
+          e.preventDefault();
+          reopenProject();
+        }
       } else if (e.key === "=" || e.key === "+") {
         e.preventDefault();
         setZoom((z) => Math.min(Math.round((z + 0.1) * 10) / 10, 2));
@@ -220,7 +293,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [projects.length, pickProject]);
+  }, [projects.length, pickProject, reopenProject]);
 
   // one IPC round trip, and showing the launcher for that frame would mean a
   // flash of it every launch on the way to the projects that were already open
@@ -261,7 +334,14 @@ export default function App() {
       />
       <div className="workspaces">
         {projects.map((p, i) => (
-          <Workspace key={p.root} project={p} active={i === activeIdx} locked={layoutLocked} />
+          <Workspace
+            key={p.root}
+            project={p}
+            active={i === activeIdx}
+            locked={layoutLocked}
+            lastClosedProject={lastClosedProject}
+            onReopenProject={reopenProject}
+          />
         ))}
       </div>
       {overlays}

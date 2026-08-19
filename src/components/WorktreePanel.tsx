@@ -18,6 +18,19 @@ const STATUS_CLASS: Record<string, string> = {
   R: "mod",
 };
 
+/**
+ * The name to show, and the folder under it. Not every entry names a file:
+ * git reports an untracked *directory* it won't descend into — a nested
+ * repository — as "nested/", trailing slash and nothing else. Splitting that
+ * on the last slash leaves the name empty and the whole path in the folder
+ * column, so the trailing slash comes off before the split.
+ */
+function splitPath(path: string): { name: string; dir: string } {
+  const p = path.endsWith("/") ? path.slice(0, -1) : path;
+  const cut = p.lastIndexOf("/");
+  return cut === -1 ? { name: p, dir: "" } : { name: p.slice(cut + 1), dir: p.slice(0, cut) };
+}
+
 export function WorktreePanel({
   project,
   onOpenView,
@@ -165,6 +178,14 @@ export function WorktreePanel({
     // reads (both sides come out of git), and its reveal still lands on the
     // folder it was in — but there is nothing to open, duplicate or rename.
     const gone = c.status === "D";
+    const { name, dir } = splitPath(c.path);
+    // One end of a move says so, and says which end it is: a file that left
+    // this folder points on, one that arrived points back. Both are drawn as
+    // changes rather than as a loss and a stranger — the strikethrough on a
+    // path whose contents are sitting one folder over reads as damage.
+    const other = c.moved ? splitPath(c.moved).dir : null;
+    const place = other === null ? dir : gone ? `${dir} → ${other}` : `${other} → ${dir}`;
+    const tone = c.moved ? "mov" : STATUS_CLASS[c.status] ?? "mod";
     return (
     <div
       key={`${wt.path}:${staged ? "s" : "w"}:${c.path}`}
@@ -185,6 +206,8 @@ export function WorktreePanel({
                 worktree: wt.path,
                 relPath: c.path,
                 staged,
+                // a moved file's HEAD side lives at the path it moved from
+                from: gone ? undefined : c.moved ?? undefined,
               }),
           },
           { text: "Reveal in Sidebar", run: () => onRevealInTree(abs) },
@@ -203,7 +226,7 @@ export function WorktreePanel({
     >
       <button
         className="wt-file-name"
-        title={c.path}
+        title={c.moved ? (gone ? `${c.path} → ${c.moved}` : `${c.moved} → ${c.path}`) : c.path}
         onClick={() =>
           // untracked files have no HEAD side — a diff would just be an
           // all-green copy of the file, so open the file itself like Cursor
@@ -221,12 +244,14 @@ export function WorktreePanel({
                 worktree: wt.path,
                 relPath: c.path,
                 staged,
+                // a moved file's HEAD side lives at the path it moved from
+                from: gone ? undefined : c.moved ?? undefined,
               })
         }
       >
-        <FileIconSpan name={c.path.split("/").pop() ?? c.path} />
-        <span className={`wt-file-base ${STATUS_CLASS[c.status] ?? "mod"}`}>{c.path.split("/").pop()}</span>
-        <span className="wt-file-dir">{c.path.includes("/") ? c.path.slice(0, c.path.lastIndexOf("/")) : ""}</span>
+        <FileIconSpan name={name} />
+        <span className={`wt-file-base ${tone}`}>{name}</span>
+        <span className="wt-file-dir">{place}</span>
       </button>
       {!staged && (
         <button

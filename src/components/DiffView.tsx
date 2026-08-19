@@ -27,11 +27,15 @@ export function DiffView({
   worktree,
   relPath,
   staged = false,
+  from,
   visible,
 }: {
   worktree: string;
   relPath: string;
   staged?: boolean;
+  /** where this file was before it moved, if it moved — the path HEAD knows
+      it by, and the only one it will answer to */
+  from?: string;
   visible: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -50,9 +54,25 @@ export function DiffView({
     const langB = new Compartment();
     const langLater = lazyLangFor(relPath);
 
+    /**
+     * The HEAD side of a moved file, which HEAD files under the path it moved
+     * from. The fallback is for a `from` that has gone stale — a tab restored
+     * after the move was committed names an origin HEAD no longer has, and
+     * without it the diff would go back to reading as a brand new file. An
+     * empty answer is indistinguishable from an empty file, which is why this
+     * falls back rather than trusting the first reply.
+     */
+    const headSide = async () => {
+      if (from) {
+        const origin = await api.headFile(worktree, from);
+        if (origin !== "") return origin;
+      }
+      return api.headFile(worktree, relPath);
+    };
+
     const load = async () => {
       const [a, b] = await Promise.all([
-        staged ? api.headFile(worktree, relPath) : api.indexFile(worktree, relPath),
+        staged ? headSide() : api.indexFile(worktree, relPath),
         staged
           ? api.indexFile(worktree, relPath)
           : api.readFile(absPath).catch(() => ""), // deleted files
@@ -197,7 +217,7 @@ export function DiffView({
       mergeRef.current?.destroy();
       mergeRef.current = null;
     };
-  }, [worktree, relPath, staged]);
+  }, [worktree, relPath, staged, from]);
 
   return <div className="cm-host" ref={hostRef} />;
 }

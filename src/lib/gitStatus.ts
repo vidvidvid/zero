@@ -150,13 +150,22 @@ export function decorations(root: string, changes: FileChange[]): Decorations {
   const dirs = new Map<string, GitMark>();
 
   for (const c of changes) {
-    const abs = `${root}/${c.path}`;
+    // not every entry is a file: an untracked directory git declines to look
+    // inside — a nested repository — arrives as "nested/", and belongs in the
+    // folder badges rather than as a file that no path in the tree matches
+    const isDir = c.path.endsWith("/");
+    const abs = `${root}/${isDir ? c.path.slice(0, -1) : c.path}`;
     const mark = markOf(c.status);
-    // "MM" — staged and edited again — arrives as two entries for one file;
-    // the working-tree one is the one you can see, so it wins
-    const prev = files.get(abs);
-    if (!prev || WEIGHT[mark] >= WEIGHT[prev.mark]) {
-      files.set(abs, { mark, letter: c.status === "U" ? "U" : c.status });
+    if (isDir) {
+      const at = dirs.get(abs);
+      if (!at || WEIGHT[mark] > WEIGHT[at]) dirs.set(abs, mark);
+    } else {
+      // "MM" — staged and edited again — arrives as two entries for one file;
+      // the working-tree one is the one you can see, so it wins
+      const prev = files.get(abs);
+      if (!prev || WEIGHT[mark] >= WEIGHT[prev.mark]) {
+        files.set(abs, { mark, letter: c.status === "U" ? "U" : c.status });
+      }
     }
 
     // every folder between the project and the file carries the badge too, so

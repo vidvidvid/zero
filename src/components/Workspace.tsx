@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "../App";
+import { closeSeq } from "../lib/closeOrder";
 import { Sidebar, SidebarTab } from "./Sidebar";
 import type { Reveal } from "./FileTree";
 import { EditorPane } from "./EditorPane";
@@ -34,7 +35,18 @@ export type View =
   // `staged` picks which of git's two diffs this is: HEAD→index when set, and
   // index→working tree when not. Optional because sessions written before it
   // existed have no such field, and the working-tree diff is what they were.
-  | { kind: "diff"; key: string; worktree: string; relPath: string; staged?: boolean }
+  // `from` is the path this file had before it was moved, when it was. The
+  // staged side of a rename is HEAD, and HEAD has never heard of the new path
+  // — asked for it, it answers with nothing and the diff reads as a brand new
+  // file rather than as the same one, one folder over.
+  | {
+      kind: "diff";
+      key: string;
+      worktree: string;
+      relPath: string;
+      staged?: boolean;
+      from?: string;
+    }
   | { kind: "file"; key: string; absPath: string; line?: number }
   | { kind: "new"; key: string; name: string }
   // A memo, opened as the thread it is rather than as the file it also is. No
@@ -90,6 +102,8 @@ export const Workspace = memo(function Workspace({
   project,
   active,
   locked,
+  lastClosedProject,
+  onReopenProject,
 }: {
   project: Project;
   active: boolean;
@@ -97,6 +111,10 @@ export const Workspace = memo(function Workspace({
    *  pills never arm and startPaneDrag is inert — only the carrying is
    *  locked, so splits and divider resizes go on working. */
   locked: boolean;
+  /** the close-order stamp of the newest project waiting to be reopened, or
+   *  null if none is — what ⌘⇧T weighs this project's closed tabs against */
+  lastClosedProject: number | null;
+  onReopenProject: () => void;
 }) {
   // last session's layout for this project. Read once: the component is keyed
   // by root, so a mount is always a project arriving, never one changing.
@@ -252,13 +270,13 @@ export const Workspace = memo(function Workspace({
   // a re-render on every close would re-render the whole workspace to record
   // something nobody is looking at. Bounded, because it costs a View apiece
   // and the twentieth undo of a close is not a thing anyone reaches for.
-  const closedRef = useRef<{ view: View; idx: number }[]>([]);
+  const closedRef = useRef<{ view: View; idx: number; seq: number }[]>([]);
 
   const closeView = useCallback((idx: number) => {
     setViews((prev) => {
       const gone = prev[idx];
       if (gone) {
-        closedRef.current.push({ view: gone, idx });
+        closedRef.current.push({ view: gone, idx, seq: closeSeq() });
         if (closedRef.current.length > 20) closedRef.current.shift();
       }
       const next = prev.filter((_, i) => i !== idx);
@@ -280,7 +298,7 @@ export const Workspace = memo(function Workspace({
       if (prev.length < 2) return prev;
       prev.forEach((view, i) => {
         if (i === keep) return;
-        closedRef.current.push({ view, idx: i });
+        closedRef.current.push({ view, idx: i, seq: closeSeq() });
         if (closedRef.current.length > 20) closedRef.current.shift();
       });
       setActiveView(0);
@@ -300,19 +318,43 @@ export const Workspace = memo(function Workspace({
    * hand and its entry in the stack is spent, or ⌘⇧T would hand you the tab
    * you are standing on and look like it did nothing.
    */
-  const reopenClosed = useCallback(() => {
-    setViews((prev) => {
-      let entry = closedRef.current.pop();
-      while (entry && prev.some((v) => v.key === entry!.view.key)) {
-        entry = closedRef.current.pop();
-      }
-      if (!entry) return prev;
-      const at = Math.min(entry.idx, prev.length);
-      const next = [...prev.slice(0, at), entry.view, ...prev.slice(at)];
-      setActiveView(at);
-      return next;
-    });
+  const peekClosed = useCallback(() => {
+    const open = viewsRef.current;
+    while (closedRef.current.length) {
+      const top = closedRef.current[closedRef.current.length - 1];
+      if (!open.some((v) => v.key === top.view.key)) return top;
+      closedRef.current.pop();
+    }
+    return null;
   }, []);
+
+  const reopenClosed = useCallback(() => {
+    const entry = peekClosed();
+    if (!entry) return;
+    closedRef.current.pop();
+    setViews((prev) => {
+      const at = Math.min(entry.idx, prev.length);
+      setActiveView(at);
+      return [...prev.slice(0, at), entry.view, ...prev.slice(at)];
+    });
+  }, [peekClosed]);
+
+  /**
+   * ⌘⇧T undoes the last close, and a closed project is one of them.
+   *
+   * The two are remembered apart — tabs here, projects in the app above — so
+   * they are compared by the ordinal both stamp their entries with and the
+   * newer one wins. Without that the key would always drain this project's
+   * tabs first, and a project shut by accident would sit behind however many
+   * tabs you happened to have closed before it: the one close you actually
+   * wanted back, reachable only by undoing a dozen you didn't.
+   */
+  const undoClose = useCallback(() => {
+    const view = peekClosed();
+    const project = lastClosedProjectRef.current;
+    if (project !== null && (!view || project > view.seq)) onReopenProject();
+    else reopenClosed();
+  }, [peekClosed, reopenClosed, onReopenProject]);
 
   useEffect(() => {
     if (!active) return;
@@ -355,7 +397,7 @@ export const Workspace = memo(function Workspace({
         // never arrives: macOS keeps that one for walking the app switcher
         // backwards and the window is never told it was pressed.
         e.preventDefault();
-        reopenClosed();
+        undoClose();
       } else if (meta && e.key.toLowerCase() === "e") {
         // the tree opens on the file you're looking at, folders and all —
         // ⌘⇧E does it too, since that's the one people arrive with
@@ -408,7 +450,7 @@ export const Workspace = memo(function Workspace({
   }, [
     active,
     closeView,
-    reopenClosed,
+    undoClose,
     openView,
     project.root,
     search.focus,
@@ -419,6 +461,7 @@ export const Workspace = memo(function Workspace({
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
   const activeViewRefValue = useStateRef(activeView);
   const viewsRef = useStateRef(views);
+  const lastClosedProjectRef = useStateRef(lastClosedProject);
   // and one for the memos, for a stronger version of the same reason: this
   // object is rebuilt on every tick of the elapsed timer, so a handler that
   // closed over it would be torn down and rebound twice a second for the whole

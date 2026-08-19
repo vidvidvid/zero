@@ -103,7 +103,10 @@ function validViews(v: unknown): View[] {
       return (
         typeof view.worktree === "string" &&
         typeof view.relPath === "string" &&
-        (view.staged === undefined || typeof view.staged === "boolean")
+        (view.staged === undefined || typeof view.staged === "boolean") &&
+        // likewise `from`: absent on every session written before moves were
+        // paired, and absent on every row that isn't one end of one
+        (view.from === undefined || typeof view.from === "string")
       );
     // a memo thread is an id and the project it was stored under; whether that
     // memo still exists is the thread's own business, and it says so quietly
