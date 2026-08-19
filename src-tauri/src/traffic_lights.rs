@@ -41,7 +41,9 @@ use std::sync::Mutex;
 
 /// The last height the bar reported, so that the watcher below can put the
 /// buttons back without asking the frontend where they go. 40 until it says
-/// otherwise: the height at zoom 1.
+/// otherwise — the height at zoom 1, which is a guess and wrong for anyone
+/// who has zoomed, so the bar reports on mount rather than waiting for the
+/// next ⌘+/⌘- to make it true.
 #[cfg(target_os = "macos")]
 static BAR: Mutex<f64> = Mutex::new(40.0);
 
