@@ -64,7 +64,6 @@ export function Sidebar({
   onTab,
   onOpenView,
   active,
-  width,
   search,
   memos,
   activeMemo,
@@ -77,7 +76,6 @@ export function Sidebar({
   onTab: (t: SidebarTab) => void;
   onOpenView: (v: View) => void;
   active: boolean;
-  width: number;
   search: Search;
   memos: Memos;
   /** the memo whose thread is the view on screen, so its row can say so —
@@ -104,7 +102,7 @@ export function Sidebar({
         : "";
 
   return (
-    <div className="sidebar" style={{ width }}>
+    <div className="sidebar">
       <div className="sidebar-tabs">
         {TABS.map((t) => (
           <button

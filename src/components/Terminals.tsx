@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
-import { onSettingsChange, resolvedAppearance } from "../lib/settings";
+import { onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
 import { pathLinkProvider, pathTextAt, resolveOne } from "../lib/termLinks";
 import { contextMenuAt, fileEntries } from "../lib/contextMenu";
+import { takeBoot, type LayoutTree, type Rect } from "../lib/layout";
 
 /** A clicked link leaves the app entirely — the Rust side vets the scheme */
 function openLink(uri: string) {
@@ -125,256 +126,51 @@ function TermFind({ id, ping, onClose }: { id: string; ping: number; onClose: ()
   );
 }
 
-export type TermNode =
-  | { type: "leaf"; id: string }
-  /** `sizes` are each child's share of the split, summing to 1 */
-  | { type: "split"; dir: "row" | "col"; children: TermNode[]; sizes?: number[] };
-
-function newLeaf(): TermNode {
-  return { type: "leaf", id: crypto.randomUUID() };
-}
-
-/** Commands to type into a terminal the moment its shell is up, keyed by the
- *  leaf created to run them. Module state rather than tree state so a restored
- *  layout can never replay one: only `newTerminal(boot)` writes here, and the
- *  pane consumes its entry on first spawn. */
-const boots = new Map<string, string>();
-
-// a split with no sizes yet is an even one
-function sizesOf(node: Extract<TermNode, { type: "split" }>): number[] {
-  const n = node.children.length;
-  if (node.sizes && node.sizes.length === n) return node.sizes;
-  return Array.from({ length: n }, () => 1 / n);
-}
-
-/** the split node a divider belongs to, addressed by child indices from the root */
-function nodeAt(node: TermNode | null, path: number[]): TermNode | null {
-  let cur: TermNode | null = node;
-  for (const i of path) {
-    if (!cur || cur.type !== "split") return null;
-    cur = cur.children[i] ?? null;
-  }
-  return cur;
-}
-
-function withSizes(node: TermNode, path: number[], sizes: number[]): TermNode {
-  if (node.type !== "split") return node;
-  if (path.length === 0) return { ...node, sizes };
-  const [head, ...rest] = path;
-  return {
-    ...node,
-    children: node.children.map((c, i) => (i === head ? withSizes(c, rest, sizes) : c)),
-  };
-}
-
-export type Side = "left" | "right" | "up" | "down";
-
-function insertAt(node: TermNode, targetId: string, side: Side, leaf: TermNode): TermNode {
-  const dir: "row" | "col" = side === "left" || side === "right" ? "row" : "col";
-  const before = side === "left" || side === "up";
-  if (node.type === "leaf") {
-    if (node.id !== targetId) return node;
-    return { type: "split", dir, children: before ? [leaf, node] : [node, leaf], sizes: [0.5, 0.5] };
-  }
-  // if a direct child is the target and directions match, insert as sibling
-  const idx = node.children.findIndex((c) => c.type === "leaf" && c.id === targetId);
-  if (idx >= 0 && node.dir === dir) {
-    const children = [...node.children];
-    children.splice(before ? idx : idx + 1, 0, leaf);
-    // the newcomer halves the target's share; every other pane keeps its own
-    const sizes = [...sizesOf(node)];
-    const half = sizes[idx] / 2;
-    sizes[idx] = half;
-    sizes.splice(before ? idx : idx + 1, 0, half);
-    return { ...node, children, sizes };
-  }
-  return { ...node, children: node.children.map((c) => insertAt(c, targetId, side, leaf)) };
-}
-
-function removeLeaf(node: TermNode, id: string): TermNode | null {
-  if (node.type === "leaf") return node.id === id ? null : node;
-  const sizes = sizesOf(node);
-  const children: TermNode[] = [];
-  const kept: number[] = [];
-  node.children.forEach((c, i) => {
-    const next = removeLeaf(c, id);
-    if (next === null) return;
-    children.push(next);
-    kept.push(sizes[i]);
-  });
-  if (children.length === 0) return null;
-  if (children.length === 1) return children[0];
-  // the closed pane's share is handed to the survivors in proportion
-  const total = kept.reduce((a, b) => a + b, 0);
-  return { ...node, children, sizes: kept.map((s) => s / total) };
-}
-
-function firstLeafId(node: TermNode): string {
-  return node.type === "leaf" ? node.id : firstLeafId(node.children[0]);
-}
-
-function hasLeaf(node: TermNode, id: string): boolean {
-  return node.type === "leaf" ? node.id === id : node.children.some((c) => hasLeaf(c, id));
-}
-
-export interface TerminalTree {
-  root: TermNode | null;
-  cwd: string;
-  focusedId: string | null;
-  setFocused: (id: string) => void;
-  /** `boot`, when given, is a command typed into the new shell once it's up */
-  newTerminal: (boot?: string) => void;
-  splitFocused: (dir: "row" | "col") => void;
-  splitPane: (id: string, side: Side) => void;
-  removePane: (id: string) => void;
-  setSizes: (path: number[], sizes: number[]) => void;
-}
-
-/**
- * `restore` is last session's layout, if there was one. Only read on the first
- * render — the tree is this hook's from then on.
- */
-export function useTerminalTree(
-  cwd: string,
-  restore?: { root?: TermNode | null; focusedId?: string | null }
-): TerminalTree {
-  const [root, setRoot] = useState<TermNode | null>(() => restore?.root ?? newLeaf());
-  const [focusedId, setFocused] = useState<string | null>(() => {
-    if (!root) return null;
-    const saved = restore?.focusedId;
-    return saved && hasLeaf(root, saved) ? saved : firstLeafId(root);
-  });
-
-  const newTerminal = useCallback((boot?: string) => {
-    const leaf = newLeaf();
-    if (boot) boots.set((leaf as { id: string }).id, boot);
-    setRoot((r) => {
-      if (!r) return leaf;
-      if (r.type === "split" && r.dir === "row") {
-        // the newcomer takes an equal share, the rest shrink proportionally
-        const share = 1 / (r.children.length + 1);
-        const sizes = [...sizesOf(r).map((s) => s * (1 - share)), share];
-        return { ...r, children: [...r.children, leaf], sizes };
-      }
-      return { type: "split", dir: "row", children: [r, leaf], sizes: [0.5, 0.5] };
-    });
-    setFocused((leaf as { id?: string }).id ?? null);
-  }, []);
-
-  const setSizes = useCallback((path: number[], sizes: number[]) => {
-    setRoot((r) => (r ? withSizes(r, path, sizes) : r));
-  }, []);
-
-  const splitPane = useCallback((id: string, side: Side) => {
-    const leaf = newLeaf();
-    setRoot((r) => {
-      if (!r) return leaf;
-      return insertAt(r, id, side, leaf);
-    });
-    setFocused((leaf as { id?: string }).id ?? null);
-  }, []);
-
-  const splitFocused = useCallback(
-    (dir: "row" | "col") => {
-      if (!focusedId) return;
-      splitPane(focusedId, dir === "row" ? "right" : "down");
-    },
-    [focusedId, splitPane]
-  );
-
-  const removePane = useCallback((id: string) => {
-    setRoot((r) => {
-      const next = r ? removeLeaf(r, id) : null;
-      setFocused((f) => (f === id ? (next ? firstLeafId(next) : null) : f));
-      return next;
-    });
-  }, []);
-
-  return {
-    root,
-    cwd,
-    focusedId,
-    setFocused,
-    newTerminal,
-    splitFocused,
-    splitPane,
-    removePane,
-    setSizes,
-  };
-}
-
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** the draggable line between two children of one split */
-interface Divider {
-  path: number[];
-  index: number;
-  dir: "row" | "col";
-  /** where the line sits, as a fraction along the split */
-  at: number;
-  /** the split's own rect — the length the drag is measured against */
-  host: Rect;
-}
-
-// Flatten the split tree into absolute percentage rects. Panes render as
-// keyed siblings of one container, so tree restructuring never re-parents
-// (and therefore never remounts / kills) a live terminal.
-function collectRects(
-  node: TermNode,
-  rect: Rect,
-  path: number[],
-  out: { id: string; rect: Rect }[],
-  dividers: Divider[]
-) {
-  if (node.type === "leaf") {
-    out.push({ id: node.id, rect });
-    return;
-  }
-  const sizes = sizesOf(node);
-  let at = 0;
-  node.children.forEach((c, i) => {
-    const f = sizes[i];
-    const r =
-      node.dir === "row"
-        ? { x: rect.x + rect.w * at, y: rect.y, w: rect.w * f, h: rect.h }
-        : { x: rect.x, y: rect.y + rect.h * at, w: rect.w, h: rect.h * f };
-    collectRects(c, r, [...path, i], out, dividers);
-    at += f;
-    if (i < node.children.length - 1) {
-      dividers.push({ path, index: i, dir: node.dir, at, host: rect });
-    }
-  });
-}
-
-export function Terminals({
+export function TerminalPanes({
   tree,
-  visible,
-  height,
+  panes,
   active,
+  locked,
+  draggingId,
+  onPaneDragStart,
   onOpenFile,
 }: {
-  tree: TerminalTree;
-  visible: boolean;
-  height: number;
+  tree: LayoutTree;
+  /** every terminal leaf, in an order that never changes with the layout; a
+   *  null rect is a hidden pane (⌘J), which keeps its element — and its
+   *  shell — alive at display:none. `shift` is the drag preview riding over
+   *  the frozen rect — a transform, so the pane slides without ever being
+   *  laid out again */
+  panes: { id: string; rect: Rect | null; shift?: string }[];
   active: boolean;
+  /** the titlebar's layout lock — the grab pill never arms under it */
+  locked: boolean;
+  /** the pane being carried, for its card's lift and its pill's light */
+  draggingId: string | null;
+  /** the workspace owns every drag now — a terminal is a peer of the sidebar
+   *  and the editor there, and the drop targets span all of them */
+  onPaneDragStart: (e: ReactMouseEvent, id: string) => void;
   /** a ⌘-clicked path that belongs to this project */
   onOpenFile: (abs: string, line?: number) => void;
 }) {
+  // whether the panes wear the shared card or go plain — a live setting,
+  // so flipping it in ⌘, restyles every open terminal on the spot
+  const { termStyle } = useSettings();
   // The pane toolbar only exists near the top edge of a pane, so working in
   // the middle of a session never puts chrome on screen.
   const [armed, setArmed] = useState<string | null>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const [grabArmed, setGrabArmed] = useState<string | null>(null);
+  // locking while a pill happens to be lit must put it out — the mousemove
+  // that armed it computes `grab` as false from then on, but only if it fires
+  useEffect(() => {
+    if (locked) setGrabArmed(null);
+  }, [locked]);
 
   // ⌘F presses so far, 0 while the bar is closed — a count rather than a
   // flag so a press with the bar already up still reaches it (see TermFind)
   const [finding, setFinding] = useState(0);
 
-  // app-wide rather than per-panel, and started from here because the panes
+  // app-wide rather than per-pane, and started from here because the panes
   // are what it delivers to; calling it again is a no-op
   useEffect(watchFileDrops, []);
 
@@ -387,160 +183,115 @@ export function Terminals({
   // ⌘F, but only when the keyboard is already the terminal's — the editor's
   // ⌘F is CodeMirror's and never passes through here. Listening on the window
   // rather than the pane because xterm's textarea answers keydowns itself.
+  // Membership is asked of the element: the panes are scattered through the
+  // workspace now, so there is no one box to test containment against.
   useEffect(() => {
-    if (!active || !visible) return;
+    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
       if (e.key.toLowerCase() !== "f") return;
-      if (!(e.target instanceof Node) || !bodyRef.current?.contains(e.target)) return;
+      if (!(e.target instanceof Element) || !e.target.closest(".term-abs")) return;
       e.preventDefault();
       setFinding((n) => n + 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, visible]);
-
-  // Drag a divider to change how two neighbouring panes share their split.
-  // Shares are recomputed from the sizes captured at mousedown, so a long
-  // gesture can't accumulate rounding drift.
-  const startResize = useCallback(
-    (e: React.MouseEvent, d: Divider) => {
-      const body = bodyRef.current;
-      const node = nodeAt(tree.root, d.path);
-      if (!body || !node || node.type !== "split") return;
-      e.preventDefault();
-      const base = sizesOf(node);
-      const br = body.getBoundingClientRect();
-      const span = d.dir === "row" ? (br.width * d.host.w) / 100 : (br.height * d.host.h) / 100;
-      if (span <= 0) return;
-      // neither side may be squeezed below a usable pane
-      const min = Math.min(0.15, 60 / span);
-      const start = d.dir === "row" ? e.clientX : e.clientY;
-
-      const move = (ev: MouseEvent) => {
-        const travelled = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
-        const room = { back: base[d.index] - min, fwd: base[d.index + 1] - min };
-        const delta = Math.max(-room.back, Math.min(room.fwd, travelled / span));
-        const sizes = [...base];
-        sizes[d.index] = base[d.index] + delta;
-        sizes[d.index + 1] = base[d.index + 1] - delta;
-        tree.setSizes(d.path, sizes);
-      };
-      const up = () => {
-        window.removeEventListener("mousemove", move);
-        window.removeEventListener("mouseup", up);
-        document.body.classList.remove("dragging-col", "dragging-row");
-      };
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", up);
-      document.body.classList.add(d.dir === "row" ? "dragging-col" : "dragging-row");
-    },
-    [tree]
-  );
-
-  const panes: { id: string; rect: Rect }[] = [];
-  const dividers: Divider[] = [];
-  if (tree.root) collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], panes, dividers);
+  }, [active]);
 
   return (
-    <div className="term-panel" style={{ display: visible ? "flex" : "none", height }}>
-      <div className="term-body" ref={bodyRef}>
-        {tree.root ? (
-          (() => {
-            return panes.map(({ id, rect }) => (
-              <div
-                key={id}
-                className="term-abs"
-                // how a dropped file finds the pty it was dropped on
-                data-term-id={id}
-                style={{
+    <>
+      {panes.map(({ id, rect, shift }) => (
+        <div
+          key={id}
+          className={`pane-abs term-abs ${termStyle === "plain" ? "plain" : ""} ${
+            draggingId === id ? "moving" : ""
+          }`}
+          data-pane-id={id}
+          // how a dropped file finds the pty it was dropped on
+          data-term-id={id}
+          style={
+            rect
+              ? {
                   left: `${rect.x}%`,
                   top: `${rect.y}%`,
                   width: `${rect.w}%`,
                   height: `${rect.h}%`,
-                }}
-                onMouseMove={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect();
-                  // the top fifth, floored so a short pane still has a strip
-                  // you can actually aim at
-                  const zone = Math.max(r.height * 0.2, 28);
-                  const near = e.clientY - r.top < zone;
-                  setArmed((cur) => (near ? id : cur === id ? null : cur));
-                }}
-                onMouseLeave={() => setArmed((cur) => (cur === id ? null : cur))}
-              >
-                {finding > 0 && tree.focusedId === id && (
-                  <TermFind
-                    id={id}
-                    ping={finding}
-                    onClose={() => {
-                      setFinding(0);
-                      searchers.get(id)?.term.focus();
-                    }}
-                  />
-                )}
-                {/* same corner as the find bar, so the actions yield while it's up */}
-                <div
-                  className={`pane-actions ${
-                    armed === id && !(finding > 0 && tree.focusedId === id) ? "visible" : ""
-                  }`}
-                >
-                  <button title="add terminal left" onClick={() => tree.splitPane(id, "left")}>
-                    ◧
-                  </button>
-                  <button title="add terminal above" onClick={() => tree.splitPane(id, "up")}>
-                    ⬒
-                  </button>
-                  <button title="add terminal below" onClick={() => tree.splitPane(id, "down")}>
-                    ⬓
-                  </button>
-                  <button title="add terminal right" onClick={() => tree.splitPane(id, "right")}>
-                    ◨
-                  </button>
-                  <button className="pane-close" title="close terminal" onClick={() => tree.removePane(id)}>
-                    ✕
-                  </button>
-                </div>
-                <TerminalPane
-                  id={id}
-                  cwd={tree.cwd}
-                  focused={tree.focusedId === id}
-                  active={active && visible}
-                  onFocus={tree.setFocused}
-                  onExit={tree.removePane}
-                  onOpenFile={onOpenFile}
-                />
-              </div>
-            ));
-          })()
-        ) : (
-          <div className="term-empty">
-            <kbd>⌘T</kbd> for a terminal
-          </div>
-        )}
-        {/* invisible grab strips straddling each split line */}
-        {dividers.map((d) => (
+                  transform: shift,
+                }
+              : { display: "none" }
+          }
+          onMouseMove={(e) => {
+            if (draggingId) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            // the top fifth, floored so a short pane still has a strip you
+            // can actually aim at
+            const zone = Math.max(r.height * 0.2, 28);
+            const near = e.clientY - r.top < zone;
+            setArmed((cur) => (near ? id : cur === id ? null : cur));
+            // the move pill's reach: the top strip of the card, centre only
+            // — beside the pane actions, over nothing else. Armed by
+            // proximity rather than :hover so that at rest it never takes
+            // the pointer from the text under it.
+            const grab =
+              !locked && e.clientY - r.top < 14 && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
+            setGrabArmed((cur) => (grab ? id : cur === id ? null : cur));
+          }}
+          onMouseLeave={() => {
+            setArmed((cur) => (cur === id ? null : cur));
+            setGrabArmed((cur) => (cur === id ? null : cur));
+          }}
+        >
           <div
-            key={`${d.path.join(".")}:${d.index}`}
-            className={`term-divider ${d.dir}`}
-            style={
-              d.dir === "row"
-                ? {
-                    left: `${d.host.x + d.host.w * d.at}%`,
-                    top: `${d.host.y}%`,
-                    height: `${d.host.h}%`,
-                  }
-                : {
-                    top: `${d.host.y + d.host.h * d.at}%`,
-                    left: `${d.host.x}%`,
-                    width: `${d.host.w}%`,
-                  }
-            }
-            onMouseDown={(e) => startResize(e, d)}
+            className={`pane-grab ${grabArmed === id ? "armed" : ""} ${
+              draggingId === id ? "live" : ""
+            }`}
+            title="move terminal"
+            onMouseDown={(e) => onPaneDragStart(e, id)}
           />
-        ))}
-      </div>
-    </div>
+          {finding > 0 && tree.focusedId === id && (
+            <TermFind
+              id={id}
+              ping={finding}
+              onClose={() => {
+                setFinding(0);
+                searchers.get(id)?.term.focus();
+              }}
+            />
+          )}
+          {/* same corner as the find bar, so the actions yield while it's up */}
+          <div
+            className={`pane-actions ${
+              armed === id && !(finding > 0 && tree.focusedId === id) ? "visible" : ""
+            }`}
+          >
+            <button title="add terminal left" onClick={() => tree.splitPane(id, "left")}>
+              ◧
+            </button>
+            <button title="add terminal above" onClick={() => tree.splitPane(id, "up")}>
+              ⬒
+            </button>
+            <button title="add terminal below" onClick={() => tree.splitPane(id, "down")}>
+              ⬓
+            </button>
+            <button title="add terminal right" onClick={() => tree.splitPane(id, "right")}>
+              ◨
+            </button>
+            <button className="pane-close" title="close terminal" onClick={() => tree.removePane(id)}>
+              ✕
+            </button>
+          </div>
+          <TerminalPane
+            id={id}
+            cwd={tree.cwd}
+            focused={tree.focusedId === id}
+            active={active && rect !== null}
+            onFocus={tree.setFocused}
+            onExit={tree.removePane}
+            onOpenFile={onOpenFile}
+          />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -595,12 +346,12 @@ const TERM_THEME_LIGHT = {
 };
 
 /* Appearance picks the palette; the background is blanked in all of them.
-   The terminal has no panel of its own any more — it sits on the window's
-   field, or on glass — so a background here would be the one thing painting a
-   pane behind text that is meant to have none. The palette keeps its own
-   background value for the cases that derive from it (xterm inverts it for
-   the selection and the cursor), which is why this blanks the alpha rather
-   than dropping the key.
+   Whatever is behind the text — the panel's own card, the window's field when
+   the terminal is set plain, or glass — is painted by the panel, so a
+   background here would be xterm painting a second pane over the one that
+   already carries the tone. The palette keeps its own background value for
+   the cases that derive from it (xterm inverts it for the selection and the
+   cursor), which is why this blanks the alpha rather than dropping the key.
    Read from the settings store, not the DOM: store listeners fire before
    React has moved the html classes, and the store is never behind. */
 function termTheme() {
@@ -745,7 +496,14 @@ function TerminalPane({
     /** a divider is under the mouse — the body class both drag handlers set */
     const dragging = () =>
       document.body.classList.contains("dragging-row") ||
-      document.body.classList.contains("dragging-col");
+      document.body.classList.contains("dragging-col") ||
+      // a carried pane counts too, and so does this pane still gliding into
+      // a seat that resized it (the .landing the drop pins on): the program
+      // on the other end should hear one SIGWINCH once everything is still,
+      // not a redraw per animation frame — and applySize should measure the
+      // settled card, never a size caught mid-glide
+      document.body.classList.contains("dragging-panel") ||
+      el.closest(".pane-abs.landing") !== null;
 
     /**
      * How many rows the terminal can give up without losing anything.
@@ -929,9 +687,8 @@ function TerminalPane({
         // the command this pane was opened to run, if it was opened to run
         // one: typed rather than executed behind the scenes, so it lands in
         // the user's own shell, in front of them, editable and re-runnable
-        const boot = boots.get(id);
+        const boot = takeBoot(id);
         if (!boot) return;
-        boots.delete(id);
         api.ptyWrite(id, `${boot}\r`).catch(() => {});
       },
       (e) => {
@@ -966,11 +723,18 @@ function TerminalPane({
     });
     void decoder;
 
-    // fit visually every frame during drags (debouncing leaves the exposed
-    // strip showing the cleared canvas = black flash); only the pty notify
-    // is debounced.
+    // Two kinds of drag, two opposite needs. A divider drag really resizes
+    // this pane per frame, so it refits visually every frame (debouncing
+    // leaves the exposed strip showing the cleared canvas = black flash);
+    // only the pty notify is debounced. A panel drag never resizes anything
+    // until the drop — the preview is transforms — so any resize that lands
+    // while one runs (and the carried card's own landing glide, which eases
+    // width for real) skips the refit entirely: the card clips, the text
+    // holds still, and one settle refit arrives through notifyPty when
+    // everything is down. That single refit is most of what 120fps cost.
     //
-    // And it waits for the mouse to come up, not just for 50ms of quiet.
+    // The pty notify waits for the mouse to come up, not just for 50ms of
+    // quiet.
     // Telling the pty is a SIGWINCH, and a full-screen program answers one by
     // redrawing everything it has on screen — for Claude Code that is its
     // whole UI. A drag pauses longer than 50ms between snap points more often
@@ -986,8 +750,11 @@ function TerminalPane({
         resizeTimer = window.setTimeout(notifyPty, 30);
         return;
       }
-      // the shrink applySize held back while the mouse was down, and the
-      // SIGWINCH that tells the program to redraw for it, back to back
+      // everything held back while the mouse was down, back to back: the
+      // scroll offset that now describes the wrong geometry, the refit a
+      // panel drag skipped (or the shrink a divider drag held), and the
+      // SIGWINCH that tells the program to redraw for it
+      smooth.reset();
       applySize();
       if (term.cols > 0 && term.rows > 0) {
         api.ptyResize(id, term.cols, term.rows).catch(() => {});
@@ -998,6 +765,16 @@ function TerminalPane({
       resizeRaf = window.requestAnimationFrame(() => {
         resizeRaf = 0;
         if (el.clientWidth === 0 || el.clientHeight === 0) return;
+        // a panel in flight: no refit now — notifyPty below re-arms until
+        // the drag and the landing are over, then applySize()s once
+        if (
+          document.body.classList.contains("dragging-panel") ||
+          el.closest(".pane-abs.landing") !== null
+        ) {
+          window.clearTimeout(resizeTimer);
+          resizeTimer = window.setTimeout(notifyPty, 50);
+          return;
+        }
         smooth.reset();
         applySize();
         if (term.rows > 0) term.refresh(0, term.rows - 1);

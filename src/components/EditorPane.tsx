@@ -203,54 +203,58 @@ export function EditorPane({
 
   return (
     <div className="editor-pane">
-      <div className={`editor-tabs ${drag ? "reordering" : ""}`} ref={stripRef}>
-        {views.map((v, i) => (
-          <div
-            key={v.key}
-            className={`editor-tab ${i === activeView ? "active" : ""} ${
-              drag?.from === i ? "dragging" : ""
-            }`}
-            style={{ transform: shift(i) }}
-            onMouseDown={(e) => {
-              if (e.button === 1) onClose(i);
-              else if (e.button === 0) {
-                onSelect(i);
-                startDrag(e, i);
-              }
-            }}
-            onContextMenu={(e) => contextMenu(e, tabEntries(v, i))}
-          >
-            <button
-              className="editor-tab-name"
-              onClick={() => onSelect(i)}
-              title={v.key}
-            >
-              {/* the file's own icon, from the same seti set the tree uses.
-                  Taken from the path rather than the label because a memo's
-                  label is its title — the path is what names a file there. */}
-              <FileIconSpan name={viewPath(v, root).split("/").pop() ?? ""} />
-              {/* the two diffs of one file are two tabs, so the marker has to
-                  tell them apart — ✓ is the staged one, already accounted for */}
-              {v.kind === "diff" && (
-                <span className={`editor-tab-diff ${v.staged ? "staged" : ""}`}>
-                  {v.staged ? "✓" : "±"}
-                </span>
-              )}
-              {viewLabel(v, memos)}
-            </button>
-            <button
-              className="editor-tab-close"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => onClose(i)}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-      {/* The card starts under the tabs, not above them: the strip is window
-          now, and this is the page it holds. */}
+      {/* The strip is the card's own top row now, the way the sidebar's tab
+          strip is — it used to lie outside on the window, with the active tab
+          wearing the page's tone flush into the page, and that construction
+          can't survive the card having an edge: a hairline across the top of
+          the page severs the tab from it, and a tab outside the border is
+          outside the panel it names. */}
       <div className="editor-card">
+        <div className={`editor-tabs ${drag ? "reordering" : ""}`} ref={stripRef}>
+          {views.map((v, i) => (
+            <div
+              key={v.key}
+              className={`editor-tab ${i === activeView ? "active" : ""} ${
+                drag?.from === i ? "dragging" : ""
+              }`}
+              style={{ transform: shift(i) }}
+              onMouseDown={(e) => {
+                if (e.button === 1) onClose(i);
+                else if (e.button === 0) {
+                  onSelect(i);
+                  startDrag(e, i);
+                }
+              }}
+              onContextMenu={(e) => contextMenu(e, tabEntries(v, i))}
+            >
+              <button
+                className="editor-tab-name"
+                onClick={() => onSelect(i)}
+                title={v.key}
+              >
+                {/* the file's own icon, from the same seti set the tree uses.
+                    Taken from the path rather than the label because a memo's
+                    label is its title — the path is what names a file there. */}
+                <FileIconSpan name={viewPath(v, root).split("/").pop() ?? ""} />
+                {/* the two diffs of one file are two tabs, so the marker has to
+                    tell them apart — ✓ is the staged one, already accounted for */}
+                {v.kind === "diff" && (
+                  <span className={`editor-tab-diff ${v.staged ? "staged" : ""}`}>
+                    {v.staged ? "✓" : "±"}
+                  </span>
+                )}
+                {viewLabel(v, memos)}
+              </button>
+              <button
+                className="editor-tab-close"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => onClose(i)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
         {/* The path line, on every view again. It went away for a while as the
             file's name said twice — once in the tab and once here — but the
             crumbs before that name are the part nothing else says: which of

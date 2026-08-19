@@ -1,6 +1,6 @@
 import { api } from "./api";
 import type { Project } from "../App";
-import type { TermNode } from "../components/Terminals";
+import type { LayoutNode } from "./layout";
 import type { SidebarTab } from "../components/Sidebar";
 import type { View } from "../components/Workspace";
 
@@ -24,7 +24,11 @@ const KEY = "zero-session";
 const WRITE_DELAY_MS = 150;
 
 export interface ProjectSession {
-  term: TermNode | null;
+  /** the whole window's split tree — sidebar, editor and terminals as leaves */
+  layout: LayoutNode | null;
+  /** the terminal region's own tree from before the one-tree layout — read
+   *  once by the migration, never written again */
+  term: LayoutNode | null;
   focusedId: string | null;
   sidebarTab: SidebarTab;
   sidebarVisible: boolean;
@@ -47,9 +51,9 @@ const empty = (): Session => ({ projects: [], activeIdx: 0, byProject: {} });
    exceptional. Anything unrecognised is dropped rather than defaulted, and a
    tree that can't be salvaged becomes null — which just means "fresh shell". */
 
-function validTree(n: unknown, seen: Set<string>): TermNode | null {
+function validTree(n: unknown, seen: Set<string>): LayoutNode | null {
   if (!n || typeof n !== "object") return null;
-  const node = n as TermNode;
+  const node = n as LayoutNode;
 
   if (node.type === "leaf") {
     // duplicate ids would collide as React keys and, worse, as pty ids
@@ -63,7 +67,7 @@ function validTree(n: unknown, seen: Set<string>): TermNode | null {
 
   const children = node.children
     .map((c) => validTree(c, seen))
-    .filter((c): c is TermNode => c !== null);
+    .filter((c): c is LayoutNode => c !== null);
   if (children.length === 0) return null;
   // a split that lost all but one child is just that child
   if (children.length === 1) return children[0];
@@ -113,6 +117,7 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
   const p = v as Partial<ProjectSession>;
   const views = validViews(p.views);
   return {
+    layout: validTree(p.layout, new Set()),
     term: validTree(p.term, new Set()),
     focusedId: typeof p.focusedId === "string" ? p.focusedId : null,
     sidebarTab:

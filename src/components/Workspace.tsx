@@ -3,8 +3,27 @@ import type { Project } from "../App";
 import { Sidebar, SidebarTab } from "./Sidebar";
 import type { Reveal } from "./FileTree";
 import { EditorPane } from "./EditorPane";
-import { Terminals, useTerminalTree } from "./Terminals";
+import { TerminalPanes } from "./Terminals";
 import { QuickOpen } from "./QuickOpen";
+import {
+  EDITOR,
+  SIDEBAR,
+  collectRects,
+  isTerm,
+  leafIds,
+  parentDirOf,
+  precedes,
+  nodeAt,
+  seatedLeaf,
+  seatedLeafAtRoot,
+  sizesOf,
+  useLayoutTree,
+  type Divider,
+  type LayoutNode,
+  type Rect,
+  type Side,
+} from "../lib/layout";
+import { flushSync } from "react-dom";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
 import { projectSession, saveProject } from "../lib/session";
@@ -28,13 +47,23 @@ export type View =
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
-function persisted(key: string, fallback: number): number {
-  const v = parseFloat(localStorage.getItem(key) ?? "");
-  return Number.isFinite(v) ? v : fallback;
-}
-
-/** a pane's vertical padding — the part of the panel's height that isn't rows */
-const PANE_PAD_Y = 12;
+/* ----- the drag's numbers -----
+   Every threshold the gesture answers to, gathered here to be tuned from.
+   Distances are CSS px. Direct-sibling swaps stay instant on entry — if that
+   ever proves twitchy on small panes, an entry buffer belongs in this list.
+   The share clamps a seat may take live with the tree ops, in layout.ts. */
+/** travel before a press becomes a carry — a click with a shake in it stays a click */
+const DRAG_START = 5;
+/** the window-edge band that aims a drop at the root rather than at any pane */
+const EDGE_STRIP = 22;
+/** a split band's share of the extent it crosses… */
+const SPLIT_BAND = 0.25;
+/** …never thinner than this, so a short pane still offers one */
+const SPLIT_BAND_MIN = 28;
+/** …and never wider, so a tall pane doesn't become mostly band */
+const SPLIT_BAND_MAX = 90;
+/** crosswise travel before split bands arm at all — a level slide never splits */
+const CROSS_ARM = 24;
 
 /**
  * Everything in this window that a keystroke might belong to instead of to us.
@@ -55,46 +84,19 @@ const TEXT_SURFACES = 'input, textarea, [contenteditable]:not([contenteditable="
 const typing = (e: KeyboardEvent) =>
   e.target instanceof Element && e.target.closest(TEXT_SURFACES) !== null;
 
-function startDrag(
-  e: React.MouseEvent,
-  axis: "x" | "y",
-  dir: 1 | -1,
-  start: number,
-  min: number,
-  max: number,
-  set: (v: number) => void,
-  /** row height, if this edge should move a whole line at a time */
-  step = 0
-) {
-  e.preventDefault();
-  const startPos = axis === "x" ? e.clientX : e.clientY;
-  document.body.classList.add(axis === "x" ? "dragging-col" : "dragging-row");
-  const move = (ev: MouseEvent) => {
-    const delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
-    let next = start + dir * delta;
-    // snap to heights that hold a whole number of rows. Measured from the
-    // padding, not from zero, or the landing points sit a few px off the rows
-    // they're meant to line up with.
-    if (step > 1) next = Math.round((next - PANE_PAD_Y) / step) * step + PANE_PAD_Y;
-    set(clamp(next, min, max));
-  };
-  const up = () => {
-    window.removeEventListener("mousemove", move);
-    window.removeEventListener("mouseup", up);
-    document.body.classList.remove("dragging-col", "dragging-row");
-  };
-  window.addEventListener("mousemove", move);
-  window.addEventListener("mouseup", up);
-}
-
 // memoised: switching projects changes `active` on exactly two of them, and
 // without this every other open project re-renders its whole tree for nothing
 export const Workspace = memo(function Workspace({
   project,
   active,
+  locked,
 }: {
   project: Project;
   active: boolean;
+  /** the titlebar's layout lock. On, panes cannot be picked up: the grab
+   *  pills never arm and startPaneDrag is inert — only the carrying is
+   *  locked, so splits and divider resizes go on working. */
+  locked: boolean;
 }) {
   // last session's layout for this project. Read once: the component is keyed
   // by root, so a mount is always a project arriving, never one changing.
@@ -102,15 +104,13 @@ export const Workspace = memo(function Workspace({
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(saved.sidebarTab ?? "scm");
   const [sidebarVisible, setSidebarVisible] = useState(saved.sidebarVisible ?? true);
   const [terminalVisible, setTerminalVisible] = useState(saved.terminalVisible ?? true);
-  const [sidebarWidth, setSidebarWidth] = useState(() => persisted("zero-sidebar-w", 260));
   const [quickOpen, setQuickOpen] = useState(false);
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const revealCount = useRef(0);
-  const [termHeight, setTermHeight] = useState(() => persisted("zero-term-h", 300));
   const [views, setViews] = useState<View[]>(saved.views ?? []);
   const [activeView, setActiveView] = useState(saved.activeView ?? 0);
   const untitledRef = useRef(0);
-  const term = useTerminalTree(project.root, saved);
+  const tree = useLayoutTree(project.root, saved);
   // held here rather than in the panel so a result list survives a look at the
   // file tree — the sidebar renders one tab at a time
   const search = useSearch(project.root);
@@ -126,23 +126,16 @@ export const Workspace = memo(function Workspace({
     // the terminals are this component's to open
     () => {
       setTerminalVisible(true);
-      term.newTerminal("claude /login");
+      tree.newTerminal("claude /login");
     }
   );
-
-  useEffect(() => {
-    localStorage.setItem("zero-sidebar-w", String(sidebarWidth));
-  }, [sidebarWidth]);
-  useEffect(() => {
-    localStorage.setItem("zero-term-h", String(termHeight));
-  }, [termHeight]);
 
   // everything this project should look like next launch. The store debounces,
   // so a divider drag firing this per mousemove costs one write at the end.
   useEffect(() => {
     saveProject(project.root, {
-      term: term.root,
-      focusedId: term.focusedId,
+      layout: tree.root,
+      focusedId: tree.focusedId,
       sidebarTab,
       sidebarVisible,
       terminalVisible,
@@ -151,8 +144,8 @@ export const Workspace = memo(function Workspace({
     });
   }, [
     project.root,
-    term.root,
-    term.focusedId,
+    tree.root,
+    tree.focusedId,
     sidebarTab,
     sidebarVisible,
     terminalVisible,
@@ -391,7 +384,7 @@ export const Workspace = memo(function Workspace({
       } else if ((ctrl && e.shiftKey && e.code === "Backquote") || (meta && !e.shiftKey && e.key.toLowerCase() === "t")) {
         e.preventDefault();
         setTerminalVisible(true);
-        term.newTerminal();
+        tree.newTerminal();
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         untitledRef.current += 1;
@@ -406,7 +399,7 @@ export const Workspace = memo(function Workspace({
       } else if (meta && e.code === "Backslash") {
         e.preventDefault();
         setTerminalVisible(true);
-        term.splitFocused(e.shiftKey ? "col" : "row");
+        tree.splitFocused(e.shiftKey ? "col" : "row");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -419,8 +412,8 @@ export const Workspace = memo(function Workspace({
     openView,
     project.root,
     search.focus,
-    term.newTerminal,
-    term.splitFocused,
+    tree.newTerminal,
+    tree.splitFocused,
   ]);
 
   // keep a ref-like holder for activeView so the key handler doesn't rebind constantly
@@ -441,89 +434,495 @@ export const Workspace = memo(function Workspace({
   const shown = views[activeView];
   const activeMemo = shown?.kind === "memo" ? shown.id : null;
 
-  // this project's own row height. Scoped to the workspace rather than the
-  // document because every project's panes are mounted at once, and an
-  // inactive one's rows are laid out just as measurably as the visible one's.
   const rootRef = useRef<HTMLDivElement>(null);
-  const termCell = () => {
-    const row = rootRef.current?.querySelector<HTMLElement>(".xterm-rows > div");
-    const h = row?.getBoundingClientRect().height ?? 0;
-    return h > 1 ? h : 0;
+
+  // ----- carrying a pane -----
+  // Same gesture for every pane — a terminal, the editor, the sidebar: pick
+  // it up by the pill at its top and carry it. The feedback is the drop's own
+  // nature, the way the Claude app does it. Aiming a re-seat — a drop along
+  // the axis of the split the target already lives in — slides the other
+  // panes into the layout the drop would make, live and animated: the gap
+  // that opens is the seat. Aiming a true split — a drop across that axis —
+  // draws a single accent line along the edge it would cut, and nothing
+  // moves until release. ⎋ puts everything back.
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  /** the tree as the drop would leave it, worn live while a re-seat is
+   *  aimed — the preview and the drop are the same computation. Every pane's
+   *  committed rect stays frozen for the length of the drag; this tree shows
+   *  itself as per-pane transforms over them (previewShift below), so a
+   *  frame of preview costs the compositor a slide and the layout engine
+   *  nothing at all — no reflow, no terminal refit, no repaint of text. */
+  const [previewRoot, setPreviewRoot] = useState<LayoutNode | null>(null);
+  /** the line a split shows, along the edge of the pane it would cut */
+  const [splitHint, setSplitHint] = useState<{ rect: Rect; side: Side } | null>(null);
+  /** the pill under the pointer, for the two panes that arm here (terminals
+   *  arm their own). Armed by proximity rather than :hover so the pill never
+   *  takes the pointer at rest from the tabs and icons it floats over. */
+  const [grabArmed, setGrabArmed] = useState<"sidebar" | "editor" | null>(null);
+  // locking while a pill happens to be lit must put it out — the mousemove
+  // that armed it is gated from then on and would never disarm it
+  useEffect(() => {
+    if (locked) setGrabArmed(null);
+  }, [locked]);
+
+  // ----- the layout, drawn -----
+  // One tree, one absolute field. Hidden panes stay leaves — the sidebar
+  // toggled away, every terminal while ⌘J holds — and simply get no rect:
+  // their siblings renormalise into the room, and everything comes back to
+  // its own seat because nothing ever left the tree. The rects always come
+  // from the committed tree — a drag freezes them by never committing until
+  // the drop — and an aimed re-seat rides on top as transforms.
+  const hiddenIds = new Set<string>();
+  if (!sidebarVisible) hiddenIds.add(SIDEBAR);
+  const termIds = leafIds(tree.root).filter(isTerm);
+  if (!terminalVisible) for (const id of termIds) hiddenIds.add(id);
+
+  const panes: { id: string; rect: Rect }[] = [];
+  const dividers: Divider[] = [];
+  collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, panes, dividers);
+  const rectOf = (id: string) => panes.find((p) => p.id === id)?.rect ?? null;
+  /** where the aimed drop would put each pane, while one is aimed */
+  const previewPanes: { id: string; rect: Rect }[] | null = previewRoot ? [] : null;
+  if (previewRoot && previewPanes)
+    collectRects(previewRoot, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, previewPanes, []);
+  /**
+   * The preview, worn as a slide: the distance from a pane's frozen rect to
+   * its place in the aimed layout, as a translate in percentages of the
+   * pane's own box — so nothing is ever measured back off the DOM. Same-axis
+   * re-seats preserve every size, so for them this slide is the exact
+   * layout; a seat in a foreign split only approximates until the drop
+   * (sizes stay pinned mid-drag, so a target giving ground may overlap its
+   * neighbour a little while the gap opens). The carried card is never
+   * shifted — it rides the pointer, and its seat is the gap the others leave.
+   */
+  const previewShift = (id: string): string | undefined => {
+    if (!previewPanes || id === draggingId) return undefined;
+    const at = rectOf(id);
+    const to = previewPanes.find((p) => p.id === id)?.rect;
+    if (!at || !to) return undefined;
+    const tx = ((to.x - at.x) / at.w) * 100;
+    const ty = ((to.y - at.y) / at.h) * 100;
+    if (Math.abs(tx) < 0.01 && Math.abs(ty) < 0.01) return undefined;
+    return `translate(${tx}%, ${ty}%)`;
+  };
+  const paneStyle = (rect: Rect | null, shift?: string): React.CSSProperties =>
+    rect
+      ? {
+          left: `${rect.x}%`,
+          top: `${rect.y}%`,
+          width: `${rect.w}%`,
+          height: `${rect.h}%`,
+          transform: shift,
+        }
+      : { display: "none" };
+  // stable order, never tree order: re-seating a pane must not reorder the
+  // keyed siblings, or React would move live terminal DOM around the tree
+  const termPanes = [...termIds]
+    .sort()
+    .map((id) => ({ id, rect: rectOf(id), shift: previewShift(id) }));
+
+  /**
+   * What a drop at this point would do. Targets are measured against the
+   * layout as it stood when the card was picked up — never against the
+   * preview sliding under the pointer, which would chase its own feedback.
+   *
+   * Re-seats answer early: hovering a direct sibling swaps across it the
+   * moment the pointer arrives (which side of it you came from already says
+   * where you're going), and a foreign pane seats by its midline. True
+   * splits — drops across the target's own axis — live in narrow bands
+   * along the crossing edges, so they are asked for deliberately rather
+   * than tripped over. Window-edge strips aim at the root.
+   */
+  const targetAt = (
+    cx: number,
+    cy: number,
+    dragged: string,
+    dRect: Rect,
+    base: { id: string; rect: Rect }[],
+    travelX: number,
+    travelY: number
+  ):
+    | { op: "pane"; targetId: string; side: Side; seat: boolean; ratio: number; rect: Rect }
+    | { op: "root"; side: Side; seat: boolean; extent: number; rect: Rect }
+    | null => {
+    const root = rootRef.current;
+    if (!root) return null;
+    const rr = root.getBoundingClientRect();
+    const fx = clamp(cx - rr.left, 0, rr.width);
+    const fy = clamp(cy - rr.top, 0, rr.height);
+    const whole: Rect = { x: 0, y: 0, w: 100, h: 100 };
+    const edge = Math.min(fx, rr.width - fx, fy, rr.height - fy);
+    if (edge < EDGE_STRIP) {
+      const side: Side =
+        edge === fx ? "left" : edge === rr.width - fx ? "right" : edge === fy ? "up" : "down";
+      const axis = side === "left" || side === "right" ? "row" : "col";
+      const seat = tree.root.type === "split" && tree.root.dir === axis;
+      const extent = (axis === "row" ? dRect.w : dRect.h) / 100;
+      return { op: "root", side, seat, extent, rect: whole };
+    }
+    const px = (fx / rr.width) * 100;
+    const py = (fy / rr.height) * 100;
+    const hit = base.find(
+      (p) =>
+        p.id !== dragged &&
+        px >= p.rect.x &&
+        px < p.rect.x + p.rect.w &&
+        py >= p.rect.y &&
+        py < p.rect.y + p.rect.h
+    );
+    if (!hit) return null;
+    const pdir = parentDirOf(tree.root, hit.id);
+    // pixel geometry of the hovered pane, for bands and midlines
+    const wPx = (hit.rect.w / 100) * rr.width;
+    const hPx = (hit.rect.h / 100) * rr.height;
+    const inX = fx - (hit.rect.x / 100) * rr.width;
+    const inY = fy - (hit.rect.y / 100) * rr.height;
+    if (!pdir) {
+      // a lone pane: there is nothing to seat beside, every edge is a split
+      const m = Math.min(inX, wPx - inX, inY, hPx - inY);
+      const side: Side =
+        m === inX ? "left" : m === wPx - inX ? "right" : m === inY ? "up" : "down";
+      return { op: "pane", targetId: hit.id, side, seat: false, ratio: 0.5, rect: hit.rect };
+    }
+    // Split bands arm only once the hand has actually travelled across the
+    // axis. Every drag starts at a pane's top pill, so a level slide into a
+    // neighbour skims its top band the whole way — and a level slide means
+    // reorder, not split. Real splits arrive crosswise, and those get the
+    // bands at full size.
+    const band = (cross: number) =>
+      Math.min(Math.max(cross * SPLIT_BAND, SPLIT_BAND_MIN), SPLIT_BAND_MAX);
+    if (pdir === "row") {
+      const b = Math.abs(travelY) > CROSS_ARM ? band(hPx) : 0;
+      if (b > 0 && (inY < b || inY > hPx - b)) {
+        const side: Side = inY < b ? "up" : "down";
+        return { op: "pane", targetId: hit.id, side, seat: false, ratio: 0.5, rect: hit.rect };
+      }
+      const pre = precedes(tree.root, dragged, hit.id);
+      const side: Side = pre === true ? "right" : pre === false ? "left" : inX < wPx / 2 ? "left" : "right";
+      return {
+        op: "pane",
+        targetId: hit.id,
+        side,
+        seat: true,
+        ratio: dRect.w / (dRect.w + hit.rect.w),
+        rect: hit.rect,
+      };
+    }
+    const b = Math.abs(travelX) > CROSS_ARM ? band(wPx) : 0;
+    if (b > 0 && (inX < b || inX > wPx - b)) {
+      const side: Side = inX < b ? "left" : "right";
+      return { op: "pane", targetId: hit.id, side, seat: false, ratio: 0.5, rect: hit.rect };
+    }
+    const pre = precedes(tree.root, dragged, hit.id);
+    const side: Side = pre === true ? "down" : pre === false ? "up" : inY < hPx / 2 ? "up" : "down";
+    return {
+      op: "pane",
+      targetId: hit.id,
+      side,
+      seat: true,
+      ratio: dRect.h / (dRect.h + hit.rect.h),
+      rect: hit.rect,
+    };
   };
 
-  return (
-    <div
-      ref={rootRef}
-      className={`workspace ${active ? "" : "inactive"}`}
-      // how much width the sidebar (plus the gaps it floats in, plus its
-      // resizer) is stealing from the right-hand side — anything that wants
-      // the window's centre reads this
-      style={
-        {
-          "--sidebar-offset": sidebarVisible
-            ? `calc(${sidebarWidth}px + var(--float-gap))`
-            : "0px",
-        } as React.CSSProperties
+  const startPaneDrag = (e: React.MouseEvent, id: string) => {
+    if (e.button !== 0 || locked) return;
+    e.preventDefault();
+    const root = rootRef.current;
+    const card = root?.querySelector<HTMLElement>(`[data-pane-id="${id}"]`);
+    if (!root || !card) return;
+    // the zones and the pin come from the settled layout, before any preview
+    const base: { id: string; rect: Rect }[] = [];
+    collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, base, []);
+    const pin = base.find((p) => p.id === id)?.rect ?? null;
+    if (!pin) return;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    // nothing happens until the pointer has clearly left the press — a click
+    // with a shake in it must not send a card an inch into the air
+    let live = false;
+    let target: ReturnType<typeof targetAt> = null;
+    let lastKey = "";
+
+    const move = (ev: MouseEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (!live) {
+        if (Math.hypot(dx, dy) < DRAG_START) return;
+        live = true;
+        document.body.classList.add("dragging-panel");
+        setDraggingId(id);
       }
-    >
-      {/* the terminal spans the window, so the sidebar stops where it starts
-          rather than running the full height beside it */}
-      <div className="workspace-top">
-        {sidebarVisible && (
-          <>
-            <Sidebar
-              project={project}
-              tab={sidebarTab}
-              onTab={setSidebarTab}
-              onOpenView={openView}
-              active={active}
-              width={sidebarWidth}
-              search={search}
-              memos={memos}
-              activeMemo={activeMemo}
-              activeKey={shown?.key ?? null}
-              reveal={reveal}
-              onRevealInTree={revealInTree}
-            />
-            <div
-              className="resizer-col"
-              onMouseDown={(e) => startDrag(e, "x", 1, sidebarWidth, 170, 560, setSidebarWidth)}
-            />
-          </>
-        )}
-        <div className="main-col">
-          <EditorPane
-            views={views}
-            activeView={activeView}
-            onSelect={setActiveView}
-            onClose={closeView}
-            onCloseOthers={closeOthers}
-            onReplace={replaceView}
-            onReorder={reorderViews}
-            onOpenFile={openFile}
-            onRevealInTree={revealInTree}
-            root={project.root}
-            // a memo tab draws its own live title and records its own
-            // follow-ups, both of which are this object
+      card.style.transform = `translate(${dx}px, ${dy}px)`;
+      target = targetAt(ev.clientX, ev.clientY, id, pin, base, dx, dy);
+      const key = target
+        ? `${target.op}:${target.op === "pane" ? target.targetId : ""}:${target.side}:${target.seat}`
+        : "";
+      if (key === lastKey) return;
+      lastKey = key;
+      if (!target) {
+        setPreviewRoot(null);
+        setSplitHint(null);
+      } else if (target.seat) {
+        setSplitHint(null);
+        setPreviewRoot(
+          target.op === "pane"
+            ? seatedLeaf(tree.root, id, target.targetId, target.side, target.ratio)
+            : seatedLeafAtRoot(tree.root, id, target.side, target.extent)
+        );
+      } else {
+        setPreviewRoot(null);
+        setSplitHint({ rect: target.rect, side: target.side });
+      }
+    };
+    const finish = (apply: boolean) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("keydown", key, true);
+      document.body.classList.remove("dragging-panel");
+      const from = live ? card.getBoundingClientRect() : null;
+      // every other pane's visual rect too, read before the tree commits:
+      // the preview slides are mid-glide, and where a pane is seen is where
+      // its landing has to start from
+      const others: [HTMLElement, DOMRect][] = from
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-pane-id]"))
+            .filter((el) => el !== card)
+            .map((el) => [el, el.getBoundingClientRect()])
+        : [];
+      // one synchronous commit: the tree, the preview and the class all
+      // land before the next paint, so there is no frame where the card is
+      // half one thing and half the other
+      flushSync(() => {
+        setDraggingId(null);
+        setPreviewRoot(null);
+        setSplitHint(null);
+        if (apply && live && target) {
+          if (target.op === "pane") {
+            if (target.seat) tree.seatLeaf(id, target.targetId, target.side, target.ratio);
+            else tree.moveLeaf(id, target.targetId, target.side);
+          } else if (target.seat) {
+            tree.seatLeafAtRoot(id, target.side, target.extent);
+          } else {
+            tree.moveLeafToRoot(id, target.side);
+          }
+        }
+      });
+      // Land everything from exactly where it was seen. The DOM now wears
+      // the committed rects — that one commit is the drop's only layout —
+      // and each pane replays its visual position over its new seat (FLIP)
+      // and releases, so the whole landing is a set of transform glides the
+      // layout engine never hears about. The card that settles is the card
+      // that was carried — one glide, no swap of a ghost for an original.
+      if (from) {
+        card.style.transition = "none";
+        card.style.transform = "";
+        for (const [el] of others) el.style.transition = "none";
+        const to = card.getBoundingClientRect();
+        const flips: [HTMLElement, number, number][] = [];
+        for (const [el, was] of others) {
+          const now = el.getBoundingClientRect();
+          const dx = was.left - now.left;
+          const dy = was.top - now.top;
+          if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) flips.push([el, dx, dy]);
+        }
+        card.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+        for (const [el, dx, dy] of flips) el.style.transform = `translate(${dx}px, ${dy}px)`;
+        const resized = Math.abs(from.width - to.width) > 1 || Math.abs(from.height - to.height) > 1;
+        const pw = card.style.width;
+        const ph = card.style.height;
+        if (resized) {
+          // the one landing that is a resize glides between its two sizes
+          // as itself; its terminal's refit waits at the far end (the
+          // .landing gate in Terminals), so the text holds still and the
+          // card clips until it settles
+          card.classList.add("landing");
+          card.style.width = `${from.width}px`;
+          card.style.height = `${from.height}px`;
+        }
+        void card.offsetWidth;
+        card.style.transition = "";
+        card.style.transform = "";
+        for (const [el] of others) el.style.transition = "";
+        for (const [el] of flips) el.style.transform = "";
+        if (resized) {
+          card.style.width = `${to.width}px`;
+          card.style.height = `${to.height}px`;
+          // back to the layout's own percentages once the glide is done
+          window.setTimeout(() => {
+            card.style.width = pw;
+            card.style.height = ph;
+            card.classList.remove("landing");
+          }, 200);
+        }
+      } else {
+        card.style.transform = "";
+      }
+    };
+    const up = () => finish(true);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finish(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", key, true);
+  };
+
+  /**
+   * Drag a seam to change how two visible neighbours share their split.
+   * Shares are recomputed from the sizes captured at mousedown, so a long
+   * gesture can't accumulate rounding drift. Everything is stored shares of
+   * the full split — hidden siblings keep holding theirs — so the pointer's
+   * travel across the visible span converts through visSum on the way in.
+   */
+  const startDividerResize = (e: React.MouseEvent, d: Divider) => {
+    const root = rootRef.current;
+    const node = nodeAt(tree.root, d.path);
+    if (!root || !node || node.type !== "split") return;
+    e.preventDefault();
+    // only the divider in hand lights
+    const handle = e.currentTarget as HTMLElement;
+    handle.classList.add("live");
+    const base = sizesOf(node);
+    const rr = root.getBoundingClientRect();
+    const span = d.dir === "row" ? (rr.width * d.host.w) / 100 : (rr.height * d.host.h) / 100;
+    if (span <= 0) return;
+    // neither side may be squeezed below a usable pane
+    const min = Math.min(0.15, 60 / span) * d.visSum;
+    const start = d.dir === "row" ? e.clientX : e.clientY;
+
+    const move = (ev: MouseEvent) => {
+      const travelled = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
+      const delta = (travelled / span) * d.visSum;
+      const room = { back: base[d.li] - min, fwd: base[d.ri] - min };
+      const step = Math.max(-room.back, Math.min(room.fwd, delta));
+      const sizes = [...base];
+      sizes[d.li] = base[d.li] + step;
+      sizes[d.ri] = base[d.ri] - step;
+      tree.setSizes(d.path, sizes);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      handle.classList.remove("live");
+      document.body.classList.remove("dragging-col", "dragging-row");
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    document.body.classList.add(d.dir === "row" ? "dragging-col" : "dragging-row");
+  };
+
+  /** the arming mousemove for a wrapper whose pill lives here — the
+   *  sidebar's and the editor's; `reach` ducks under whatever chrome the
+   *  card keeps at its top (the editor's tabs sit lower than the sidebar's
+   *  icon strip) */
+  const armWrapper = (kind: "sidebar" | "editor", reach: number) => (e: React.MouseEvent) => {
+    if (draggingId || locked) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const grab = e.clientY - r.top < reach && Math.abs(e.clientX - (r.left + r.width / 2)) < 32;
+    setGrabArmed((cur) => (grab ? kind : cur === kind ? null : cur));
+  };
+  const disarmWrapper = (kind: "sidebar" | "editor") => () =>
+    setGrabArmed((cur) => (cur === kind ? null : cur));
+
+  return (
+    <div ref={rootRef} className={`workspace ${active ? "" : "inactive"}`}>
+      {sidebarVisible && (
+        <div
+          className={`pane-abs ${draggingId === SIDEBAR ? "moving" : ""}`}
+          data-pane-id={SIDEBAR}
+          style={paneStyle(rectOf(SIDEBAR), previewShift(SIDEBAR))}
+          onMouseMove={armWrapper("sidebar", 14)}
+          onMouseLeave={disarmWrapper("sidebar")}
+        >
+          <div
+            className={`pane-grab ${grabArmed === "sidebar" ? "armed" : ""} ${
+              draggingId === SIDEBAR ? "live" : ""
+            }`}
+            title="move sidebar"
+            onMouseDown={(e) => startPaneDrag(e, SIDEBAR)}
+          />
+          <Sidebar
+            project={project}
+            tab={sidebarTab}
+            onTab={setSidebarTab}
+            onOpenView={openView}
+            active={active}
+            search={search}
             memos={memos}
+            activeMemo={activeMemo}
+            activeKey={shown?.key ?? null}
+            reveal={reveal}
+            onRevealInTree={revealInTree}
           />
         </div>
-      </div>
-      {terminalVisible && (
-        <div
-          className="resizer-row"
-          onMouseDown={(e) =>
-            startDrag(e, "y", -1, termHeight, 100, window.innerHeight - 200, setTermHeight, termCell())
-          }
-        />
       )}
-      <Terminals
-        tree={term}
-        visible={terminalVisible}
-        height={termHeight}
+      <div
+        className={`pane-abs main-col ${draggingId === EDITOR ? "moving" : ""}`}
+        data-pane-id={EDITOR}
+        style={paneStyle(rectOf(EDITOR), previewShift(EDITOR))}
+        onMouseMove={armWrapper("editor", 12)}
+        onMouseLeave={disarmWrapper("editor")}
+      >
+        <div
+          className={`pane-grab ${grabArmed === "editor" ? "armed" : ""} ${
+            draggingId === EDITOR ? "live" : ""
+          }`}
+          title="move editor"
+          onMouseDown={(e) => startPaneDrag(e, EDITOR)}
+        />
+        <EditorPane
+          views={views}
+          activeView={activeView}
+          onSelect={setActiveView}
+          onClose={closeView}
+          onCloseOthers={closeOthers}
+          onReplace={replaceView}
+          onReorder={reorderViews}
+          onOpenFile={openFile}
+          onRevealInTree={revealInTree}
+          root={project.root}
+          // a memo tab draws its own live title and records its own
+          // follow-ups, both of which are this object
+          memos={memos}
+        />
+      </div>
+      <TerminalPanes
+        tree={tree}
+        panes={termPanes}
         active={active}
+        locked={locked}
+        draggingId={draggingId}
+        onPaneDragStart={startPaneDrag}
         onOpenFile={openFile}
       />
+      {/* one divider per visible seam of the tree */}
+      {dividers.map((d) => (
+        <div
+          key={`${d.path.join(".")}:${d.li}`}
+          className={`term-divider ${d.dir}`}
+          style={
+            d.dir === "row"
+              ? {
+                  left: `${d.host.x + d.host.w * d.at}%`,
+                  top: `${d.host.y}%`,
+                  height: `${d.host.h}%`,
+                }
+              : {
+                  top: `${d.host.y + d.host.h * d.at}%`,
+                  left: `${d.host.x}%`,
+                  width: `${d.host.w}%`,
+                }
+          }
+          onMouseDown={(e) => startDividerResize(e, d)}
+        />
+      ))}
+      {/* the line a true split shows, along the edge it would cut — re-seats
+          need no mark: the layout itself rearranges live under the hand */}
+      {splitHint && <div className={`split-hint ${splitHint.side}`} style={paneStyle(splitHint.rect)} />}
       {quickOpen && (
         <QuickOpen
           root={project.root}

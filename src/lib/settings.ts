@@ -16,6 +16,9 @@ export type EditorTheme = (typeof EDITOR_THEMES)[number];
 export const APPEARANCES = ["light", "dark", "system"] as const;
 export type Appearance = (typeof APPEARANCES)[number];
 
+export const TERM_STYLES = ["panel", "plain"] as const;
+export type TermStyle = (typeof TERM_STYLES)[number];
+
 export interface Settings {
   editorTheme: EditorTheme;
   /** Liquid Glass behind every surface (macOS 26+). Off means solid — the
@@ -24,6 +27,13 @@ export interface Settings {
   /** light / dark, or system to follow macOS. What most consumers want is
    *  not this but `resolvedAppearance()` — the two-value answer. */
   appearance: Appearance;
+  /** Whether terminal panes wear the same card every other panel does, or go
+   *  without — no fill, no border, no shadow, text straight on the window.
+   *  Scoped to the terminal rather than offered per panel because it is the
+   *  one panel that is nothing but text: the sidebar and the editor hold
+   *  controls and fills that need a surface under them, and "plain" for those
+   *  would be a panel that kept every part of the card except the card. */
+  termStyle: TermStyle;
   /** the user's language choices: extension (or whole filename when there is
    *  no extension) → registry language name. lang.ts owns what the keys and
    *  values mean; this is only where they sleep. */
@@ -34,6 +44,7 @@ const DEFAULTS: Settings = {
   editorTheme: "dark-modern",
   glass: true,
   appearance: "system",
+  termStyle: "panel",
   langOverrides: {},
 };
 
@@ -55,6 +66,9 @@ function parse(raw: string | null): Settings {
     appearance: APPEARANCES.includes(blob.appearance as Appearance)
       ? (blob.appearance as Appearance)
       : DEFAULTS.appearance,
+    termStyle: TERM_STYLES.includes(blob.termStyle as TermStyle)
+      ? (blob.termStyle as TermStyle)
+      : DEFAULTS.termStyle,
     langOverrides: sanitizeOverrides(blob.langOverrides),
   };
 }

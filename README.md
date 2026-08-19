@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-22,980 lines of source   (19,177 code, 3,803 CSS)
+23,906 lines of source   (20,034 code, 3,872 CSS)
     18 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
@@ -109,9 +109,10 @@ shell's process tree once a second looking for a live `claude`, then reading
 how long that pty has been silent — no integration, no cooperation from the
 agent.
 
-**The terminal is the point.** Full window width, splits in any direction with
-draggable dividers, and no chrome: no title, no bar, no rule. The split and
-close buttons appear only when the pointer is in the top fifth of a pane.
+**The terminal is the point.** Full window width by default, splits in any
+direction with draggable dividers, and no furniture: no title, no bar. The
+split and close buttons appear only when the pointer is in the top fifth of a
+pane, and `terminal: plain` in preferences strips even the card.
 
 **Git worktrees, not branches.** The sidebar lists every worktree with its
 changes, staging, and commit box — which is the shape of the work when several
@@ -224,10 +225,22 @@ disk before they light up, because any pattern loose enough to catch
 `src/lib/api.ts` also catches `e.g.`.
 
 **It opens how you left it.** Which projects were open and in what order, the
-terminal splits and their sizes, the sidebar, the open tabs. Not the shells —
-they're children of this process and die with it, so a restored pane is a *new*
-shell in the same directory. `claude --continue` picks the conversation back up,
-which is usually the part you actually wanted.
+whole pane layout — every split and its share — the sidebar, the open tabs.
+Not the shells — they're children of this process and die with it, so a
+restored pane is a *new* shell in the same directory. `claude --continue`
+picks the conversation back up, which is usually the part you actually wanted.
+
+**Panels move.** Every panel is the same card — hairline, soft shadow, rounded
+corners — and every card is a leaf of one split tree: each terminal, the
+editor, the sidebar, all equals, with no layout rules between them. The pill
+at the top of a card picks it up, and the drop shows itself as what it is:
+aim a re-seat and the layout rearranges under your hand, live and animated,
+the gap that opens being the seat; aim a true split and a single accent line
+stands on the edge it would cut. The gaps between cards are the resize
+handles. A lock in the titlebar fixes the arrangement once you like it —
+pills stop arming and nothing can be picked up, while splits and the resize
+handles keep working. And for terminals with no chrome at all — no card,
+text straight on the window — set `terminal: plain` in preferences.
 
 Plus the ordinary things: file tree, diffs, tab reordering by drag, and
 `⌘+` / `⌘-` / `⌘0` zoom.
