@@ -353,6 +353,14 @@ body.dragging-tab .editor-tab * {
   color: var(--text);
 }
 
+/* a check running, from the menu item — the same pill saying what it is doing
+   rather than offering anything, so it doesn't take the hover the version
+   does */
+.titlebar-update.waiting {
+  color: var(--text-faint);
+  cursor: default;
+}
+
 /* armed: the next click restarts, so it stops looking like the rest of the
    bar. Amber rather than red — this is a choice being confirmed, not damage
    being reported */

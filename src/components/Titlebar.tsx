@@ -95,7 +95,7 @@ export function Titlebar({
     return () => watch.disconnect();
   }, [zoom]);
 
-  const { ready, restart } = useUpdate();
+  const { ready, busy, restart } = useUpdate();
   const [armed, setArmed] = useState(false);
   // every claude the restart would take with it, working or waiting — the
   // status poll already knows, so this costs nothing extra
@@ -223,24 +223,38 @@ export function Titlebar({
           other, so they sit in a row and the ＋ can't land on the update pill
           the way two separately pinned buttons could. */}
       <div className="titlebar-right">
-        {/* Only ever here when the new version is already downloaded, so this
-          says restart and not update — the wait is over by the time you see
-          it. Clicking arms rather than fires: restarting closes every terminal
-          in the window, and a terminal here can be holding a Claude session
-          mid-task, so the second click is the one that agrees to that and the
-          count is what it costs. It disarms itself, because a button that
-          stays armed is one an unrelated click lands on later. */}
-        {ready && (
+        {/* Once there's a version here it says restart and not update — the
+          wait is over by the time you see it. Clicking arms rather than
+          fires: restarting closes every terminal in the window, and a
+          terminal here can be holding a Claude session mid-task, so the
+          second click is the one that agrees to that and the count is what it
+          costs. It disarms itself, because a button that stays armed is one
+          an unrelated click lands on later.
+
+          Before that it is only ever here for a check someone asked for from
+          zero → Check for Updates…, where it is the running commentary a menu
+          item owes and not a button — the app's own six-hourly check puts
+          nothing here at all. */}
+        {(ready || busy) && (
           <button
-            className={`titlebar-update ${armed ? "armed" : ""}`}
-            title={`zero ${ready} is downloaded — restart to run it`}
+            className={`titlebar-update ${armed ? "armed" : ""} ${ready ? "" : "waiting"}`}
+            disabled={!ready}
+            title={
+              ready
+                ? `zero ${ready} is downloaded — restart to run it`
+                : "checking for a newer zero"
+            }
             onClick={() => (armed ? void restart() : setArmed(true))}
           >
-            {!armed
-              ? `update ${ready}`
-              : live === 0
-                ? "restart now"
-                : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
+            {!ready
+              ? busy === "downloading"
+                ? "downloading…"
+                : "checking…"
+              : !armed
+                ? `update ${ready}`
+                : live === 0
+                  ? "restart now"
+                  : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
           </button>
         )}
         {/* The layout lock. On, the furniture is fixed: grab pills never arm
