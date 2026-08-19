@@ -228,13 +228,13 @@ export default function App() {
     // tall and 63pt wide whatever the zoom does. Their height is answered by
     // moving them onto the bar's new axis (below), but sideways they can't be
     // moved out of the tabs' way, so the inset that clears them is grown back
-    // by what the zoom took off. See --chrome in App.css.
+    // by what the zoom took off. See --chrome in styles/theme.css.
     document.documentElement.style.setProperty("--chrome", String(1 / Math.min(zoom, 1)));
   }, [zoom]);
 
   // Where the bar's middle is, in window points, for the traffic lights to be
-  // centred on. Measured rather than computed: App.css owns the height, and a
-  // second copy of it here would be a second thing to change. The launcher
+  // centred on. Measured rather than computed: styles/frame.css owns the
+  // height, and a second copy of it here would be a second thing to change. The launcher
   // has no bar and doesn't ask for one — the buttons keep the axis they were
   // placed on at launch.
   const hasTitlebar = projects.length > 0;

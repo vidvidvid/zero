@@ -1,0 +1,110 @@
+/* ===== launcher ===== */
+
+/* the no-project screen is the one place with nothing floating on the field,
+   so it keeps the editor's tone rather than showing the surface panels lie on */
+.launcher {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.launcher-inner {
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* the app's own mark, drawn by src-tauri/icons/zero-icon.py and worn as a
+   mask so the fill is the theme's rather than the icon's white. Sized off the
+   height, since the glyph is taller than it is wide; the width follows from
+   the svg's own aspect. */
+.launcher-mark {
+  height: 46px;
+  aspect-ratio: 562 / 770;
+  margin: 0 auto -8px;
+  background: var(--text-dim);
+  -webkit-mask: url("../assets/mark.svg") center / contain no-repeat;
+  mask: url("../assets/mark.svg") center / contain no-repeat;
+}
+
+.launcher-logo {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 400;
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 0.35em;
+  margin-left: 0.35em;
+}
+
+/* pulled up under the wordmark, out of the 24px the inner column puts between
+   everything else — the two read as one mark rather than as two rows */
+.launcher-version {
+  margin-top: -16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-align: center;
+  margin-left: 0.18em;
+  color: var(--text-faint);
+}
+
+.launcher-recents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.launcher-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.launcher-item:hover {
+  background: var(--bg-raised);
+}
+
+.launcher-item-name {
+  font-weight: 500;
+}
+
+.launcher-item-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launcher-empty {
+  text-align: center;
+  color: var(--text-faint);
+  padding: 24px;
+}
+
+.launcher-open {
+  align-self: center;
+  color: var(--text-dim);
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.launcher-open:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}

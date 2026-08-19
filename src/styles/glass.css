@@ -1,0 +1,79 @@
+/* ===== liquid glass (macOS 26+) =====
+   App.tsx adds `glass` to <html> only after a real NSGlassEffectView is in
+   place behind the webview. Glass spans the whole window; every surface shows
+   it through a translucent version of the color it always had. The alphas are
+   the readability dial: glass is behind everything, but zero's theme is dark
+   with no light mode, so the scrim has to carry legibility over a white
+   desktop by itself. */
+
+html.glass {
+  /* one tone for every pane — under glass the editor/panel split read as two
+     different windows. That used to leave the distinction to borders; now the
+     panels float, and the gap of clear glass between them does it instead. */
+  --bg: rgba(24, 24, 24, 0.58);
+  --bg-panel: rgba(24, 24, 24, 0.58);
+  /* the solid hairline is a theme colour, and a theme colour on glass is a
+     line drawn in ink on a material; a whisper of white reads as the card's
+     own edge catching light instead */
+  --panel-border: rgba(255, 255, 255, 0.09);
+}
+
+html.glass,
+html.glass body {
+  background: transparent;
+}
+
+/* .main-col and .launcher used to be handed a background here, because they
+   had none of their own and the body's showed through. Both paint --bg in
+   every appearance now — the editor is a floating card and a card has to
+   carry its own tone — so there is nothing left for this to fix up. */
+
+/* the editor paints itself from a JS theme, opaquely and in whatever color
+   the chosen syntax theme says — under glass it goes clear and the card
+   behind it carries the one scrim layer, so every theme glasses the same
+   way. The terminal works the same, one level down: xterm's background is
+   blanked where it is defined and the panel behind it carries the scrim —
+   or, set plain, carries nothing and the text sits on bare glass. */
+html.glass .cm-editor,
+html.glass .cm-gutters {
+  background: transparent !important;
+}
+
+/* The preferences modal floats above app content, which the window's glass
+   pane — behind the whole webview — can never blur. backdrop-filter is the
+   DOM's own glass: it frosts what's under the box, and the window pane
+   frosts the desktop under that, so the modal reads as a second sheet of
+   the same material rather than a solid card on a glass window. */
+html.glass .settings-box {
+  background: rgba(24, 24, 24, 0.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
+}
+
+/* WKWebView honours only the prefixed property on these — without it a drag
+   along a tab strip selects the labels as it passes them. Scoped to the
+   strips: the editor and the terminal need real selection. */
+.titlebar-tab,
+.titlebar-tab *,
+.editor-tab,
+.editor-tab * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+}

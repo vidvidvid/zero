@@ -1,0 +1,371 @@
+/* ===== memo thread ===== */
+
+/* A memo opens as the exchange it was: what you said, what came back, oldest at
+   the top. The pane is as wide as the window and a line of text that runs the
+   whole of one is unreadable at any size, so the turns sit in a column of a
+   document's width, centred like a document. */
+.memo-thread {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* A word at rest rather than on hover: there is one memo here and nothing to
+   disambiguate it from. Sized to be hit rather than to be inconspicuous — a
+   word with 3px of padding around it is a 10px target, which is a target you
+   miss. One thing wears it now: `retry`, on a stage that failed. Everything
+   else in the thread that was a small word is a glyph on a square, and `retry`
+   isn't, because there is no picture of trying again. */
+.memo-thread-act {
+  flex: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.memo-thread-act:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.memo-thread-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* the top padding stands in for the strip that used to be above it — without it
+   the first take's header sits directly under the breadcrumb and reads as part
+   of the chrome rather than as the start of the thread */
+.memo-thread-col {
+  max-width: 68ch;
+  margin: 0 auto;
+  padding: 16px 18px 30px;
+  /* body turns selection off for the chrome; a memo is the opposite of chrome,
+     and taking a sentence out of one is most of what it's for */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+/* one recording and the document it produced, kept together so the pair reads
+   as an exchange rather than as two entries in a list */
+.memo-exchange + .memo-exchange {
+  margin-top: 22px;
+}
+
+.memo-turn.said + .memo-turn.doc {
+  margin-top: 14px;
+}
+
+/* What was said, in the shape of the side it came from: a card of its own,
+   narrower than the document and pulled to the right of the column. The
+   alternation is the point — scrolling a thread should tell you whose turn each
+   block is before you read a word of it, which one flat column of full-width
+   text never did. 48ch against the document's 68 keeps the two unmistakable at
+   any window width. */
+.memo-turn.said {
+  max-width: 48ch;
+  margin-left: auto;
+}
+
+/* The take's name — what it is, when, how long — above the card rather than
+   inside it, so the card is speech and nothing else.
+
+   One line, always. It was a flex row carrying a button, a hundred pixels of
+   waveform and a clock as well as its three facts, and in a narrow pane it
+   wrapped: `take 3 · aug 13,` on one line and `14:32 · 0:22` under it, which is
+   a date broken in half to make room for chrome. The chrome moved down a line
+   and this became what it says it is. If the pane is still too narrow, the
+   ellipsis eats the end of the date rather than the layout. */
+.memo-turn-head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+  padding-left: 2px;
+}
+
+/* Everything about listening, on its own line under the name: triangle, bars,
+   clock, left to right — which is the arrangement a voice message has worn
+   since voice messages, and it is worn here for the same reason it is worn
+   there. The clock only exists while this take is the one in the speaker.
+   The button is nudged left by the difference between its own centring and the
+   header's 2px, so the glyph sits under the `t` of `take` rather than three
+   pixels right of it. */
+.memo-play-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.memo-play-row .memo-play {
+  margin-left: -3px;
+}
+
+/* The take's shape, beside the triangle that plays it: 24 bars of envelope,
+   which is enough to see where the pauses were and far too few to be mistaken
+   for a scrubber — which it isn't, and must not look like, because it doesn't
+   seek. It is a second, larger target for the same play/pause the triangle is.
+   White, like the live bars and for the same reason: brightness is the axis,
+   and red is spent on the mic being on. */
+.memo-wave {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 13px;
+  cursor: pointer;
+}
+
+/* centred, like the live meter — an envelope opens both ways — and never quite
+   flat: a bar of pure silence still draws a hairline, so the shape reads as a
+   recording with a gap in it rather than as one that stopped */
+.memo-wave span {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.28;
+  transform: scaleY(max(0.1, var(--v, 0)));
+  transition: opacity 120ms ease-out;
+}
+
+/* passed by the playhead. It steps a bar at a time rather than sliding, which
+   is the honest resolution of the thing underneath it. */
+.memo-wave span.on {
+  opacity: 0.85;
+}
+
+.memo-wave:hover span {
+  opacity: 0.45;
+}
+
+.memo-wave:hover span.on {
+  opacity: 1;
+}
+
+/* `pre-wrap` because a transcript has the speaker's own line breaks in it and
+   nobody wrote them for effect */
+.memo-said {
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border-radius: 8px;
+  padding: 8px 11px;
+}
+
+/* what came back, at reading size */
+.memo-turn.doc {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.memo-turn.doc > * + * {
+  margin-top: 0.75em;
+}
+
+.memo-turn.doc h1 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.memo-turn.doc h2 {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-top: 1.2em;
+}
+
+.memo-turn.doc h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-top: 1.1em;
+}
+
+/* the reset above zeroes list padding, so the indent is stated here */
+.memo-turn.doc ul,
+.memo-turn.doc ol {
+  padding-left: 1.4em;
+}
+
+.memo-turn.doc li + li,
+.memo-turn.doc li > ul,
+.memo-turn.doc li > ol {
+  margin-top: 0.3em;
+}
+
+.memo-turn.doc code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-raised);
+}
+
+/* brightness is this theme's only axis, so that's what bold spends */
+.memo-turn.doc strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.memo-turn.doc blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 11px;
+  color: var(--text-dim);
+}
+
+.memo-turn.doc hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.3em 0;
+}
+
+/* the clock at the end of the bars, at the take line's size rather than the
+   record row's — it's a note on a take, not the headline the panel's timer is */
+.memo-play-row .memo-elapsed {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* The pipeline, as the turn that hasn't landed yet: the panel's `work` wording
+   in the panel's `work` colour, at the bottom where the next thing goes. On the
+   said side of the column and in the said side's card, because what is being
+   worked on is what you said — and because it is followed, when it finishes, by
+   a document that appears exactly where documents appear. Fitted rather than
+   filled: `transcribing…` is three words wide and a 48ch card around it would
+   be a box of nothing. The ring is the panel's too, and comes with the
+   reduced-motion rule the memos section already writes for it. */
+.memo-turn.pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: 48ch;
+  margin-top: 20px;
+  margin-left: auto;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.memo-turn.pending.fail {
+  color: var(--red);
+  opacity: 0.85;
+}
+
+.memo-thread-why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Everything you can do to a whole memo, on one bar at the end of it, aligned
+   to the column it is about. Both are the same bordered chip at the same
+   height — copy used to be a bare word next to one, the shape of a footnote
+   beside a headline, and it isn't a footnote: taking the text out of zero is
+   what a memo gets recorded for about as often as saying more into it.
+   They were equal halves while copy was a word. As a glyph it needs the width
+   of the longest thing it flashes back and not a pixel more, and the pixels it
+   gives up go to the only labels in this feature long enough to be ellipsised
+   — `record a follow-up`, `recording in <project>`. */
+.memo-thread-foot {
+  flex: none;
+  padding: 0 18px 14px;
+}
+
+.memo-thread-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 68ch;
+  margin: 0 auto;
+}
+
+/* The bordered chip this window uses for a thing you are actually meant to
+   press — the launcher's open button, the commit button — at the size the foot
+   of a document can carry two of.
+   Present in every state a memo has, and disabled with a reason in the ones the
+   follow-up can't be pressed in — it used to be absent while the pipeline was
+   still running, and a button that isn't there is one you conclude is broken
+   rather than busy. Which is also why the mic glyph goes in front of those
+   reasons rather than instead of them. */
+.memo-thread-btn {
+  /* `auto` rather than `0`: the basis is the label, which is what lets the two
+     chips shrink against each other when the pane gets narrower than the bar
+     wants to be. With a zero basis the copy chip's fixed width was taken off
+     the top and the follow-up got whatever was left — 26px of it, in a pane
+     narrow enough — which is a button that has stopped being one. */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 100px, which is what `couldn't copy` needs and three pixels more than it
+   takes: the chip holds a glyph nearly always and a word for fourteen hundred
+   milliseconds after a press, and a button that changes width to deliver a
+   message is a message you watch instead of read. It gives the width back only
+   when the pane is too narrow for both chips, and never grows — the space past
+   a hundred pixels belongs to the labels next door. */
+.memo-thread-btn.copy {
+  flex: 0 1 100px;
+  min-width: 34px;
+}
+
+.memo-thread-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* the mic is elsewhere, the pipeline still has this memo, or a call hasn't come
+   back yet — the title says which */
+.memo-thread-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.memo-btn-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* While this memo is the one being recorded, the cluster stands in the
+   follow-up's half and takes exactly it — the same half, so the bar doesn't
+   redraw itself around the fact that a mic is on. */
+.memo-thread-bar .memo-controls {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* deleted, from here or from the panel or with rm. Quiet, because it is the
+   normal end of a memo rather than a fault */
+.memo-thread-empty {
+  margin: auto;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}

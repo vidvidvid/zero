@@ -1,0 +1,337 @@
+/* ===== app frame ===== */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 40px, and the traffic lights are moved to match rather than the other way
+   round. They are 14pt tall and macOS parks them where a 28pt system titlebar
+   wants them, which is not where a 40px one does — so the bar tells the
+   window its height and src-tauri/src/traffic_lights.rs puts the three
+   buttons on that axis. This number is the only copy of it: App.tsx measures
+   the bar rather than being told, and sends what it measures.
+   Which is what makes zoom survivable. ⌘+/⌘- scale the webview's points and
+   leave the window's alone, so this bar is 20pt of window at zoom 0.5 and
+   60pt at 1.5 while the buttons stay 14pt wherever they were left — high in
+   the bar zoomed in, and hanging out of the bottom of it and over the panel
+   zoomed out. They are re-centred on every zoom instead, so the bar is free
+   to shrink with everything else. */
+.titlebar {
+  position: relative;
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  /* no fill and no rule under it: the bar is a strip of the field the panels
+     float on, not a fourth panel. A tone of its own would put a seam across
+     the top of the window in the one place the cards were meant to remove it,
+     and under glass it would frost a band that the gaps beside it leave
+     clear. What separates it from the editor is the float gap, same as
+     everywhere else. */
+  background: transparent;
+  /* equal insets so centered tabs sit on the true window axis; the left one
+     also clears the traffic lights. Sideways they cannot be moved out of the
+     way — three fixed buttons 63pt across — so unlike the height, this is the
+     one measurement here that holds still in window points while the UI
+     zooms out, and the tabs start after it rather than under them. */
+  padding: 0 calc(78px * var(--chrome));
+}
+
+.titlebar-spacer {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.titlebar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* symmetric: a fixed square at each end (status left, close right) with the
+   name between them, so the tab is one width in every state */
+/* Pills on the field rather than cells in a strip. The hairlines they used to
+   carry were what made the bar read as a surface, and there is no surface up
+   here any more — a divider between two tabs that sit on the window would be
+   a line drawn on nothing. So the fill is the whole of it: the tab you are in
+   is the one wearing the editor's tone.
+   28 of the bar's 40px, so six clear top and bottom, and fourteen taller than
+   the buttons beside it are wide — which is what stops it reading as squashed
+   the way 24 in a 32px bar did. */
+.titlebar-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  cursor: grab;
+}
+
+/* The same 16px box the status dot and the ✕ get, so the three of them are
+   centred by the same arithmetic. At `line-height: 1` the box is the font
+   size — 12.5 — and centring that in a 28px pill puts its top on 7.75 while
+   the icons' boxes land on 6: a half-pixel of disagreement, which is a whole
+   device pixel on this screen and reads as the name sitting a touch high.
+   The leading itself was never the problem. Measured against the system font
+   at this size, the optical centre of mixed-case text sits 0.32px below the
+   middle of its own box — a third of a pixel, and the same third either way,
+   so it is the box that has to line up and it now does. */
+.titlebar-tab-name {
+  line-height: 16px;
+}
+
+/* No fill on either state, which is the rule the sidebar's tabs have followed
+   all along: "the icon's own brightness says which is which". A filled pill
+   was a box drawn around a word on a bar that has no surface of its own —
+   solid it read as a slab, a wash it read as a smudge, and either way it was
+   the loudest thing in a strip whose job is to name four projects. What is
+   left is the word, in three brightnesses: faint, dim under the pointer, full
+   for the one you are in. Nothing parts them but the gap and the brightness —
+   the tick that used to sit in that gap was one more mark on a bar whose job
+   is to name four projects, and the names do that on their own. */
+.titlebar-tab:hover {
+  color: var(--text-dim);
+}
+
+.titlebar-tab.active {
+  color: var(--text);
+}
+
+/* reorder: the tabs being passed over slide, the one under the pointer must
+   not — any easing there shows up as the tab lagging behind the cursor */
+.titlebar-tabs.reordering .titlebar-tab {
+  transition: transform 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* has to out-specify the rule above, or the tab under the pointer eases
+   towards each new position and reads as twitching */
+.titlebar-tabs.reordering .titlebar-tab.dragging,
+.titlebar-tab.dragging {
+  transition: none;
+  z-index: 5;
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* the tab under the pointer sets its own cursor, so overriding the body alone
+   wouldn't change anything once a drag is under way */
+body.dragging-tab,
+body.dragging-tab .titlebar-tab,
+body.dragging-tab .editor-tab,
+body.dragging-tab .editor-tab * {
+  cursor: grabbing;
+}
+
+/* per-project claude indicator, built on zero's own mark: a hairline ring with
+   one arc of light travelling round it while a session works, closing into a
+   complete circle once it's finished and waiting on you. White throughout, like
+   everything else in this theme — the two states are told apart by whether the
+   light is moving and whether the ring is closed, which reads at 10px better
+   than a hue does. Cleared once you've been there. */
+/* the reserved square — same 18px as the close button on the other end */
+.titlebar-tab-status {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.claude-ring {
+  position: relative;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.claude-ring.working {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 250deg,
+    rgba(255, 255, 255, 0.5) 330deg,
+    #ffffff 358deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
+  animation: claude-spin 1.5s linear infinite;
+}
+
+/* the unlit part of the circle, so the arc reads as travelling round a ring */
+.claude-ring.working::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.4px solid rgba(255, 255, 255, 0.07);
+}
+
+.claude-ring.done {
+  border: 1.4px solid #ffffff;
+  box-shadow: 0 0 4px 0 rgba(255, 255, 255, 0.4);
+}
+
+@keyframes claude-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Still an open arc against a closed circle, so the two states stay apart
+   without anything moving — the distinction was never only the motion. */
+@media (prefers-reduced-motion: reduce) {
+  .claude-ring.working {
+    animation: none;
+  }
+}
+
+/* fixed square, flex-centred — same vertical axis as the status dot */
+/* 18px around a 9px mark, and the mark is all of it — no square behind it,
+   the same as the file tabs' ✕. The room is still worth having: it is the
+   target, not the paint. Grown at both ends — the status square matches it —
+   because the two squares are what keep the name centred in its own tab. */
+.titlebar-tab-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: transparent;
+  /* the same 120ms the file tabs' ✕ fades over */
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.titlebar-tab-close svg {
+  display: block;
+}
+
+/* hover only — the active tab's ✕ would otherwise sit there permanently */
+.titlebar-tab:hover .titlebar-tab-close {
+  color: var(--text-faint);
+}
+
+/* same specificity trap as the file tabs' ✕ — the tab-hover rule above is the
+   longer selector, so this one has to match it to win the colour */
+.titlebar-tab:hover .titlebar-tab-close:hover {
+  color: var(--text);
+}
+
+/* The bar's own controls, pinned to the right inset rather than laid in the
+   flex row: their widths would otherwise join the spacer arithmetic that
+   keeps the tab strip on the window's axis. They are in flow with each other
+   though, which is what lets the ＋ sit beside the gear without the two of
+   them being pinned to hand-counted offsets that collide the moment the
+   update pill appears between them. */
+.titlebar-right {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The layout lock, a button among the buttons. At rest it is a glyph like
+   its neighbours; locked it fills with the accent, because a state the
+   window is in has to be readable from across the room, not discovered by
+   trying a drag that quietly does nothing. The rounded corners keep the
+   fill from reading as a selection. */
+.titlebar-lock {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+.titlebar-lock svg {
+  display: block;
+}
+
+.titlebar-lock:hover {
+  color: var(--text);
+}
+
+.titlebar-lock.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+/* Always there, like the gear beside it. It used to appear only while the
+   pointer was in the bar, which was a way of keeping a stray click off a file
+   dialog back when it sat alone in the middle of an empty strip — next to the
+   gear it is plainly a button among buttons, and one you have to aim at. */
+.titlebar-add {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  color: var(--text-faint);
+  transition: color 0.12s ease;
+}
+
+.titlebar-add svg {
+  display: block;
+}
+
+.titlebar-add:hover {
+  color: var(--text);
+}
+
+/* settings shouldn't need the shortcut known to be found */
+.titlebar-gear {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  color: var(--text-faint);
+  transition: color 0.12s ease;
+}
+
+.titlebar-gear:hover {
+  color: var(--text);
+}
+
+/* first in the cluster, so it appears to the left of the ＋ and the gear and
+   pushes neither: the whole row is anchored by its right edge */
+.titlebar-update {
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-hover, rgb(255 255 255 / 6%));
+  white-space: nowrap;
+}
+
+.titlebar-update:hover {
+  color: var(--text);
+}
+
+/* armed: the next click restarts, so it stops looking like the rest of the
+   bar. Amber rather than red — this is a choice being confirmed, not damage
+   being reported */
+.titlebar-update.armed {
+  color: #1c1c1c;
+  background: #e2b341;
+}

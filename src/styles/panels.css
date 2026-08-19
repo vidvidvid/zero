@@ -1,0 +1,22 @@
+/* ===== floating panels =====
+   The surfaces that lie on the field: the sidebar, the editor card and —
+   unless preferences say plain — every terminal pane, each a card of its
+   own. Same radius, same hairline, same lift; the language is only a
+   language if every panel speaks it.
+   The hairline is new since the cards learned to be picked up. Gap and
+   shadow told two resting panels apart and could have gone on doing it, but
+   a card being carried crosses every tone in the window, and mid-flight the
+   border is what keeps its edge an edge. The shadow softened in the same
+   change: with a line to say "ends here", it only has to say "lifted". */
+.sidebar,
+.editor-card,
+.term-pane {
+  border-radius: var(--panel-radius);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+}
+
+.workspace.inactive {
+  opacity: 0;
+  pointer-events: none;
+}

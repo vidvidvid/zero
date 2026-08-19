@@ -1,0 +1,354 @@
+/* ===== terminals ===== */
+
+/* Terminal panes are ordinary panes of the workspace field — each one a
+   .pane-abs slot holding a card, a peer of the sidebar and the editor in
+   the same tree. What is terminal about them is only what's inside: the
+   card's fill behind bare text, and the option to take the card off. */
+
+/* the pane a dragged-in file would land in, lit while it's held over one.
+   An overlay rather than a border: a border on the slot would move the
+   terminal inside it by a pixel every time a drag passed over. */
+.term-abs.term-drop::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--float-gap) / 2);
+  z-index: 3;
+  pointer-events: none;
+  border: 1px solid var(--text-faint);
+  border-radius: var(--panel-radius);
+  background: rgb(255 255 255 / 4%);
+}
+
+/* The pill a pane is carried by, floated at the top centre of its card — the
+   same handle, in the same place, the Claude app hangs on its panels. Armed
+   by proximity rather than :hover (see each pane's mousemove), because a
+   strip that was always hittable would be a dead zone in the middle of a
+   terminal's top line; armed, it takes clicks — disarmed, they fall through
+   to the text under it. */
+.pane-grab {
+  position: absolute;
+  top: calc(var(--float-gap) / 2 + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: 64px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  cursor: grab;
+}
+
+.pane-grab.armed,
+.pane-grab.live {
+  pointer-events: auto;
+}
+
+.pane-grab::after {
+  content: "";
+  width: 44px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.pane-grab.armed::after {
+  opacity: 1;
+}
+
+.pane-grab.live::after {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* The seam between two panes is a gap of window, and the divider is the
+   whole of it: full-gap hit area, nothing at rest, a pill under the pointer
+   — the handle the Claude app hangs between its panels — accent while in
+   hand. One species for every seam in the window, since every seam is now a
+   seam of the one tree. Below .pane-actions so it never steals a click from
+   the ✕. */
+.term-divider {
+  position: absolute;
+  z-index: 2;
+}
+
+.term-divider.row {
+  width: var(--float-gap);
+  margin-left: calc(var(--float-gap) / -2);
+  cursor: col-resize;
+}
+
+.term-divider.col {
+  height: var(--float-gap);
+  margin-top: calc(var(--float-gap) / -2);
+  cursor: row-resize;
+}
+
+.term-divider::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 2.5px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.term-divider.row::after {
+  width: 5px;
+  height: 44px;
+}
+
+.term-divider.col::after {
+  width: 44px;
+  height: 5px;
+}
+
+.term-divider:hover::after,
+.term-divider.live::after {
+  opacity: 1;
+}
+
+.term-divider.live::after {
+  background: var(--accent);
+}
+
+/* No bar, no title, no rule under it — the pane is only the terminal. The
+   split/close actions float over its top-right corner and are shown by JS
+   while the pointer is in the top fifth of that pane. */
+.pane-actions {
+  position: absolute;
+  /* inset past the half-gap the pane card stands in, then by the card's own
+     padding — near enough one cell tall that it rides the terminal's first
+     line instead of sitting above it */
+  top: 7px;
+  /* clear of the scrollbar, not flush to the pane. The viewport's right edge
+     is the pane's 6px padding and the bar is 8px wide, so anything under 14px
+     sits on top of it — which put the close button squarely on the thumb. */
+  right: 20px;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  box-shadow: 0 0 5px 2px var(--bg-panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.pane-actions.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pane-actions button {
+  padding: 0 7px;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-faint);
+  border-radius: 3px;
+}
+
+.pane-actions button:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.pane-actions .pane-close:hover {
+  color: #f14c4c;
+}
+
+/* ⌘F. The pane-actions corner, and above them in stacking — while the bar is
+   up the actions are suppressed (see Terminals), so the two never fight for
+   the same pixels. */
+.term-find {
+  position: absolute;
+  top: 7px;
+  right: 20px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 5px 2px var(--bg-panel);
+}
+
+.term-find-input {
+  width: 150px;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+/* reserved even when empty, so the box doesn't breathe as matches come and go */
+.term-find-count {
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.term-find button {
+  padding: 0 5px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-faint);
+  border-radius: 3px;
+}
+
+.term-find button:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.term-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  /* flat, and it never recomputes. The sub-row remainder is not padding's
+     problem: the terminal hangs from the bottom edge and lets the remainder
+     open a gap above its first row instead (see applySize). Left is a little
+     wider than the rest to sit near the sidebar's row column (.wt-file, 14px)
+     without matching it exactly — they're separate panels, not one grid. */
+  padding: 6px 6px 6px 12px;
+  display: flex;
+  /* the card itself: fill behind the text, and the clip that makes the
+     radius real against the scrollbar and the selection fills */
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+/* plain: the card taken off — the look this panel wore before it was one */
+.term-abs.plain .term-pane {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* clips the sub-row transform smoothTermScroll puts on .xterm-screen.
+   sized by flex, not height:100% — its only child is absolutely positioned,
+   so a percentage that fails to resolve collapses this to nothing */
+.term-clip {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* hangs from the bottom edge: applySize() replaces `top` with an explicit
+   height, so the block's top edge moves only when a row is painted and not
+   when the pane it sits in changes size. `top: 0` here is just the stretch it
+   starts in, before there is a row to measure a height against. */
+.term-scroll {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+}
+
+.term-pane .xterm {
+  height: 100%;
+}
+
+/* hitting the top of the scrollback shouldn't hand the wheel to the window
+   underneath and rubber-band the whole app */
+.term-pane .xterm-scrollable-element,
+.term-pane .xterm-viewport {
+  overscroll-behavior: contain;
+}
+
+/* any strip exposed mid-resize shows the field, never canvas black */
+.term-pane .xterm-screen,
+.term-pane .xterm canvas {
+  background: transparent;
+}
+
+/* NB: no `will-change: transform` here. It promotes the layer, but WKWebView
+   never rasterises the layer for a pane created after page load — the pane
+   sizes, spawns and receives output while rendering nothing. The permanent
+   translate3d in smoothTermScroll keeps the element promoted anyway, which is
+   what actually removes the gesture-start stall. */
+
+/* xterm.css ships .xterm-viewport with background #000, which would be a
+   black band under the last row where the field should be */
+.term-pane .xterm-viewport {
+  background-color: transparent !important;
+}
+
+/* scrollbars */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* the tab's own icon sits in the name button's gap, so its own margin — which
+   the tree needs, having no gap of its own — would be counted twice */
+.editor-tab-name .file-icon {
+  margin-right: 0;
+}
+
+/* The project's own favicon, in the square the claude ring otherwise holds.
+   Never both at once: a spinner drawn over a logo is two marks fighting for
+   10px, and the ring is the one with something to say. The three brightnesses
+   are the tab name's — faint, dim under the pointer, full for the one you're
+   in — so an icon doesn't shout past the word it sits beside. */
+.titlebar-tab-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.titlebar-tab:hover .titlebar-tab-icon {
+  opacity: 0.75;
+}
+
+.titlebar-tab.active .titlebar-tab-icon {
+  opacity: 1;
+}
+
+/* The drawn stand-in for a project with no icon of its own. currentColor, so
+   it rides the tab name's own three brightnesses rather than declaring its
+   own — and stays flat geometry, which is how you can tell at a glance that
+   nobody chose it. */
+.titlebar-tab-mark {
+  flex: none;
+  display: block;
+  fill: currentColor;
+  opacity: 0.85;
+}

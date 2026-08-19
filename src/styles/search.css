@@ -1,0 +1,293 @@
+/* ===== search panel ===== */
+
+/* exactly the body's height, never more: the fields stay put and the results
+   scroll under them, rather than the box scrolling away with its own results */
+.search-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the controls hold still; only the results below them scroll */
+.search-controls {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 6px 4px 2px;
+}
+
+.search-expand {
+  flex: none;
+  width: 16px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.search-expand:hover {
+  color: var(--text);
+}
+
+.search-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* field and toggles share one border, so the toggles read as sitting inside
+   the box rather than beside it — which is what makes it obvious they belong
+   to that field and not to the panel */
+.search-field {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.search-field:focus-within {
+  border-color: var(--accent);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.search-input::placeholder {
+  color: var(--text-faint);
+}
+
+.search-opts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+}
+
+.search-opt {
+  min-width: 20px;
+  height: 17px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  border-radius: 3px;
+}
+
+.search-opt:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* a toggle that's on has to stay visibly on after the pointer leaves, so it
+   can't borrow the hover fill — this one is a step brighter than that */
+.search-opt.on {
+  color: var(--text);
+  background: #3a3d41;
+}
+
+.search-opt.word {
+  text-decoration: underline;
+  text-underline-offset: 1px;
+}
+
+.search-opt.armed {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+.search-opt:disabled {
+  color: #3a3a3a;
+  background: transparent;
+  cursor: default;
+}
+
+.search-more {
+  flex: none;
+  width: 18px;
+  height: 25px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-faint);
+}
+
+.search-more:hover,
+.search-more.on {
+  color: var(--text);
+}
+
+/* indented to the fields above rather than to the panel: these are more of the
+   same form, not a new section */
+.search-filters {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 24px 4px 20px;
+}
+
+.search-input.filter {
+  padding: 3px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.search-input.filter:focus {
+  border-color: var(--accent);
+}
+
+.search-summary {
+  flex: none;
+  padding: 5px 10px 3px 20px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.search-armed {
+  display: block;
+  padding-top: 2px;
+  color: var(--yellow);
+}
+
+.search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.search-file {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 4px;
+  cursor: pointer;
+}
+
+.search-file:hover {
+  background: var(--bg-raised);
+}
+
+.search-file-base {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the end of a path is what identifies it; the start is the same for all of them */
+.search-file-dir {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  direction: rtl;
+  text-align: left;
+}
+
+.search-file-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+}
+
+.search-row:hover {
+  background: var(--bg-raised);
+}
+
+.search-hit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 4px 1px 21px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.search-line {
+  flex: none;
+  min-width: 20px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.search-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the same amber the editor marks a find in, so a hit looks like a hit on
+   both sides of the window */
+.search-mark {
+  color: var(--text);
+  background: #613214;
+  border-radius: 2px;
+}
+
+.search-file-act,
+.search-row-act {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.search-file:hover .search-file-act,
+.search-row:hover .search-row-act {
+  opacity: 1;
+}
+
+.search-file-act:hover,
+.search-row-act:hover {
+  color: var(--text);
+}
+
+.search-row-more {
+  padding: 2px 8px 4px 33px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}

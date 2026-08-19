@@ -1,0 +1,79 @@
+/* ===== sidebar ===== */
+
+/* A floating card rather than a column butted against the window edge — the
+   shape macOS 26 gives a sidebar, and the one Telegram has had for years.
+   Where it stands is the layout tree's business; this card only fills the
+   slot it was given.
+   `overflow: hidden` is what makes the radius real here: the tab strip's rule
+   runs to both edges and the tree's hover fills do too, and either one squares
+   off a corner it isn't clipped at. Nothing in this panel pops out of it — no
+   menus, no tooltips — so there is nothing for the clip to cost. */
+.sidebar {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+/* same bar height as the editor tab strip so the two line up across the split */
+.sidebar-tabs {
+  flex: none;
+  box-sizing: border-box;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* No fill on either state. A filled pill was doing the job of saying "this
+   one", but it was the loudest thing in a panel whose whole point is the
+   content below it — and since hover used the same fill, hovering an
+   unselected tab looked exactly like selecting it. The icon's own brightness
+   says which is which, and a hairline under the active one settles it. */
+.sidebar-tab {
+  position: relative;
+  flex: 1;
+  height: 24px;
+  font-size: 14px;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-tab:hover {
+  color: var(--text-dim);
+}
+
+.sidebar-tab.active {
+  color: var(--text);
+}
+
+/* sits on the strip's bottom rule, so it reads as the tab owning the panel
+   underneath rather than as a mark floating below an icon */
+.sidebar-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 18px;
+  height: 1.5px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.sidebar-tab svg {
+  display: block;
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
