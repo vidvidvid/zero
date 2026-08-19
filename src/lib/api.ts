@@ -16,6 +16,9 @@ export interface FileChange {
   path: string;
   status: string;
   staged: boolean;
+  /** the other end of a move: where a deletion went, or where an arrival came
+      from. Null for the rows that are only what they look like. */
+  moved: string | null;
 }
 
 export interface BranchInfo {

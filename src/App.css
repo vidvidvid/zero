@@ -1315,6 +1315,14 @@ body.dragging-row {
   text-decoration: line-through;
 }
 
+/* Either end of a move. Not red and not struck through at the old path, and
+   not green at the new one: nothing was lost and nothing was written — the
+   same file is somewhere else, which is a change, and yellow is what this
+   panel calls a change. The arrow in the folder beside it says which way. */
+.wt-file-base.mov {
+  color: var(--yellow);
+}
+
 .wt-file-dir {
   /* the huge shrink factor means squeezing the row eats the directory first,
      down to nothing, before the file name gives up a pixel */

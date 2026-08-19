@@ -34,7 +34,18 @@ export type View =
   // `staged` picks which of git's two diffs this is: HEAD→index when set, and
   // index→working tree when not. Optional because sessions written before it
   // existed have no such field, and the working-tree diff is what they were.
-  | { kind: "diff"; key: string; worktree: string; relPath: string; staged?: boolean }
+  // `from` is the path this file had before it was moved, when it was. The
+  // staged side of a rename is HEAD, and HEAD has never heard of the new path
+  // — asked for it, it answers with nothing and the diff reads as a brand new
+  // file rather than as the same one, one folder over.
+  | {
+      kind: "diff";
+      key: string;
+      worktree: string;
+      relPath: string;
+      staged?: boolean;
+      from?: string;
+    }
   | { kind: "file"; key: string; absPath: string; line?: number }
   | { kind: "new"; key: string; name: string }
   // A memo, opened as the thread it is rather than as the file it also is. No

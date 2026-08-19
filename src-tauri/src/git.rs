@@ -197,12 +197,144 @@ pub struct FileChange {
     pub path: String,
     pub status: String,
     pub staged: bool,
+    /// The other end of a move, when this row is one end of one: where a
+    /// deletion went, or where an arrival came from. `None` for everything
+    /// else, which is most rows.
+    pub moved: Option<String>,
+}
+
+/// How many arriving files are worth hashing to look for moves. A move of
+/// more than this in one go is not a thing anyone does by hand, and the point
+/// of the cap is the repository where it isn't a move at all — a few hundred
+/// untracked files that happen to share a name with something deleted.
+const MOVE_SCAN_LIMIT: usize = 500;
+
+/// The blob each deleted path held, read out of a diff that already knows it.
+/// `--raw` prints `:<mode> <mode> <src-oid> <dst-oid> <status>\t<path>`, so
+/// the content of a file git is about to forget costs no extra hashing.
+fn deleted_oids(worktree: &str, args: &[&str], out: &mut HashMap<String, String>) {
+    let Ok(text) = run_git(worktree, args) else { return };
+    for line in text.lines() {
+        let Some((meta, path)) = line.split_once('\t') else { continue };
+        let f: Vec<&str> = meta.split_whitespace().collect();
+        if f.len() < 5 || !f[4].starts_with('D') {
+            continue;
+        }
+        out.insert(path.to_string(), f[2].to_string());
+    }
+}
+
+/// Pair deletions with arrivals that are the same file somewhere else.
+///
+/// git pairs a rename itself, but only once both halves are in the index. Move
+/// a file in a shell or an editor and you get a deletion on one side and an
+/// *untracked* arrival on the other, which git has no reason to connect —
+/// rename detection runs between two things it already tracks. The panel then
+/// draws a column of struck-through losses next to a column of unrelated new
+/// files, which is the one reading of a move that looks like a catastrophe.
+///
+/// Deliberately conservative, because a wrong pairing is worse than none:
+/// identical content, identical filename, and exactly one candidate at each
+/// end. Content alone would marry every empty file in the tree to every other,
+/// and a filename alone would pair two unrelated `index.ts`.
+///
+/// Both rows are kept and annotated rather than merged into one. The deletion
+/// may be staged while the arrival is not — which is exactly the state a move
+/// lands in — and folding them into a single row would have to claim one
+/// staging state for both, hiding from the staged list a deletion that a
+/// commit would really include.
+fn detect_moves(worktree: &str, result: &mut [FileChange]) {
+    fn basename(p: &str) -> &str {
+        p.rsplit('/').next().unwrap_or(p)
+    }
+
+    let deleted: Vec<String> = {
+        let mut v: Vec<String> = result
+            .iter()
+            .filter(|c| c.status == "D")
+            .map(|c| c.path.clone())
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    if deleted.is_empty() {
+        return;
+    }
+
+    let names: HashSet<&str> = deleted.iter().map(|p| basename(p)).collect();
+    let arrivals: Vec<usize> = (0..result.len())
+        .filter(|&i| {
+            let c = &result[i];
+            // a trailing slash is an untracked directory, not a file to hash
+            c.status == "U" && !c.path.ends_with('/') && !c.path.contains('\n')
+                && names.contains(basename(&c.path))
+        })
+        .take(MOVE_SCAN_LIMIT)
+        .collect();
+    if arrivals.is_empty() {
+        return;
+    }
+
+    let paths: Vec<String> = arrivals.iter().map(|&i| result[i].path.clone()).collect();
+    let mut args: Vec<&str> = vec!["hash-object", "--"];
+    args.extend(paths.iter().map(|s| s.as_str()));
+    let Ok(text) = run_git(worktree, &args) else { return };
+    let hashes: Vec<&str> = text.lines().collect();
+    if hashes.len() != arrivals.len() {
+        return;
+    }
+
+    let mut oids: HashMap<String, String> = HashMap::new();
+    // --no-abbrev, or these come back as seven characters and never match the
+    // full-length hashes `hash-object` just gave us
+    deleted_oids(worktree, &["diff", "--cached", "--raw", "--no-abbrev"], &mut oids);
+    deleted_oids(worktree, &["diff", "--raw", "--no-abbrev"], &mut oids);
+
+    let mut pairs: Vec<(usize, &str)> = Vec::new();
+    for (k, &i) in arrivals.iter().enumerate() {
+        for gone in &deleted {
+            if basename(gone) == basename(&result[i].path)
+                && oids.get(gone).map(|o| o == hashes[k]).unwrap_or(false)
+            {
+                pairs.push((i, gone.as_str()));
+            }
+        }
+    }
+
+    // only where neither end had a second candidate
+    let mut per_arrival: HashMap<usize, usize> = HashMap::new();
+    let mut per_deletion: HashMap<&str, usize> = HashMap::new();
+    for &(i, gone) in &pairs {
+        *per_arrival.entry(i).or_default() += 1;
+        *per_deletion.entry(gone).or_default() += 1;
+    }
+    let settled: Vec<(usize, String)> = pairs
+        .into_iter()
+        .filter(|&(i, gone)| per_arrival[&i] == 1 && per_deletion[gone] == 1)
+        .map(|(i, gone)| (i, gone.to_string()))
+        .collect();
+
+    for (i, gone) in settled {
+        let arrived = result[i].path.clone();
+        result[i].moved = Some(gone.clone());
+        // a path can hold two rows — staged and not — and both are that move
+        for c in result.iter_mut() {
+            if c.status == "D" && c.path == gone {
+                c.moved = Some(arrived.clone());
+            }
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn git_status(worktree: String) -> Result<Vec<FileChange>, String> {
     blocking(move || {
-        let out = run_git(&worktree, &["status", "--porcelain=v1"])?;
+        // -uall, because git's default stops at the first untracked *directory*
+        // and reports the whole thing as one entry. A move into a new folder
+        // then shows as a column of deletions with no sign of where the files
+        // went — the arrivals are all hiding behind a single nameless row.
+        let out = run_git(&worktree, &["status", "--porcelain=v1", "-uall"])?;
         let mut result = Vec::new();
         for line in out.lines() {
             if line.len() < 4 {
@@ -211,22 +343,33 @@ pub async fn git_status(worktree: String) -> Result<Vec<FileChange>, String> {
             let x = line.chars().next().unwrap();
             let y = line.chars().nth(1).unwrap();
             let mut path = line[3..].to_string();
-            // renames come as "old -> new"; show the new path
+            // renames come as "old -> new": the new path is the row, the old
+            // one is where it came from — which is the whole of what makes it
+            // read as a move rather than as a file appearing from nowhere
+            let mut moved = None;
             if let Some(idx) = path.find(" -> ") {
+                moved = Some(path[..idx].to_string());
                 path = path[idx + 4..].to_string();
             }
             if x == '?' {
-                result.push(FileChange { path, status: "U".into(), staged: false });
+                result.push(FileChange { path, status: "U".into(), staged: false, moved: None });
                 continue;
             }
             // a file can be in both lists at once ("MM" = staged edit + newer edit)
             if x != ' ' {
-                result.push(FileChange { path: path.clone(), status: x.to_string(), staged: true });
+                result.push(FileChange {
+                    path: path.clone(),
+                    status: x.to_string(),
+                    staged: true,
+                    moved: moved.clone(),
+                });
             }
             if y != ' ' {
-                result.push(FileChange { path, status: y.to_string(), staged: false });
+                result.push(FileChange { path, status: y.to_string(), staged: false, moved });
             }
         }
+        // the half-staged move git won't pair on its own
+        detect_moves(&worktree, &mut result);
         Ok(result)
     })
     .await
@@ -617,6 +760,136 @@ mod tests {
         assert!(ignored.contains("noise.log"), "file pattern missed: {ignored:?}");
         assert!(!ignored.contains("src"), "plain directory marked ignored: {ignored:?}");
         assert!(!ignored.contains("keep.txt"), "plain file marked ignored: {ignored:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Moving files into a folder that doesn't exist in HEAD yet is the case
+    /// that misleads: git's default untracked mode stops at the new directory
+    /// and reports it as one entry, so the panel showed a column of deletions
+    /// and no sign that the files had landed anywhere.
+    #[test]
+    fn status_lists_files_inside_a_new_untracked_directory() {
+        let dir = std::env::temp_dir().join("zero-untracked-dir-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("pub/about")).unwrap();
+        let cwd = dir.to_string_lossy().to_string();
+        let git = |args: &[&str]| {
+            git_base(&cwd).args(args).output().unwrap();
+        };
+        git(&["init", "-q", "."]);
+        std::fs::write(dir.join("pub/about/page.tsx"), "hi\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+
+        // the move: out of about/, into a route group that HEAD has never seen
+        std::fs::create_dir_all(dir.join("pub/(marketing)/about")).unwrap();
+        std::fs::rename(dir.join("pub/about/page.tsx"), dir.join("pub/(marketing)/about/page.tsx"))
+            .unwrap();
+        std::fs::remove_dir(dir.join("pub/about")).unwrap();
+
+        let changes = tauri::async_runtime::block_on(git_status(cwd)).unwrap();
+        let paths: Vec<&str> = changes.iter().map(|c| c.path.as_str()).collect();
+
+        assert!(
+            paths.contains(&"pub/(marketing)/about/page.tsx"),
+            "the arriving file is hidden behind its directory: {paths:?}"
+        );
+        assert!(
+            !paths.contains(&"pub/(marketing)/"),
+            "the directory was reported instead of its contents: {paths:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The half-staged move: a deletion git has been told about and an arrival
+    /// it hasn't. git pairs neither, so the panel has to.
+    #[test]
+    fn a_move_is_paired_even_while_half_of_it_is_untracked() {
+        let dir = std::env::temp_dir().join("zero-move-pairing-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("pub/about")).unwrap();
+        let cwd = dir.to_string_lossy().to_string();
+        let git = |args: &[&str]| {
+            git_base(&cwd).args(args).output().unwrap();
+        };
+        git(&["init", "-q", "."]);
+        std::fs::write(dir.join("pub/about/page.tsx"), "the about page\n").unwrap();
+        // a second file with content of its own, so the pairing has to be about
+        // more than "something was deleted and something arrived"
+        std::fs::write(dir.join("pub/about/other.tsx"), "another\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+
+        std::fs::create_dir_all(dir.join("pub/(marketing)/about")).unwrap();
+        for f in ["page.tsx", "other.tsx"] {
+            std::fs::rename(
+                dir.join("pub/about").join(f),
+                dir.join("pub/(marketing)/about").join(f),
+            )
+            .unwrap();
+        }
+        std::fs::remove_dir(dir.join("pub/about")).unwrap();
+        // the deletions staged, the arrivals not — what `git add -A` on the old
+        // path alone leaves behind, and what the panel showed as pure loss
+        git(&["add", "-A", "--", "pub/about"]);
+
+        let changes = tauri::async_runtime::block_on(git_status(cwd)).unwrap();
+        let moved = |path: &str| {
+            changes
+                .iter()
+                .find(|c| c.path == path)
+                .unwrap_or_else(|| panic!("no row for {path}"))
+                .moved
+                .clone()
+        };
+
+        assert_eq!(
+            moved("pub/about/page.tsx").as_deref(),
+            Some("pub/(marketing)/about/page.tsx"),
+            "the deletion doesn't say where the file went"
+        );
+        assert_eq!(
+            moved("pub/(marketing)/about/page.tsx").as_deref(),
+            Some("pub/about/page.tsx"),
+            "the arrival doesn't say where it came from"
+        );
+        // and the two files were not crossed with each other
+        assert_eq!(
+            moved("pub/(marketing)/about/other.tsx").as_deref(),
+            Some("pub/about/other.tsx")
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two empty files are identical without being the same file. Content
+    /// alone would pair them; the name and the one-candidate rule are what
+    /// stop it.
+    #[test]
+    fn identical_but_unrelated_files_are_not_called_a_move() {
+        let dir = std::env::temp_dir().join("zero-move-falsepos-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        let cwd = dir.to_string_lossy().to_string();
+        let git = |args: &[&str]| {
+            git_base(&cwd).args(args).output().unwrap();
+        };
+        git(&["init", "-q", "."]);
+        std::fs::write(dir.join("a/keep.ts"), "").unwrap();
+        git(&["add", "-A"]);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]);
+
+        std::fs::remove_file(dir.join("a/keep.ts")).unwrap();
+        // same (empty) content, different name: not the file that just went
+        std::fs::write(dir.join("b/unrelated.ts"), "").unwrap();
+
+        let changes = tauri::async_runtime::block_on(git_status(cwd)).unwrap();
+        for c in &changes {
+            assert!(c.moved.is_none(), "{} was called a move: {:?}", c.path, c.moved);
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }
