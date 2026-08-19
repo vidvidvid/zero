@@ -63,7 +63,7 @@ pub fn centre(ns_window: *mut std::ffi::c_void, bar: f64) -> Result<(), &'static
     use objc2::msg_send;
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2_core_foundation::CGRect;
+    use objc2_core_foundation::{CGPoint, CGRect};
 
     if ns_window.is_null() {
         return Err("no window");
@@ -76,23 +76,63 @@ pub fn centre(ns_window: *mut std::ffi::c_void, bar: f64) -> Result<(), &'static
     unsafe {
         let window: *mut AnyObject = ns_window.cast();
 
+        // Two views above a button: the band it sits in (AppKit's titlebar
+        // view) and the container tao pins to the top of the window on every
+        // redraw. The band is the frame the buttons are positioned in, and it
+        // is only the same thing as the container until AppKit lays the
+        // titlebar out again — a live resize — after which it is back to its
+        // natural height and sitting at the *bottom* of the container, 16pt
+        // down. Placing a button correctly inside a band that has itself
+        // moved puts it 16pt low and keeps it there, every later placement
+        // agreeing with the one before. So the band is put back over the
+        // container first, and only then does the middle of it mean the
+        // middle of the bar.
+        let first: Option<Retained<AnyObject>> = msg_send![window, standardWindowButton: 0usize];
+        let first = first.ok_or("this window has no standard buttons")?;
+        let band: Option<Retained<AnyObject>> = msg_send![&*first, superview];
+        let band = band.ok_or("a button with no titlebar to sit in")?;
+        let container: Option<Retained<AnyObject>> = msg_send![&*band, superview];
+        let container = container.ok_or("a titlebar outside anything")?;
+
+        // The container collapses too — it flips between the depth tao gives
+        // it and AppKit's own while an edge is being dragged. Placing against
+        // its top rather than its height means either reading lands the
+        // buttons in the same place, but a shallow one still clamps a deep
+        // axis: a bar of 80pt (zoom 2) wants 47 of depth, and 32 will not do.
+        // So it is grown back to what the axis needs, top held still, and
+        // never past the 48 tao would restore anyway — nothing to fight over.
+        let mut over = { let r: CGRect = msg_send![&*container, bounds]; r };
+        let tall = { let r: CGRect = msg_send![&*first, frame]; r.size.height };
+        let needs = (bar + tall) / 2.0;
+        if over.size.height + 0.5 < needs {
+            let mut grown: CGRect = msg_send![&*container, frame];
+            grown.origin.y += grown.size.height - needs;
+            grown.size.height = needs;
+            let _: () = msg_send![&*container, setFrame: grown];
+            over.size.height = needs;
+        }
+        let sits = { let r: CGRect = msg_send![&*band, frame]; r };
+        if (sits.size.height - over.size.height).abs() > 0.5 || sits.origin.y.abs() > 0.5 {
+            let full = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: over.size,
+            };
+            let _: () = msg_send![&*band, setFrame: full];
+        }
+        let depth = over.size.height;
+
         // NSWindowButton: close, miniaturise, zoom
         for tag in 0usize..3 {
             let button: Option<Retained<AnyObject>> = msg_send![window, standardWindowButton: tag];
             let Some(button) = button else {
                 return Err("this window has no standard buttons");
             };
-            let titlebar: Option<Retained<AnyObject>> = msg_send![&*button, superview];
-            let Some(titlebar) = titlebar else {
-                return Err("a button with no titlebar to sit in");
-            };
-            let band: CGRect = msg_send![&*titlebar, bounds];
             let mut frame: CGRect = msg_send![&*button, frame];
             // y counts up from the bottom, so this is the top of the band,
             // less the gap that leaves the button's centre on the bar's axis.
             // Never below the band: outside its superview's bounds a view
             // still draws but stops taking clicks.
-            let want = (band.size.height - (bar + frame.size.height) / 2.0).max(0.0);
+            let want = (depth - (bar + frame.size.height) / 2.0).max(0.0);
             // Moving a view is what got us called, so a write that changes
             // nothing still has to be skipped — it would post another frame
             // change, and that is a loop rather than a correction.
@@ -142,16 +182,29 @@ pub fn watch(ns_window: *mut std::ffi::c_void) -> Result<(), &'static str> {
             let _ = centre(handle as *mut std::ffi::c_void, bar);
         });
 
+        // The three buttons, and the band they sit in — AppKit can move that
+        // without touching them, and a band that moves takes the buttons with
+        // it, so watching only the buttons would miss the move that matters
+        // most.
+        let mut watched: Vec<Retained<AnyObject>> = Vec::with_capacity(4);
         for tag in 0usize..3 {
             let button: Option<Retained<AnyObject>> = msg_send![window, standardWindowButton: tag];
             let Some(button) = button else {
                 return Err("this window has no standard buttons");
             };
-            let _: () = msg_send![&*button, setPostsFrameChangedNotifications: Bool::YES];
+            watched.push(button);
+        }
+        let band: Option<Retained<AnyObject>> = msg_send![&*watched[0], superview];
+        if let Some(band) = band {
+            watched.push(band);
+        }
+
+        for view in &watched {
+            let _: () = msg_send![&**view, setPostsFrameChangedNotifications: Bool::YES];
             let token: Option<Retained<AnyObject>> = msg_send![
                 &*notifications,
                 addObserverForName: &*name,
-                object: &*button,
+                object: &**view,
                 queue: std::ptr::null::<AnyObject>(),
                 usingBlock: &*block,
             ];

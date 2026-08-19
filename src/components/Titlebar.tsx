@@ -67,12 +67,28 @@ export function Titlebar({
   // there are projects and still no bar in the document. Asking the element
   // can't be early, and the observer covers every later reason the height
   // moves. Points, not CSS pixels: the zoom is the difference between them.
+  //
+  // Only when the number changes, though. The observer watches a box, not a
+  // height, and the bar's width changes on every frame of a window drag — so
+  // reporting each time it fires puts an IPC round trip per frame against
+  // buttons that AppKit is already fighting us for, and the traffic lights
+  // jitter for the length of the drag. It is the same two-writers-per-frame
+  // this was written to end; the guard is what keeps the drag silent.
   const barRef = useRef<HTMLDivElement>(null);
+  const said = useRef(0);
   useEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
-    const report = () =>
-      api.titlebarHeight(bar.getBoundingClientRect().height * zoom).catch(() => {});
+    const report = () => {
+      const height = bar.getBoundingClientRect().height * zoom;
+      if (Math.abs(height - said.current) < 0.5) return;
+      said.current = height;
+      // a call that never landed was never said, or the next real change
+      // would be the one that stays unsaid
+      api.titlebarHeight(height).catch(() => {
+        said.current = 0;
+      });
+    };
     report();
     const watch = new ResizeObserver(report);
     watch.observe(bar);
