@@ -1,0 +1,374 @@
+/* ===== main column ===== */
+
+/* the editor's slot in the field — a .pane-abs like every other pane's, kept
+   as its own name only for the empty state's centring below */
+
+/* The editor's card. It used to start under the tab strip and stand square at
+   the corner the tabs stood on; with the strip inside it, all four corners
+   are the card's own and it wears the same chrome as every other panel.
+   Clipped to its radius, which is what keeps every view's own background —
+   CodeMirror's, the diff's, a memo thread's — from painting the corners
+   square again; they all paint this card's tone, and a corner is meant to
+   show the field through it. Safe to clip because CodeMirror's completion
+   popups hang off <body> now (see editorTheme). */
+.editor-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* editor */
+
+.editor-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-pane.empty {
+  align-items: center;
+  justify-content: center;
+}
+
+/* Centred in the editor's own pane — mark and version as one group. They
+   used to back the sidebar's width out to sit on the window's centre line,
+   which made sense while the editor was always the window's middle; in a
+   free layout the pane is the only centre there is. */
+.editor-empty-hint {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  letter-spacing: 0.35em;
+  /* letter-spacing trails the last character, so give back as much on the
+     left to keep the word centred on its own box */
+  margin-left: 0.35em;
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+/* quieter than the mark it sits under, and quiet enough to be looked past:
+   this is the screen you are on when you have nothing open, not a splash */
+.editor-empty-version {
+  margin-top: 9px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  margin-left: 0.18em;
+  text-align: center;
+  color: var(--text-faint);
+  opacity: 0.32;
+}
+
+/* Inside the card, the way the sidebar's strip has always been: a row of
+   names over a hairline, the body of the panel below. The tabs used to lie
+   out on the window with the active one wearing the page's tone flush into
+   the page — a construction that couldn't survive the card growing an edge,
+   since a border across the top of the page severs a tab from it, and a tab
+   outside the border is outside the panel it names. So the strip stepped in,
+   and "which one" is said the way every strip in this window says it: the
+   name's own brightness, and a hairline mark under the one you are on. */
+.editor-tabs {
+  flex: none;
+  box-sizing: border-box;
+  height: 32px;
+  display: flex;
+  gap: 2px;
+  padding: 0 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.editor-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  color: var(--text-faint);
+  cursor: grab;
+}
+
+.editor-tab:hover {
+  color: var(--text-dim);
+}
+
+.editor-tab.active {
+  color: var(--text);
+}
+
+/* An unfocused pane's active tab gives up the accent: with panes plural,
+   every strip still has an active tab, and only one of them is where the
+   next open lands. The accent under a tab is that promise, so it can only
+   stand in one pane at a time — the others keep the mark but in the faint
+   tone, the way an unfocused window keeps its close button grey. */
+.editor-pane:not(.focused) .editor-tab.active::after {
+  background: var(--text-faint);
+}
+
+/* on the strip's rule, the same mark the sidebar's active tab wears — inset
+   to the label rather than run edge to edge, so two neighbouring tabs could
+   never read as one underlined stretch */
+.editor-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+/* reorder — same rules as the project tabs above */
+.editor-tabs.reordering .editor-tab {
+  transition: transform 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.editor-tabs.reordering .editor-tab.dragging,
+.editor-tab.dragging {
+  transition: none;
+  z-index: 5;
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* the name is a <button>; without this it keeps its own pointer cursor and
+   the strip feels draggable everywhere except on the word itself */
+.editor-tab-name,
+.editor-tab.dragging * {
+  cursor: inherit;
+}
+
+.editor-tab-name {
+  height: 100%;
+  padding: 0 4px 0 12px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.editor-tab-diff {
+  color: var(--yellow);
+  font-size: 11px;
+}
+
+.editor-tab-diff.staged {
+  color: var(--green);
+}
+
+/* Transparent, not absent — the same rule the project tabs above follow, and
+   for the same two reasons. A tab that only wears its ✕ under the pointer
+   stops carrying a control it doesn't need the rest of the time, and colour
+   is what hides it rather than `display`, so the tab is one width in both
+   states and the strip doesn't twitch as you run along it. */
+/* A pointer of its own: the tab it sits in is a thing you drag, so it hands
+   its `grab` down to everything inside it, and a ✕ that closes a file has no
+   business advertising that it can be picked up. Colour is the only thing
+   that moves — no chip behind it, unlike the project tabs, where the ✕ is the
+   one control in a bar of bare words and has to be found. Here the strip is
+   already made of surfaces; another one inside a tab is a box in a box. */
+.editor-tab-close {
+  height: 100%;
+  padding: 0 8px 0 4px;
+  color: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.editor-tab:hover .editor-tab-close {
+  color: var(--text-faint);
+}
+
+/* Reaching the ✕ itself lights it — and the selector has to be this long to
+   do it. `.editor-tab-close:hover` is one class and a pseudo-class; the rule
+   above it is two classes and a pseudo-class, so it outranks it however the
+   two are ordered, and the ✕ stayed faint under the pointer. Source order
+   only decides ties. */
+.editor-tab:hover .editor-tab-close:hover {
+  color: var(--text);
+}
+
+/* VS Code-style breadcrumb under the tabs */
+.editor-path {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 7px 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  background: var(--bg);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* A memo thread's path is the way to the file the thread is a reading of, so
+   the line that names it is what you click. Nothing else needs this: every
+   other view already is its file. */
+.editor-path.opens {
+  cursor: pointer;
+}
+
+.editor-path.opens:hover {
+  color: var(--text-dim);
+}
+
+.editor-path.opens:hover .crumb.file {
+  color: var(--text);
+}
+
+.editor-path .crumb {
+  display: flex;
+  align-items: center;
+}
+
+.editor-path .crumb-sep {
+  margin: 0 5px;
+  opacity: 0.55;
+}
+
+.editor-path .crumb.file {
+  color: var(--text-dim);
+}
+
+.editor-path .file-icon {
+  font-size: 13px;
+  width: 14px;
+  margin-right: 4px;
+}
+
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.editor-view {
+  position: absolute;
+  inset: 0;
+}
+
+.cm-host {
+  height: 100%;
+  /* the diff's overview ruler mounts directly on the host (see
+     scrollRuler.ts) and positions against it */
+  position: relative;
+}
+
+/* body sets user-select:none for the chrome — code is text, let it be selected */
+.cm-host,
+.cm-host .cm-content,
+.cm-host .cm-line,
+.cm-host .cm-scroller {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+/* `const` names, coloured off the syntax tree rather than by tag — see
+   constNames.ts. Both rules have to beat syntax highlighting, which paints the
+   spans these marks wrap, so they carry the same weight as the link rule and
+   sit above it: a ⌘-hover on a const should still read as a link. */
+.cm-host .cm-const-name,
+.cm-host .cm-const-name * {
+  color: #4fc1ff !important;
+}
+
+.cm-host .cm-fn-name,
+.cm-host .cm-fn-name * {
+  color: #dcdcaa !important;
+}
+
+/* ⌘ held over a name that resolves — the affordance before the click. This is
+   Dark Modern's `editorLink.activeForeground`, the same colour Cursor uses.
+   The editor is the one place the UI's monochrome rule doesn't apply: inside
+   the code, colour carries meaning. The rule has to beat syntax highlighting,
+   which paints the spans this mark wraps, hence the descendant selector. */
+.cm-host .cm-mod-link,
+.cm-host .cm-mod-link * {
+  color: #4e94ce !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cm-host .cm-editor {
+  height: 100%;
+  font-size: 12.5px;
+}
+
+.cm-host .cm-merge-view,
+.cm-host .cm-mergeView {
+  height: 100%;
+}
+
+.cm-host .cm-scroller {
+  font-family: var(--font-mono) !important;
+}
+
+/* click-to-expand band standing in for skipped unchanged lines */
+.cm-host .cm-collapsedLines {
+  color: var(--text-faint) !important;
+  font-size: 11.5px;
+  background: var(--bg-raised) !important;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.cm-host .cm-collapsedLines:hover {
+  color: var(--text) !important;
+}
+
+/* split-diff tinting, VS Code Dark Modern style */
+/* exact VS Code / Cursor defaults, read out of the compiled colour registry
+   (the Dark Modern theme json doesn't set these, they're built in):
+   removedLineBackground rgba(255,0,0,.2), insertedLineBackground
+   rgba(155,185,85,.2), and the char-level marks #ff000033 / #9ccc2c33 painted
+   ON TOP of the line wash — kept at their own alpha here too, so the browser
+   composites them exactly as VS Code does. The marks come from diffChars.ts,
+   which only puts them on modified lines, never across whole added or
+   removed ones */
+.cm-merge-a .cm-changedLine,
+.cm-deletedChunk {
+  background: rgba(255, 0, 0, 0.2) !important;
+}
+
+.cm-merge-a .cm-changedText,
+.cm-deletedChunk .cm-deletedText {
+  background: #ff000033 !important;
+}
+
+
+.cm-merge-b .cm-changedLine {
+  background: rgba(155, 185, 85, 0.2) !important;
+}
+
+.cm-merge-b .cm-changedText {
+  background: #9ccc2c33 !important;
+}
+
+/* the gutter runs the same wash as its line, the way VS Code tints the
+   margin (merge ships bright #fa9 / #8f8 bars instead) */
+.cm-merge-a .cm-changedLineGutter,
+.cm-deletedLineGutter {
+  background: rgba(255, 0, 0, 0.2) !important;
+}
+
+.cm-merge-b .cm-changedLineGutter {
+  background: rgba(155, 185, 85, 0.2) !important;
+}
+
+/* per-chunk revert, the arrow between the panes */
+.cm-host .cm-merge-revert button {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.cm-host .cm-merge-revert button:hover {
+  color: var(--text);
+}

@@ -228,10 +228,9 @@ export default function App() {
     // tall and 63pt wide whatever the zoom does. Their height is answered by
     // moving them onto the bar's new axis (below), but sideways they can't be
     // moved out of the tabs' way, so the inset that clears them is grown back
-    // by what the zoom took off. See --chrome in App.css.
+    // by what the zoom took off. See --chrome in styles/theme.css.
     document.documentElement.style.setProperty("--chrome", String(1 / Math.min(zoom, 1)));
   }, [zoom]);
-
 
   const [showSettings, setShowSettings] = useState(false);
 

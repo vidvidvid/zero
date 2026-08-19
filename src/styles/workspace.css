@@ -1,0 +1,117 @@
+/* ===== workspace ===== */
+
+.workspaces {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Every project stays laid out AND painted; switching is a compositor swap.
+   `display:none` forced a re-fit of every terminal, and `visibility:hidden`
+   still dropped the paint, so the incoming project had to be re-rasterised
+   on the switch frame. Its own layer + opacity keeps it resident on the GPU.
+
+   One absolute field for one split tree: every pane — sidebar, editor, each
+   terminal — is a card positioned in percentages of this box, half a gap
+   inside its own slot (see .pane-abs). The field is grown by that half-gap
+   on every side, so two neighbouring cards stand a whole gap apart while the
+   outermost edges land exactly one gap from the window — and the top edge
+   lands flush under the title bar, because everything up there sits on the
+   traffic lights' axis and a gap under the bar would re-centre the band
+   people read as "the top bar" a few pixels below the buttons centred in it. */
+.workspace {
+  position: absolute;
+  inset: calc(var(--float-gap) / -2) calc(var(--float-gap) / 2) calc(var(--float-gap) / 2);
+  will-change: opacity;
+  transform: translateZ(0);
+}
+
+/* A pane's slot: the rect the tree gave it, worn as absolute percentages,
+   with the half-gap inset that keeps its card off its neighbours. Every pane
+   is one of these, and they stay keyed siblings of the one field forever —
+   which is what lets any rearrangement be nothing but new numbers here,
+   never a remount.
+   The transition is the app's whole animation system: panes glide to their
+   seats — the way the Claude app moves its panels — and the one easing
+   closes the gap behind ⌘B and ⌘J and settles a keyboard split. A drag
+   leans on only the transform leg: the rects freeze at pickup, the preview
+   slides panes as translates and the drop lands everything as FLIP glides
+   (see Workspace), so the whole gesture runs on the compositor and the
+   layout legs here never fire until the tree itself changes. The curve is
+   the tab strips' own. Off while a divider is in hand: a resize tracks the
+   pointer exactly, and an eased chase would read as lag. */
+.pane-abs {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: calc(var(--float-gap) / 2);
+  transition:
+    left 160ms cubic-bezier(0.2, 0, 0, 1),
+    top 160ms cubic-bezier(0.2, 0, 0, 1),
+    width 160ms cubic-bezier(0.2, 0, 0, 1),
+    height 160ms cubic-bezier(0.2, 0, 0, 1),
+    transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+body.dragging-col .pane-abs,
+body.dragging-row .pane-abs {
+  transition: none;
+}
+
+/* The card in hand rides the pointer as itself — live terminal, live tree —
+   pinned at the size it was picked up at while everything else slides, and
+   solid the whole way: wherever the aim would take it, what you carry is
+   the pane, never a picture of one. It tracks the hand, not an easing, so
+   every transition goes. */
+.pane-abs.moving {
+  z-index: 40;
+  pointer-events: none;
+  will-change: transform;
+  transition: none;
+}
+
+body.dragging-panel,
+body.dragging-panel * {
+  cursor: grabbing !important;
+}
+
+/* The one mark a drag ever draws: the line a true split shows, along the
+   edge of the pane it would cut — the Claude app's split line, in this
+   theme's accent. Re-seats draw nothing; the layout moving is the feedback.
+   The box is the target pane's slot; the padding keeps the line on the
+   card's edge rather than in the gap. */
+.split-hint {
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;
+  padding: calc(var(--float-gap) / 2);
+  display: flex;
+  pointer-events: none;
+}
+
+.split-hint::after {
+  content: "";
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.split-hint.up::after,
+.split-hint.down::after {
+  width: 100%;
+  height: 3px;
+}
+
+.split-hint.down::after {
+  align-self: flex-end;
+}
+
+.split-hint.left::after,
+.split-hint.right::after {
+  width: 3px;
+  height: 100%;
+}
+
+.split-hint.right::after {
+  margin-left: auto;
+}

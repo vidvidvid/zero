@@ -210,9 +210,9 @@ export const lightModern = [
 
 // TRMNL — the theme from trmnl.com's JSON editor, dark variant. Ported as
 // written except for the font: the source pins Space Mono at 0.75rem, but
-// zero's editor font is set once in App.css for every theme, and Space Mono
-// isn't in the bundle anyway. constNames stays out too — its colours live in
-// App.css and are Dark Modern's.
+// zero's editor font is set once in styles/main-column.css for every theme,
+// and Space Mono isn't in the bundle anyway. constNames stays out too — its
+// colours live in styles/main-column.css and are Dark Modern's.
 const trmnlChrome = EditorView.theme(
   {
     "&": {

@@ -1,0 +1,21 @@
+/* ===== resizers ===== */
+
+body.dragging-col,
+body.dragging-row {
+  user-select: none;
+}
+
+body.dragging-col {
+  cursor: col-resize;
+}
+
+body.dragging-row {
+  cursor: row-resize;
+}
+
+.panel-error {
+  padding: 12px;
+  color: var(--text-faint);
+  font-size: 12px;
+  word-break: break-word;
+}

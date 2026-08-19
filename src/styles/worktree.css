@@ -1,0 +1,533 @@
+/* worktree panel */
+
+.wt-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 6px 0;
+}
+
+.wt-group {
+  margin-bottom: 12px;
+}
+
+.wt-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  /* the worktree name is a heading for the rows under it, so it sits at the
+     same size as they do and leans on weight to separate itself */
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: padding-right 0.12s ease;
+}
+
+.wt-header:hover {
+  background: var(--bg-raised);
+}
+
+/* row eases open to make room for the ✕ instead of overlaying the name —
+   only when there's no count, since a count already holds that space open */
+.wt-header:has(.wt-delete):has(.wt-count:empty):hover {
+  padding-right: 28px;
+}
+
+/* shared disclosure triangle — rotates about its own centre, so the shape
+   stays put and only turns */
+.chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--text-faint);
+}
+
+.chevron svg {
+  display: block;
+}
+
+
+.wt-branch {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-main-badge {
+  flex: none;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.wt-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: opacity 0.12s;
+}
+
+/* on hover the count fades out and ✕ fades in, same spot — no layout jump */
+.wt-header:has(.wt-delete):hover .wt-count {
+  opacity: 0;
+}
+
+.wt-delete {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 5px;
+  font-size: 11px;
+  color: var(--text-faint);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.wt-header:hover .wt-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wt-delete:hover {
+  color: var(--red);
+}
+
+/* mid-delete it stays up regardless of the pointer, same as delete-all —
+   the … is the only sign the removal is running */
+.wt-delete.busy,
+.wt-header:hover .wt-delete.busy {
+  opacity: 1;
+  pointer-events: none;
+  color: var(--text-dim);
+}
+
+/* commit box */
+
+.wt-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 4px 10px 8px 14px;
+}
+
+.wt-msg {
+  resize: none;
+  min-height: 46px;
+  padding: 5px 7px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.wt-msg:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.wt-msg::placeholder {
+  color: var(--text-faint);
+}
+
+.wt-commit-btn {
+  padding: 4px 0;
+  font-size: 11.5px;
+  /* the button is the light surface now, so the label is the dark half */
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.wt-commit-btn:disabled {
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  cursor: default;
+}
+
+/* "staged" / "changes" section labels with a stage-all action */
+.wt-section {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 5px 10px 2px 14px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* pinned to the same slots the file rows use — 6px and 24px — so the
+   header's icons sit in one column with the rows' below them */
+.wt-section button {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 4px;
+  font-size: 13px;
+  /* the header's uppercase tracking must not leak into the icons, and a
+     pinned line-height keeps their boxes — and so their centring — the same
+     as the file rows' */
+  letter-spacing: normal;
+  line-height: 1;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.wt-section button:nth-last-of-type(2) {
+  right: 24px;
+}
+
+.wt-section:hover button {
+  opacity: 1;
+}
+
+.wt-section button:hover {
+  color: var(--text);
+}
+
+/* The row's buttons, reading left to right in the order you'd use them:
+   open the file, revert it, stage it — so stage/unstage holds the innermost
+   slot and ↗ the outermost. */
+.wt-file-act {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.wt-file:hover .wt-file-act {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wt-file-act:hover {
+  color: var(--text);
+}
+
+/* discard takes the middle slot, in the same fade-in choreography */
+.wt-file-discard {
+  right: 24px;
+}
+
+.wt-notice {
+  margin: 4px 10px 0 14px;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Destructive and rarely wanted, so it keeps out of the way: a faint line of
+   text in the corner that only surfaces once you're in the panel. It still
+   holds its space, so nothing shifts when it appears. */
+.wt-delete-all {
+  align-self: flex-end;
+  margin: auto 10px 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.wt-panel:hover .wt-delete-all {
+  opacity: 0.55;
+}
+
+.wt-delete-all:hover {
+  opacity: 1;
+  color: var(--red);
+  background: var(--bg-raised);
+}
+
+/* mid-delete it stays up regardless of the pointer — it's the only progress
+   the panel shows */
+.wt-delete-all.busy,
+.wt-panel:hover .wt-delete-all.busy {
+  opacity: 1;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.wt-file {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 14px;
+  border-radius: 0;
+  transition: padding-right 0.12s ease;
+}
+
+/* row eases open to make room for its buttons instead of overlaying the
+   path — far enough that none of them sits on text: two on a staged row,
+   three on an unstaged one */
+.wt-file:hover {
+  background: var(--bg-raised);
+  padding-right: 46px;
+}
+
+.wt-file-unstaged:hover {
+  padding-right: 66px;
+}
+
+/* the row whose diff or file is the view on screen */
+.wt-file.on {
+  background: var(--bg-raised);
+}
+
+/* squeezed for the buttons, the path fades out at the edge and a too-long
+   name clips clean — an … in every hovered row said nothing the shortened
+   text doesn't. (Only the path gets the fade: its box grows into the slack,
+   so the fade sits over empty space until it's truly truncated. The name's
+   box hugs its text, where the same mask would eat the tail of every name.) */
+.wt-file:hover .wt-file-dir {
+  text-overflow: clip;
+  mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+}
+
+
+.wt-file-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 0;
+  text-align: left;
+  overflow: hidden;
+}
+
+/* name wins the space it needs, and on the rare squeeze past that it clips
+   clean — never an ellipsis, which otherwise flashes into every row for the
+   0.12s the un-hover padding takes to ease back */
+.wt-file-base {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* Cursor-style git colors on the file names themselves */
+.wt-file-base.mod {
+  color: var(--yellow);
+}
+
+.wt-file-base.add {
+  color: var(--green);
+}
+
+.wt-file-base.del {
+  color: var(--red);
+  text-decoration: line-through;
+}
+
+/* Either end of a move. Not red and not struck through at the old path, and
+   not green at the new one: nothing was lost and nothing was written — the
+   same file is somewhere else, which is a change, and yellow is what this
+   panel calls a change. The arrow in the folder beside it says which way. */
+.wt-file-base.mov {
+  color: var(--yellow);
+}
+
+.wt-file-dir {
+  /* the huge shrink factor means squeezing the row eats the directory first,
+     down to nothing, before the file name gives up a pixel */
+  flex: 1 1000 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ↗ leads the row: outermost-left of the buttons, so it comes first when
+   reading — one slot in on staged rows, which have no discard */
+.wt-file-open {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.wt-file-unstaged .wt-file-open {
+  right: 44px;
+}
+
+.wt-file:hover .wt-file-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wt-file-open:hover {
+  color: var(--text);
+}
+
+.wt-clean {
+  padding: 2px 14px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* file tree */
+
+.file-tree {
+  padding: 6px 0;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 3px 8px;
+  /* the terminal is SF Mono 12.5, which at the same nominal size reads
+     noticeably larger than the UI face — this is the size that matches it */
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@font-face {
+  font-family: "seti";
+  src: url("../assets/seti.woff") format("woff");
+  font-display: block;
+}
+
+.file-icon {
+  flex: none;
+  font-family: "seti";
+  font-size: 15px;
+  width: 16px;
+  text-align: center;
+  line-height: 1;
+  margin-right: 5px;
+  align-self: center;
+}
+
+.tree-item:hover {
+  background: var(--bg-raised);
+}
+
+/* the name takes the room, the badge keeps its corner */
+.tree-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the row you arrived at with ⌘E. A tree that highlighted on every click
+   would be showing you where you already are; this marks where you were sent. */
+.tree-item.selected {
+  background: #04395e;
+}
+
+.tree-item.selected:hover {
+  background: #0a4a75;
+}
+
+/* git status, same colours the changes panel uses on the same file names —
+   two views of one fact shouldn't need translating between them */
+.tree-item.git-modified,
+.tree-item.git-modified.ignored {
+  color: var(--yellow);
+}
+
+.tree-item.git-added,
+.tree-item.git-added.ignored {
+  color: var(--green);
+}
+
+.tree-item.git-deleted,
+.tree-item.git-deleted.ignored {
+  color: var(--red);
+}
+
+.tree-item.file.git-deleted .tree-name {
+  text-decoration: line-through;
+}
+
+/* the letter git itself uses. Folders don't get one: it would be a badge for
+   something you can't see until you open it, and the colour already said so. */
+.tree-badge {
+  margin-left: auto;
+  padding-left: 6px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+/* Files and folders read at the same brightness. They used to differ, which
+   meant dimness said two things at once — "this is a file" and "git ignores
+   this" — and every ordinary file in a folder looked ignored. In this tree
+   dimness now means exactly one thing. */
+.tree-item.dir,
+.tree-item.file {
+  color: var(--text);
+}
+
+/* ...that thing. Two classes deep so it beats the pair above whatever order
+   they end up in — same-specificity rules are decided by position, which is
+   how this got missed the first time. */
+.tree-item.dir.ignored,
+.tree-item.file.ignored {
+  /* just under --text-dim: enough of a step down from --text to read as "not
+     part of the project", no more. --text-faint is for labels you aren't meant
+     to look at; these are still files you open. */
+  color: #8f8f8f;
+}
+
+.tree-item.ignored .file-icon {
+  opacity: 0.45;
+}
+
+.tree-arrow {
+  margin-right: 4px;
+}

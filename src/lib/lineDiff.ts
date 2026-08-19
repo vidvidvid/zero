@@ -11,7 +11,8 @@ import { Change, diff } from "@codemirror/merge";
  * file. Nothing downstream can then tell which lines actually changed: the
  * viewport cull in diffChars has one chunk to cull and it is always on screen,
  * so every scroll re-ran a character diff over the entire file. Measured on
- * App.css that was 9 seconds a frame at 663 changed lines.
+ * App.css — then one 3,900-line file — that was 9 seconds a frame at 663
+ * changed lines.
  *
  * Git has the answer and has had it since 1986: run Myers over *lines*, not
  * characters. The input shrinks by the width of a line and the edit distance

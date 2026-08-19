@@ -1,0 +1,125 @@
+/* ===== light appearance =====
+   App.tsx puts `light` on <html> when the appearance setting resolves light;
+   dark stays the bare default, so nothing in theme.css changes meaning. The
+   values are Light Modern's — the same VS Code source the dark tokens came
+   from.
+   The brightness axis flips with the theme: what stood out by being lighter
+   now stands out by being darker, which is why --accent inverts. */
+html.light {
+  --bg: #ffffff;
+  --bg-panel: #f8f8f8;
+  /* the standard macOS window grey, which is what makes a white panel on it
+     read as a panel */
+  --bg-field: #ececec;
+  --bg-raised: #e8e8e8;
+  --bg-hover: #e8e8e8;
+  --border: #e5e5e5;
+  --text: #3b3b3b;
+  /* Not the dark values mirrored: those were tuned against near-black, and
+     the same distance from white lands short of legible — especially through
+     glass, which lightens whatever it frosts. Both steps sit darker than
+     symmetry would put them. */
+  --text-dim: #555555;
+  --text-faint: #7a7a7a;
+  --accent: #1f1f1f;
+  --green: #388a34;
+  --red: #cd3131;
+  --yellow: #b89500;
+  /* the same lift over white, where near-black's opacities read as smudges */
+  --panel-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.16), 0 2px 6px -2px rgba(0, 0, 0, 0.07);
+}
+
+/* the colors that aren't tokens, in the same roles Light Modern gives them */
+html.light .tree-item.selected {
+  background: #d0e2f2;
+}
+
+html.light .tree-item.selected:hover {
+  background: #c0d8ee;
+}
+
+html.light .image-stage {
+  background-color: #f0f0f0;
+  background-image:
+    linear-gradient(45deg, #e2e2e2 25%, transparent 25%, transparent 75%, #e2e2e2 75%),
+    linear-gradient(45deg, #e2e2e2 25%, transparent 25%, transparent 75%, #e2e2e2 75%);
+}
+
+html.light .cm-host .cm-const-name,
+html.light .cm-host .cm-const-name * {
+  color: #0070c1 !important;
+}
+
+html.light .cm-host .cm-fn-name,
+html.light .cm-host .cm-fn-name * {
+  color: #795e26 !important;
+}
+
+html.light .cm-host .cm-mod-link,
+html.light .cm-host .cm-mod-link * {
+  color: #006ab1 !important;
+}
+
+html.light .cm-host .cm-change-add {
+  background: #48985d;
+}
+
+html.light .cm-host .cm-change-mod {
+  background: #2090d3;
+}
+
+html.light .cm-host .cm-changeGutter .cm-change-del::before,
+html.light .cm-host .cm-changeTick.cm-change-del {
+  background: #e51400;
+}
+
+html.light .pane-actions .pane-close:hover {
+  color: #cd3131;
+}
+
+/* glass in daylight: the scrim flips to frosted white, same alphas doing the
+   same legibility work */
+html.light.glass {
+  --bg: rgba(248, 248, 248, 0.58);
+  --bg-panel: rgba(248, 248, 248, 0.58);
+  --panel-border: rgba(0, 0, 0, 0.08);
+}
+
+/* under glass the field is the glass itself — the panels are the only thing
+   carrying a scrim, which is what makes the gaps between them read as window */
+html.glass {
+  --bg-field: transparent;
+}
+
+/* more scrim than the dark modal carries: white glass brightens what's
+   behind it, so at equal alpha the light box washes toward its own text */
+html.light.glass .settings-box {
+  background: rgba(248, 248, 248, 0.68);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* paint the webview itself so relayout gaps never flash a foreign color */
+html {
+  background: var(--bg-field);
+}
+
+body {
+  background: var(--bg-field);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  user-select: none;
+  cursor: default;
+}

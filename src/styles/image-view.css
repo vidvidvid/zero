@@ -1,0 +1,75 @@
+/* ===== image view ===== */
+
+.image-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* The checkerboard is the only way a transparent PNG reads as transparent
+   rather than as dark grey — which on this theme it otherwise exactly is. Two
+   crossed gradients rather than an asset, so the bundle stays three files. */
+.image-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  background-color: #1a1a1a;
+  background-image:
+    linear-gradient(45deg, #232323 25%, transparent 25%, transparent 75%, #232323 75%),
+    linear-gradient(45deg, #232323 25%, transparent 25%, transparent 75%, #232323 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+/* fit, but never blown up past its own size — a 16px favicon stretched across
+   a window says nothing a 16px favicon doesn't */
+.image-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  cursor: zoom-in;
+  /* the grid behind it is a backdrop, not part of the picture */
+  image-rendering: auto;
+}
+
+/* 1:1. `max-width` has to go or the fit rule wins and nothing appears to happen */
+.image-stage.actual {
+  align-items: safe center;
+  justify-content: safe center;
+}
+
+.image-stage.actual .image-canvas {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+/* pixel art at 1:1 is usually why you opened it, so don't smooth it */
+.image-stage.actual .image-canvas {
+  image-rendering: pixelated;
+}
+
+.image-meta {
+  flex: none;
+  padding: 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.image-broken {
+  max-width: 320px;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+}

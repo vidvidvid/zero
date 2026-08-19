@@ -58,8 +58,9 @@ export function Titlebar({
   const { stripRef, drag, start: startDrag, shift } = useTabReorder(".titlebar-tab", onReorder);
 
   // Where the bar's middle is, for macOS to put the traffic lights on — see
-  // src-tauri/src/traffic_lights.rs. Measured, not computed: App.css owns the
-  // height and a second copy of it here would be a second thing to change.
+  // src-tauri/src/traffic_lights.rs. Measured, not computed: styles/frame.css
+  // owns the height and a second copy of it here would be a second thing to
+  // change.
   // Reported from the element itself rather than on a render App happens to
   // be sure of, because it is only sure of the wrong ones: `restored` and the
   // restored projects land in separate commits, so there is a render where

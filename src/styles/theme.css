@@ -1,0 +1,54 @@
+/* ===== zero — theme ===== */
+
+:root {
+  /* Dark Modern (VS Code / Cursor default) */
+  --bg: #1f1f1f; /* editor.background */
+  --bg-panel: #181818; /* sideBar / panel / titleBar background */
+  /* The window's own surface, behind everything that floats on it. It has to
+     be darker than both panel tones or the cards read as holes cut in the
+     window rather than panels lying on it — the shadow says "above" and the
+     tone has to agree. macOS does the same thing the other way up in light:
+     a grey window, panels lighter than it. */
+  --bg-field: #141414;
+  --bg-raised: #2a2d2e; /* list.hoverBackground */
+  --bg-hover: #2a2d2e;
+  --border: #2b2b2b;
+  --text: #cccccc;
+  --text-dim: #9d9d9d;
+  --text-faint: #656565;
+  /* Not a hue. Everything that wants to stand out here — a drag handle under
+     the pointer, a focused field, the commit button — stands out by being
+     brighter than its surroundings, which is the only axis this theme has. */
+  --accent: #e6e6e6;
+  --green: #73c991;
+  --red: #f14c4c;
+  --yellow: #e2c08d;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
+  /* how far a floating panel stands off the window edge and its neighbours.
+     One number, because the look only holds while every gap around the card
+     is the same one — the dividers live inside these gaps and fill them
+     exactly, so the gap and the grab area are the same band. */
+  --float-gap: 8px;
+  /* The card every floating panel wears, said once: one radius, one hairline,
+     one lift. The hairline is the edge that stays an edge wherever the card
+     happens to be — over the field at rest, over every tone in the window
+     while it is being carried — and the pair of hairline and soft shadow is
+     the grammar the Claude desktop app draws its own panels in, which is the
+     company these cards keep.
+     Both shadow layers keep their reach pulled in under the card (offset and
+     negative spread together beat the blur): above the cards is the title
+     bar, and a wash creeping up into it makes the buttons centred there read
+     as sitting high. */
+  --panel-radius: 10px;
+  --panel-border: var(--border);
+  --panel-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+  /* How much bigger than its drawn size something has to be to hold its size
+     in *window* points while the UI is zoomed out: App.tsx sets it to
+     1 / zoom below 1 and to 1 otherwise. Only one thing needs it — the inset
+     that clears the traffic lights, which are the window's and stay 63pt wide
+     however small the page's points get. Their height is a different matter
+     and is dealt with by moving them; see .titlebar. 1 is the value at zoom 1
+     and the one that holds for the frame before App.tsx has set it. */
+  --chrome: 1;
+}

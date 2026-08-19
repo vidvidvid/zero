@@ -1,0 +1,146 @@
+/* ===== change bars (see changeGutter.ts) ===== */
+
+/* VS Code's own editorGutter.{added,modified,deleted}Background — the Dark+
+   built-ins, not something the theme file sets */
+
+.cm-host .cm-gutter.cm-changeGutter {
+  width: 3px;
+  min-width: 3px;
+  margin: 0 4px 0 2px;
+}
+
+.cm-host .cm-changeGutter .cm-gutterElement {
+  position: relative;
+}
+
+.cm-host .cm-change-add {
+  background: #587c0c;
+}
+
+.cm-host .cm-change-mod {
+  background: #0c7d9d;
+}
+
+/* deleted is the odd one: the lines it's about aren't there to paint. It marks
+   the seam they closed over, so it's a wedge at the top of the surviving line
+   rather than a bar down the side of it. */
+.cm-host .cm-changeGutter .cm-change-del {
+  background: none;
+}
+
+.cm-host .cm-changeGutter .cm-change-del::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 7px;
+  background: #94151b;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* the same marks against the whole file, in the lane beside the scrollbar:
+   the gutter tells you about the screen, this tells you about the file.
+   Click or drag it to go there — the lane is 10px so there's something to hit,
+   and it stops short of the 8px scrollbar so the thumb still drags. */
+.cm-host .cm-changeRuler {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 8px;
+  width: 10px;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.cm-host .cm-changeTick {
+  position: absolute;
+  right: 0;
+  width: 4px;
+  /* heights are fractions of the document, and now that a diff holds the
+     whole file a small change would be sub-pixel — the floor keeps every
+     tick a visible, clickable mark, the way Cursor's overview strips are */
+  min-height: 5px;
+  border-radius: 1px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.cm-host .cm-changeTick.cm-change-del {
+  background: #94151b;
+}
+
+/* In a diff the lane becomes Cursor's overview ruler: a visible full-height
+   track, like a scrollbar's, whose marks place the changes in the file —
+   an empty stretch of track says "nothing changed here" as loudly as a
+   mark says something did. The muted olive/blue/red above is the
+   source-control palette for a plain editor against HEAD; a diff's whole
+   subject is its changes, so its marks get the diff colours: green for
+   changed chunks, red for the seams pure deletions closed over. */
+/* no track chrome — Cursor's ruler is just the marks against the editor,
+   two half-columns: removed in the left half, added in the right, and a
+   modified chunk shows both side by side */
+.cm-host > .cm-changeRuler {
+  right: 0;
+  width: 20px;
+}
+
+/* the strip is the diff's scrollbar: the native one under it says nothing
+   the thumb doesn't, so it's hidden rather than doubled */
+.cm-host .cm-mergeView {
+  scrollbar-width: none;
+}
+
+.cm-host .cm-mergeView::-webkit-scrollbar {
+  display: none;
+}
+
+.cm-host > .cm-changeRuler .cm-changeTick {
+  left: 0;
+  right: 0;
+  width: auto;
+  border-radius: 0;
+  opacity: 1;
+}
+
+.cm-host > .cm-changeRuler .cm-change-add {
+  left: 50%;
+  background: rgba(88, 124, 12, 0.8);
+}
+
+.cm-host > .cm-changeRuler .cm-change-del {
+  right: 50%;
+  background: rgba(148, 21, 27, 0.8);
+}
+
+.cm-host > .cm-changeRuler .cm-change-mod {
+  background: linear-gradient(
+    to right,
+    rgba(148, 21, 27, 0.8) 0 50%,
+    rgba(88, 124, 12, 0.8) 50% 100%
+  );
+}
+
+/* where you are in the file — the scrollbar-thumb rectangle, over the marks */
+.cm-host > .cm-changeRuler .cm-changeRulerThumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 8px;
+  /* it IS the scrollbar thumb now, so it carries a thumb's weight —
+     a plain borderless square of it */
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+/* folding is an editing affordance; in a diff pane it only made the right
+   side's gutter fatter than the left's, and the halves read as unequal */
+.cm-merge-b .cm-foldGutter {
+  display: none;
+}
+
+/* oneDark paints its own #282c34 — pin editor surfaces to the theme bg */
+.cm-host .cm-editor,
+.cm-host .cm-gutters {
+  background: var(--bg) !important;
+}

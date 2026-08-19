@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-24,667 lines of source   (20,795 code, 3,872 CSS)
+24,919 lines of source   (21,026 code, 3,893 CSS)
     18 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
