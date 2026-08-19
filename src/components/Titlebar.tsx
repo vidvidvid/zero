@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Project } from "../App";
+import { api } from "../lib/api";
 import { useClaudeStatus } from "../lib/claudeStatus";
 import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { identicon, useProjectIcons } from "../lib/projectIcon";
@@ -11,6 +12,7 @@ const sameSet = (a: Set<string>, b: Set<string>) =>
 
 
 export function Titlebar({
+  zoom,
   projects,
   activeIdx,
   onSwitch,
@@ -21,6 +23,9 @@ export function Titlebar({
   locked,
   onLocked,
 }: {
+  /** the UI zoom, only to say the bar's height in the window's points rather
+   *  than the page's — the traffic lights live in the window */
+  zoom: number;
   projects: Project[];
   activeIdx: number;
   onSwitch: (i: number) => void;
@@ -52,6 +57,28 @@ export function Titlebar({
 
   const { stripRef, drag, start: startDrag, shift } = useTabReorder(".titlebar-tab", onReorder);
 
+  // Where the bar's middle is, for macOS to put the traffic lights on — see
+  // src-tauri/src/traffic_lights.rs. Measured, not computed: styles/frame.css
+  // owns the height and a second copy of it here would be a second thing to
+  // change.
+  // Reported from the element itself rather than on a render App happens to
+  // be sure of, because it is only sure of the wrong ones: `restored` and the
+  // restored projects land in separate commits, so there is a render where
+  // there are projects and still no bar in the document. Asking the element
+  // can't be early, and the observer covers every later reason the height
+  // moves. Points, not CSS pixels: the zoom is the difference between them.
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const report = () =>
+      api.titlebarHeight(bar.getBoundingClientRect().height * zoom).catch(() => {});
+    report();
+    const watch = new ResizeObserver(report);
+    watch.observe(bar);
+    return () => watch.disconnect();
+  }, [zoom]);
+
   const { ready, restart } = useUpdate();
   const [armed, setArmed] = useState(false);
   // every claude the restart would take with it, working or waiting — the
@@ -64,7 +91,7 @@ export function Titlebar({
   }, [armed]);
 
   return (
-    <div className="titlebar" data-tauri-drag-region>
+    <div className="titlebar" ref={barRef} data-tauri-drag-region>
       <div className="titlebar-spacer" data-tauri-drag-region />
       <div className={`titlebar-tabs ${drag ? "reordering" : ""}`} ref={stripRef}>
         {projects.map((p, i) => (

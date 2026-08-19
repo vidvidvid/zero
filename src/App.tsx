@@ -232,19 +232,6 @@ export default function App() {
     document.documentElement.style.setProperty("--chrome", String(1 / Math.min(zoom, 1)));
   }, [zoom]);
 
-  // Where the bar's middle is, in window points, for the traffic lights to be
-  // centred on. Measured rather than computed: styles/frame.css owns the
-  // height, and a second copy of it here would be a second thing to change. The launcher
-  // has no bar and doesn't ask for one — the buttons keep the axis they were
-  // placed on at launch.
-  const hasTitlebar = projects.length > 0;
-  useEffect(() => {
-    if (!hasTitlebar) return;
-    const bar = document.querySelector<HTMLElement>(".titlebar");
-    if (!bar) return;
-    api.titlebarHeight(bar.getBoundingClientRect().height * zoom).catch(() => {});
-  }, [zoom, hasTitlebar]);
-
   const [showSettings, setShowSettings] = useState(false);
 
   /**
@@ -341,6 +328,7 @@ export default function App() {
   return (
     <div className="app">
       <Titlebar
+        zoom={zoom}
         projects={projects}
         activeIdx={activeIdx}
         onSwitch={setActiveIdx}
