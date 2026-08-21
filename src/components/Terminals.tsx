@@ -604,12 +604,61 @@ function TerminalPane({
       }
     };
 
-    const applyBlock = () => {
-      // one row element, never the block's height divided by term.rows: that
-      // height is the thing this is about to set, so dividing the old one by
-      // the new count is circular and comes out short
+    /**
+     * The cell box, taken off the renderer instead of measured back out of
+     * the DOM.
+     *
+     * The DOM renderer sets every row element's height to
+     * `dimensions.css.cell.height` itself (_refreshRowDimensions), so a
+     * getBoundingClientRect on a row returns exactly this number — at the
+     * price of a synchronous layout, once per terminal per frame of a drag,
+     * interleaved with the writes applySize is making a few lines further
+     * down. The width is the other half of what fit.proposeDimensions() spends
+     * two getComputedStyle calls to work out. Reading both straight off the
+     * render service is a property lookup and cannot force a layout.
+     *
+     * Undefined if the internals ever move; both callers fall back to
+     * measuring, which is only ever what this code did before.
+     */
+    const cellBox = () =>
+      (
+        term as unknown as {
+          _core?: {
+            _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } };
+          };
+        }
+      )._core?._renderService?.dimensions?.css?.cell;
+
+    const cellHeight = () => {
+      const h = cellBox()?.height ?? 0;
+      if (h > 1) return h;
       const row = el.querySelector<HTMLElement>(".xterm-rows > div");
-      const cell = row?.getBoundingClientRect().height ?? 0;
+      return row?.getBoundingClientRect().height ?? 0;
+    };
+
+    /**
+     * The width the columns don't get: the terminal element's own padding,
+     * plus the strip xterm reserves for the overview ruler (14px, its default,
+     * and nothing here sets another). Both are constants that only a stylesheet
+     * could move, and re-reading them is the *first* of proposeDimensions'
+     * two getComputedStyle calls — so this is read once and the settle refit
+     * checks the answer (see applySize).
+     */
+    let reserveW = 0;
+    const measureReserve = () => {
+      const box = term.element;
+      if (!box) return;
+      const s = window.getComputedStyle(box);
+      const ruler = term.options.scrollback === 0 ? 0 : 14;
+      reserveW = (parseFloat(s.paddingLeft) || 0) + (parseFloat(s.paddingRight) || 0) + ruler;
+    };
+    measureReserve();
+
+    const applyBlock = () => {
+      // the cell's own height, never the block's height divided by term.rows:
+      // that height is the thing this is about to set, so dividing the old one
+      // by the new count is circular and comes out short
+      const cell = cellHeight();
       if (!(cell > 1)) return;
       painted = term.rows;
       // `top` has to go: with all three of top, height and bottom set, CSS
@@ -619,24 +668,37 @@ function TerminalPane({
       el.style.height = `${painted * cell}px`;
     };
 
-    const applySize = () => {
+    /**
+     * `live` is the clip's content box as the ResizeObserver already measured
+     * it, and passing it is what keeps a drag frame free of forced layout: the
+     * observer's number arrives without asking the DOM anything, where
+     * clientWidth here would flush the styles React and applyBlock just wrote.
+     * Called without one — the settle refit, a mount — this measures for
+     * itself and takes the columns from fit.proposeDimensions(), so whatever
+     * the cheap arithmetic below got wrong is corrected the moment the drag
+     * ends. Returns whether the terminal actually changed size.
+     */
+    const applySize = (live?: { w: number; h: number }): boolean => {
       const clip = el.parentElement;
-      const row = el.querySelector<HTMLElement>(".xterm-rows > div");
-      const cell = row?.getBoundingClientRect().height ?? 0;
-      const dims = fit.proposeDimensions();
-      // before the first paint there is no row to measure. Hand the stretch
-      // back for that one case: fit() sizes the terminal from the host, and a
-      // host already holding an explicit height would just re-propose the row
-      // count it was given and freeze there
-      if (!clip || !dims || !(cell > 1)) {
+      const cell = cellBox();
+      // before the first paint the renderer has no cell to offer. Hand the
+      // stretch back for that one case: fit() sizes the terminal from the
+      // host, and a host already holding an explicit height would just
+      // re-propose the row count it was given and freeze there
+      if (!clip || !cell || !(cell.height > 1) || !(cell.width > 0)) {
         el.style.top = "0";
         el.style.height = "auto";
         fit.fit();
-        return;
+        return true;
       }
       // measured against the clip, never the host: the host's own height is
       // what this sets, and reading it back would be that same feedback loop
-      const rows = Math.max(1, Math.floor(clip.clientHeight / cell));
+      const w = live?.w ?? clip.clientWidth;
+      const h = live?.h ?? clip.clientHeight;
+      const cols = live
+        ? Math.max(2, Math.floor((w - reserveW) / cell.width))
+        : (fit.proposeDimensions()?.cols ?? term.cols);
+      const rows = Math.max(1, Math.floor(h / cell.height));
       // Grow with the drag; shrink only as far as it costs nothing, and leave
       // the rest until the mouse comes up. Losing a row is not the mirror
       // image of gaining one — a new row is filled from scrollback (see
@@ -654,13 +716,27 @@ function TerminalPane({
       //
       // The changeover happens exactly when the content reaches the bottom of
       // the pane, because that is the same moment the blanks run out.
-      const next =
-        dragging() && rows < term.rows ? Math.max(rows, term.rows - spareRows()) : rows;
-      if (term.cols !== dims.cols || term.rows !== next) {
-        resizeTerm(dims.cols, next);
+      const held = dragging();
+      const next = held && rows < term.rows ? Math.max(rows, term.rows - spareRows()) : rows;
+      // Columns don't move while a drag is live, and that is the whole of the
+      // difference between a divider that tracks the hand and one that
+      // stutters. A column change is a reflow of the entire scrollback —
+      // 10,000 lines rewrapped, every line object rebuilt — and a horizontal
+      // drag crosses a cell boundary every seven pixels or so, which is dozens
+      // of full reflows a second for a text width nobody has settled on yet.
+      // So the pane clips instead, exactly as a carried card does: the text
+      // holds still, the seam moves, and the one reflow lands when the mouse
+      // comes up (notifyPty's applySize, the call with no `live` in it, which
+      // is also the one that re-reads the column count properly).
+      const wide = held ? term.cols : cols;
+      if (term.cols !== wide || term.rows !== next) {
+        resizeTerm(wide, next);
         // in the same frame as the text the resize just moved, never after it
         applyBlock();
-      } else if (painted !== term.rows) applyBlock();
+        return true;
+      }
+      if (painted !== term.rows) applyBlock();
+      return false;
     };
 
     // only for the resize that lands before the first paint, when there is no
@@ -672,7 +748,7 @@ function TerminalPane({
     applySize();
     // once more after the first paint, for the case where the renderer hasn't
     // put any rows in the DOM yet at this point
-    const sizeRaf = window.requestAnimationFrame(applySize);
+    const sizeRaf = window.requestAnimationFrame(() => applySize());
 
     const smooth = attachSmoothScroll(term, { host: el });
 
@@ -760,11 +836,17 @@ function TerminalPane({
         api.ptyResize(id, term.cols, term.rows).catch(() => {});
       }
     };
-    const observer = new ResizeObserver(() => {
+    // the clip's size as the observer measured it — the one number in this
+    // path that costs nothing, since the observer took it before the frame
+    // started rather than by asking the DOM in the middle of one
+    let live: { w: number; h: number } | null = null;
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.contentRect;
+      if (box) live = { w: box.width, h: box.height };
       if (resizeRaf) return;
       resizeRaf = window.requestAnimationFrame(() => {
         resizeRaf = 0;
-        if (el.clientWidth === 0 || el.clientHeight === 0) return;
+        if (!live || live.w === 0 || live.h === 0) return;
         // a panel in flight: no refit now — notifyPty below re-arms until
         // the drag and the landing are over, then applySize()s once
         if (
@@ -776,8 +858,12 @@ function TerminalPane({
           return;
         }
         smooth.reset();
-        applySize();
-        if (term.rows > 0) term.refresh(0, term.rows - 1);
+        // only when a row or a column really moved. A drag crosses a whole
+        // cell every few frames at most, and the rest of them used to pay for
+        // a refresh anyway — with the DOM renderer that is every row element
+        // in the pane rebuilt out of the buffer to arrive at the pixels
+        // already on screen.
+        if (applySize(live) && term.rows > 0) term.refresh(0, term.rows - 1);
         window.clearTimeout(resizeTimer);
         resizeTimer = window.setTimeout(notifyPty, 50);
       });

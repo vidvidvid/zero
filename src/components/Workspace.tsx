@@ -20,6 +20,7 @@ import {
   seatedLeafAtRoot,
   sizesOf,
   useLayoutTree,
+  withSizes,
   type Divider,
   type LayoutNode,
   type Rect,
@@ -59,6 +60,20 @@ export type View =
   | { kind: "memo"; key: string; id: string };
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+
+/** the whole field, in the percentages every rect in here is expressed in */
+const FIELD: Rect = { x: 0, y: 0, w: 100, h: 100 };
+
+/* A seam, addressed and placed. Both are written twice — once by the render
+   and once by a live divider drag, which paints the seams itself rather than
+   going through React for every frame (see startDividerResize) — so they live
+   out here where the two can't drift apart. The key holds nothing a resize
+   changes, which is what lets the drag find the same element every frame. */
+const seamKey = (d: Divider) => `${d.path.join(".")}:${d.li}`;
+const seamStyle = (d: Divider): React.CSSProperties =>
+  d.dir === "row"
+    ? { left: `${d.host.x + d.host.w * d.at}%`, top: `${d.host.y}%`, height: `${d.host.h}%` }
+    : { top: `${d.host.y + d.host.h * d.at}%`, left: `${d.host.x}%`, width: `${d.host.w}%` };
 
 /* ----- the drag's numbers -----
    Every threshold the gesture answers to, gathered here to be tuned from.
@@ -699,6 +714,15 @@ export const Workspace = memo(function Workspace({
     if (locked) setGrabArmed(null);
   }, [locked]);
 
+  /** the live divider drag's painter, while one is in hand (see
+   *  startDividerResize) — re-run after every render, because a render that
+   *  lands mid-drag writes the committed sizes back over the ones the hand is
+   *  holding, and a hand that has stopped moving sends nothing to correct it */
+  const livePaint = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    livePaint.current?.();
+  });
+
   // ----- the layout, drawn -----
   // One tree, one absolute field. Hidden panes stay leaves — the sidebar
   // toggled away, every terminal while ⌘J holds — and simply get no rect:
@@ -713,12 +737,12 @@ export const Workspace = memo(function Workspace({
 
   const panes: { id: string; rect: Rect }[] = [];
   const dividers: Divider[] = [];
-  collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, panes, dividers);
+  collectRects(tree.root, FIELD, [], hiddenIds, panes, dividers);
   const rectOf = (id: string) => panes.find((p) => p.id === id)?.rect ?? null;
   /** where the aimed drop would put each pane, while one is aimed */
   const previewPanes: { id: string; rect: Rect }[] | null = previewRoot ? [] : null;
   if (previewRoot && previewPanes)
-    collectRects(previewRoot, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, previewPanes, []);
+    collectRects(previewRoot, FIELD, [], hiddenIds, previewPanes, []);
   /**
    * The preview, worn as a slide: the distance from a pane's frozen rect to
    * its place in the aimed layout, as a translate in percentages of the
@@ -867,7 +891,7 @@ export const Workspace = memo(function Workspace({
     if (!root || !card) return;
     // the zones and the pin come from the settled layout, before any preview
     const base: { id: string; rect: Rect }[] = [];
-    collectRects(tree.root, { x: 0, y: 0, w: 100, h: 100 }, [], hiddenIds, base, []);
+    collectRects(tree.root, FIELD, [], hiddenIds, base, []);
     const pin = base.find((p) => p.id === id)?.rect ?? null;
     if (!pin) return;
     const sx = e.clientX;
@@ -1027,21 +1051,65 @@ export const Workspace = memo(function Workspace({
     const min = Math.min(0.15, 60 / span) * d.visSum;
     const start = d.dir === "row" ? e.clientX : e.clientY;
 
+    /*
+      The gesture paints itself, and the tree hears about it once.
+
+      Going through setSizes per mousemove re-rendered the entire workspace —
+      the sidebar's file tree, every editor's tab strip, every terminal card —
+      and a trackpad sends moves faster than the display can show them, so some
+      frames paid for that two and three times over. Yet a resize can only ever
+      change where the pane boxes and the seams sit: the rects are a pure
+      function of the tree (collectRects, the same call the render makes), and
+      nothing else in the render reads sizes at all. So the drag writes those
+      boxes directly and calls setSizes on mouseup, where one render hands the
+      numbers back to React — the same numbers, so nothing moves at the
+      handover.
+    */
+    let sizes = base;
+    let raf = 0;
+    const paint = () => {
+      raf = 0;
+      const rects: { id: string; rect: Rect }[] = [];
+      const seams: Divider[] = [];
+      collectRects(withSizes(tree.root, d.path, sizes), FIELD, [], hiddenIds, rects, seams);
+      for (const { id, rect } of rects) {
+        const box = root.querySelector<HTMLElement>(`[data-pane-id="${CSS.escape(id)}"]`);
+        if (!box) continue;
+        box.style.left = `${rect.x}%`;
+        box.style.top = `${rect.y}%`;
+        box.style.width = `${rect.w}%`;
+        box.style.height = `${rect.h}%`;
+      }
+      for (const s of seams) {
+        const seam = root.querySelector<HTMLElement>(`[data-seam="${CSS.escape(seamKey(s))}"]`);
+        if (seam) Object.assign(seam.style, seamStyle(s));
+      }
+    };
+    // a render landing mid-drag — a terminal taking focus, a status poll —
+    // would write the committed sizes back over the ones the hand is holding,
+    // and with the mouse standing still nothing would put them right again
+    livePaint.current = paint;
+
     const move = (ev: MouseEvent) => {
       const travelled = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
       const delta = (travelled / span) * d.visSum;
       const room = { back: base[d.li] - min, fwd: base[d.ri] - min };
       const step = Math.max(-room.back, Math.min(room.fwd, delta));
-      const sizes = [...base];
-      sizes[d.li] = base[d.li] + step;
-      sizes[d.ri] = base[d.ri] - step;
-      tree.setSizes(d.path, sizes);
+      const next = [...base];
+      next[d.li] = base[d.li] + step;
+      next[d.ri] = base[d.ri] - step;
+      sizes = next;
+      // one paint per frame, however many moves the mouse crowds into it
+      if (!raf) raf = window.requestAnimationFrame(paint);
     };
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      if (raf) window.cancelAnimationFrame(raf);
+      livePaint.current = null;
       handle.classList.remove("live");
       document.body.classList.remove("dragging-col", "dragging-row");
+      if (sizes !== base) tree.setSizes(d.path, sizes);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -1148,21 +1216,10 @@ export const Workspace = memo(function Workspace({
       {/* one divider per visible seam of the tree */}
       {dividers.map((d) => (
         <div
-          key={`${d.path.join(".")}:${d.li}`}
+          key={seamKey(d)}
+          data-seam={seamKey(d)}
           className={`term-divider ${d.dir}`}
-          style={
-            d.dir === "row"
-              ? {
-                  left: `${d.host.x + d.host.w * d.at}%`,
-                  top: `${d.host.y}%`,
-                  height: `${d.host.h}%`,
-                }
-              : {
-                  top: `${d.host.y + d.host.h * d.at}%`,
-                  left: `${d.host.x}%`,
-                  width: `${d.host.w}%`,
-                }
-          }
+          style={seamStyle(d)}
           onMouseDown={(e) => startDividerResize(e, d)}
         />
       ))}
