@@ -378,6 +378,30 @@
   text-overflow: ellipsis;
 }
 
+/* the git letter, same dress as .tree-badge — hovering eases the row's
+   padding open for the buttons, and the letter slides left with the text
+   rather than being covered by them */
+.wt-file-letter {
+  flex: none;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+.wt-file-letter.mod,
+.wt-file-letter.mov {
+  color: var(--yellow);
+}
+
+.wt-file-letter.add {
+  color: var(--green);
+}
+
+.wt-file-letter.del {
+  color: var(--red);
+}
+
 /* ↗ leads the row: outermost-left of the buttons, so it comes first when
    reading — one slot in on staged rows, which have no discard */
 .wt-file-open {

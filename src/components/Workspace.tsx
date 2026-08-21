@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../App";
 import { closeSeq } from "../lib/closeOrder";
 import { Sidebar, SidebarTab } from "./Sidebar";
@@ -30,6 +30,7 @@ import { flushSync } from "react-dom";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
 import { projectSession, saveProject, type DocPane } from "../lib/session";
+import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
 import { useSearch } from "../lib/search";
 import { useMemos } from "../lib/memos";
 
@@ -314,6 +315,106 @@ export const Workspace = memo(function Workspace({
       }),
     []
   );
+
+  /**
+   * Keep the diff tabs telling the truth about git.
+   *
+   * A file's two diffs are two tabs, and git actions move the file between
+   * them: stage it and the unstaged diff empties in place — the A and B sides
+   * now agree — while what you were reading moved to the staged diff, which
+   * isn't open. So the tabs follow the file, on the same sweep the panel
+   * reads (which is why the panel's rows never lead these tabs by a beat):
+   *
+   * - a diff whose file crossed to the other list becomes the other diff, in
+   *   the same slot — unless that tab is already open, in which case the one
+   *   now showing nothing closes and the live one is where the reading went;
+   * - a diff whose file left the list entirely — committed, discarded, its
+   *   worktree deleted — closes rather than sitting in the strip as a blank
+   *   editor with a filename on it.
+   *
+   * The sweep only runs while a tab that reads git is open — a diff for the
+   * reconciling, a file for its tab's tint below — and asks nothing the rest
+   * of the time. Retargeting rewrites the view in place, so the active index
+   * never moves under the cursor.
+   */
+  const hasGitTabs = Object.values(docPanes).some((dp) =>
+    dp.views.some((v) => v.kind === "diff" || v.kind === "file")
+  );
+  const git = useGitStatus(project.root, active && hasGitTabs);
+
+  // Cursor colours the tab of a modified-but-uncommitted file too — the same
+  // hue and letter the tree's badge wears, read off the same sweep. Gathered
+  // across every worktree, because a tab can hold a file from any of them.
+  const tabMarks = useMemo(() => {
+    const m = new Map<string, { mark: GitMark; letter: string }>();
+    for (const wt of git.worktrees) {
+      for (const [abs, v] of decorations(wt.path, wt.changes).files) m.set(abs, v);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [git.epoch]);
+  useEffect(() => {
+    // epoch 0 is "nobody has looked yet", and an errored sweep is not a
+    // statement that the files are gone — neither is grounds to close tabs
+    if (git.epoch === 0 || git.error) return;
+    const byWt = new Map(git.worktrees.map((w) => [w.path, w.changes]));
+    setDocPanes((prev) => {
+      const open = new Set(Object.values(prev).flatMap((d) => d.views.map((v) => v.key)));
+      let touchedAny = false;
+      const out: Record<string, DocPane> = {};
+      for (const [pid, dp] of Object.entries(prev)) {
+        let touched = false;
+        let removedBefore = 0;
+        const views: View[] = [];
+        dp.views.forEach((v, i) => {
+          if (v.kind !== "diff") {
+            views.push(v);
+            return;
+          }
+          const changes = byWt.get(v.worktree);
+          // untracked entries don't count as a side: an untracked file has no
+          // diff — it opens as a file — so a tab can neither stay for one nor
+          // be carried onto one
+          const side = (staged: boolean) =>
+            changes?.find((c) => c.path === v.relPath && c.staged === staged && c.status !== "U");
+          if (side(!!v.staged)) {
+            views.push(v);
+            return;
+          }
+          touched = true;
+          const other = side(!v.staged);
+          const key = v.staged
+            ? `diff:${v.worktree}:${v.relPath}`
+            : `diff:staged:${v.worktree}:${v.relPath}`;
+          if (other && !open.has(key)) {
+            open.delete(v.key);
+            open.add(key);
+            views.push({
+              ...v,
+              key,
+              staged: !v.staged,
+              // same rule as the panel's rows: a deletion has no origin to
+              // point at, a move's HEAD side lives at the path it came from
+              from: other.status === "D" ? undefined : other.moved ?? undefined,
+            });
+            return;
+          }
+          if (i < dp.activeView) removedBefore++;
+        });
+        out[pid] = touched
+          ? {
+              views,
+              activeView: Math.min(
+                Math.max(dp.activeView - removedBefore, 0),
+                Math.max(views.length - 1, 0)
+              ),
+            }
+          : dp;
+        touchedAny ||= touched;
+      }
+      return touchedAny ? out : prev;
+    });
+  }, [git]);
 
   // ⌘E's second half, on its own so the right-click menus can reach it: walk
   // the tree open to this file and light its row. The keystroke works out
@@ -1198,6 +1299,7 @@ export const Workspace = memo(function Workspace({
             onOpenFile={openFile}
             onRevealInTree={revealInTree}
             root={project.root}
+            gitMarks={tabMarks}
             // a memo tab draws its own live title and records its own
             // follow-ups, both of which are this object
             memos={memos}

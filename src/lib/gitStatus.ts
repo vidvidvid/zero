@@ -126,6 +126,17 @@ export function useGitStatus(root: string, active: boolean): GitSnapshot {
   return snapshots.get(root) ?? EMPTY;
 }
 
+/** the words behind git's letters — one tooltip vocabulary for every place a
+    letter shows, so the tree's badge and the panel's never need translating */
+export const STATUS_NAME: Record<string, string> = {
+  M: "modified",
+  A: "added",
+  D: "deleted",
+  U: "untracked",
+  R: "renamed",
+  C: "copied",
+};
+
 export type GitMark = "modified" | "added" | "deleted";
 
 export interface Decorations {

@@ -4,7 +4,7 @@ import { api, FileChange } from "../lib/api";
 import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
-import { pokeGit, useGitStatus, WorktreeChanges } from "../lib/gitStatus";
+import { pokeGit, STATUS_NAME, useGitStatus, WorktreeChanges } from "../lib/gitStatus";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 
@@ -253,6 +253,12 @@ export function WorktreePanel({
         <span className={`wt-file-base ${tone}`}>{name}</span>
         <span className="wt-file-dir">{place}</span>
       </button>
+      {/* the letter git itself uses, at the row's far end the way Cursor keeps
+          it — the same vocabulary as the tree's badge, so the panel and the
+          tree say one thing about one file */}
+      <span className={`wt-file-letter ${tone}`} title={STATUS_NAME[c.status] ?? c.status}>
+        {c.status}
+      </span>
       {!staged && (
         <button
           className="wt-file-act wt-file-discard"
@@ -267,7 +273,7 @@ export function WorktreePanel({
         title={staged ? "unstage" : "stage"}
         onClick={() => (staged ? unstage(wt, [c.path]) : stage(wt, [c.path]))}
       >
-        {staged ? "−" : "＋"}
+        {staged ? "−" : "+"}
       </button>
       <button
         className="wt-file-open"
@@ -399,7 +405,7 @@ export function WorktreePanel({
                     title={`stage all ${unstaged.length}`}
                     onClick={() => stage(wt, unstaged.map((c) => c.path))}
                   >
-                    ＋
+                    +
                   </button>
                 </div>
                 {unstaged.map((c) => fileRow(wt, c, false))}

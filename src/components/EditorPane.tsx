@@ -11,6 +11,7 @@ import { overrideFor, setLanguageOverride } from "../lib/lang";
 import { pickLanguage } from "../lib/langPick";
 import { FileIconSpan } from "./FileIcon";
 import { memoLabel, memoPaths, type Memos } from "../lib/memos";
+import { STATUS_NAME, type GitMark } from "../lib/gitStatus";
 import { useTabReorder } from "../lib/tabReorder";
 import type { Side } from "../lib/layout";
 
@@ -117,6 +118,7 @@ export function EditorPane({
   onMoveToNewPane,
   onMoveToNextPane,
   root,
+  gitMarks,
   memos,
 }: {
   views: View[];
@@ -139,6 +141,9 @@ export function EditorPane({
   /** carry this tab to the next pane along, wrapping */
   onMoveToNextPane: (i: number) => void;
   root: string;
+  /** absolute path → how it differs from HEAD, for the git tint a tab wears
+   *  the way Cursor's do — built by the workspace off the shared sweep */
+  gitMarks: Map<string, { mark: GitMark; letter: string }>;
   /** this project's memos — a memo tab reads its title, its status and its
    *  record button off the same object the panel does */
   memos: Memos;
@@ -234,7 +239,12 @@ export function EditorPane({
           outside the panel it names. */}
       <div className="editor-card">
         <div className={`editor-tabs ${drag ? "reordering" : ""}`} ref={stripRef}>
-          {views.map((v, i) => (
+          {views.map((v, i) => {
+            // the tab's git face — only for tabs that are a file in git's
+            // sense; a memo or an untitled buffer has no HEAD to differ from
+            const mark =
+              v.kind === "file" || v.kind === "diff" ? gitMarks.get(viewAbs(v, root)) : undefined;
+            return (
             <div
               key={v.key}
               className={`editor-tab ${i === activeView ? "active" : ""} ${
@@ -259,14 +269,34 @@ export function EditorPane({
                     Taken from the path rather than the label because a memo's
                     label is its title — the path is what names a file there. */}
                 <FileIconSpan name={viewPath(v, root).split("/").pop() ?? ""} />
-                {/* the two diffs of one file are two tabs, so the marker has to
-                    tell them apart — ✓ is the staged one, already accounted for */}
+                <span className={`editor-tab-label ${mark ? `git-${mark.mark}` : ""}`}>
+                  {viewLabel(v, memos)}
+                </span>
+                {/* the two diffs of one file are two tabs, so the label has to
+                    tell them apart — spelled out the way Cursor spells it. The
+                    glyphs this replaced read as decoration: ✓ said "saved",
+                    not "the staged half", and ± said nothing at all */}
                 {v.kind === "diff" && (
-                  <span className={`editor-tab-diff ${v.staged ? "staged" : ""}`}>
-                    {v.staged ? "✓" : "±"}
+                  <span
+                    className="editor-tab-desc"
+                    title={
+                      v.staged
+                        ? "the staged diff — what committing now would record"
+                        : "the unstaged diff — the working tree against the index"
+                    }
+                  >
+                    {v.staged ? "(Index)" : "(Working Tree)"}
                   </span>
                 )}
-                {viewLabel(v, memos)}
+                {/* the letter, the same one the tree and the panel show */}
+                {mark && (
+                  <span
+                    className={`editor-tab-letter git-${mark.mark}`}
+                    title={STATUS_NAME[mark.letter] ?? mark.letter}
+                  >
+                    {mark.letter}
+                  </span>
+                )}
               </button>
               <button
                 className="editor-tab-close"
@@ -276,7 +306,8 @@ export function EditorPane({
                 ×
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
         {/* The path line, on every view again. It went away for a while as the
             file's name said twice — once in the tab and once here — but the

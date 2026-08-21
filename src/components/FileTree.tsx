@@ -4,7 +4,7 @@ import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { onFilesChanged } from "../lib/fileEvents";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
-import { decorations, useGitStatus } from "../lib/gitStatus";
+import { decorations, STATUS_NAME, useGitStatus } from "../lib/gitStatus";
 import type { View } from "./Workspace";
 
 /** Audio goes to Finder rather than to the editor: QuickLook plays these with
@@ -200,7 +200,11 @@ export function FileTree({
           >
             <FileIconSpan name={entry.name} />
             <span className="tree-name">{entry.name}</span>
-            {mark && <span className="tree-badge">{mark.letter}</span>}
+            {mark && (
+              <span className="tree-badge" title={STATUS_NAME[mark.letter] ?? mark.letter}>
+                {mark.letter}
+              </span>
+            )}
           </button>,
         ];
       }

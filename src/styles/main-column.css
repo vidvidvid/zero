@@ -152,13 +152,47 @@
   align-items: center;
 }
 
-.editor-tab-diff {
-  color: var(--yellow);
+/* which of git's two diffs this tab is — "(Working Tree)" or "(Index)",
+   Cursor's words. Dim, because it qualifies the name rather than being one */
+.editor-tab-desc {
+  color: var(--text-dim);
   font-size: 11px;
 }
 
-.editor-tab-diff.staged {
+/* An uncommitted file's tab wears the change's colour and letter, the way
+   Cursor's do — the same hue and letter as the tree's badge and the panel's
+   row, so all four places say one thing about one file. The colour holds
+   whether the tab is active or not; which one you are on stays said by the
+   accent mark under it, and by the inactive label giving up a little light. */
+.editor-tab-label.git-modified,
+.editor-tab-letter.git-modified {
+  color: var(--yellow);
+}
+
+.editor-tab-label.git-added,
+.editor-tab-letter.git-added {
   color: var(--green);
+}
+
+.editor-tab-label.git-deleted,
+.editor-tab-letter.git-deleted {
+  color: var(--red);
+}
+
+.editor-tab-label.git-deleted {
+  text-decoration: line-through;
+}
+
+.editor-tab:not(.active) .editor-tab-label[class*="git-"],
+.editor-tab:not(.active) .editor-tab-letter {
+  opacity: 0.65;
+}
+
+/* the same dress as .tree-badge */
+.editor-tab-letter {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.75;
 }
 
 /* Transparent, not absent — the same rule the project tabs above follow, and
