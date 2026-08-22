@@ -10,7 +10,13 @@ import { Settings } from "./components/Settings";
 import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { moveItem, movedIndex } from "./lib/tabReorder";
-import { projectSession, restoreSession, saveProject, saveProjects } from "./lib/session";
+import {
+  claimedPaneIds,
+  projectSession,
+  restoreSession,
+  saveProject,
+  saveProjects,
+} from "./lib/session";
 import type { ProjectSession } from "./lib/session";
 import { closeSeq } from "./lib/closeOrder";
 import { resolvedAppearance, useSettings } from "./lib/settings";
@@ -68,18 +74,34 @@ export default function App() {
   }, [glass]);
 
   // Nothing renders until this has settled, and the ordering is the reason.
-  // The reap kills every shell the Rust side is still holding, and React runs
+  // The reap ends every session no restored layout claims, and React runs
   // child effects before parent ones — so restoring the projects in the same
-  // commit would have each pane spawn its shell and then be killed by this.
+  // commit would have each pane ask for its shell before the daemon had been
+  // told which shells are still wanted.
+  //
+  // This used to be `ptyKillAll`, and the swap is the whole of session
+  // persistence from up here. A shell now outlives the app, so arriving at a
+  // fresh boot no longer means "whatever is still running is wreckage": the
+  // layout being restored is the same layout that was saved, so it claims the
+  // same pane ids, and `ptySpawn` hands each one back the shell it already
+  // had. What no layout claims — a project closed last week, a pane deleted
+  // before the quit — is what goes.
   const [restored, setRestored] = useState(false);
   useEffect(() => {
     let live = true;
-    // fresh frontend boot (including webview reload after a crash):
-    // reap any shells a previous page instance left behind
-    api
-      .ptyKillAll()
-      .catch(() => {})
-      .then(restoreSession)
+    restoreSession()
+      .then((s) => {
+        // Fired, not awaited. The reap only ever ends sessions that no
+        // restored layout claims, and the ids the panes are about to claim
+        // come from that same layout — so a pane spawning while this is in
+        // flight cannot be caught by it. Awaiting it put a wedged daemon's
+        // whole reply timeout between launching zero and seeing a window.
+        //
+        // The list is the pruned one: a project whose directory has since
+        // gone does not get to keep its shells.
+        api.ptyReap(claimedPaneIds()).catch(() => {});
+        return s;
+      })
       .then((s) => {
         if (!live) return;
         setProjects(s.projects);

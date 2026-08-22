@@ -30,6 +30,7 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 # macOS 26 Liquid Glass behind the webview; safe no-op everywhere else
 tauri-plugin-liquid-glass = "0.1"
+vt100 = "0.16.2"
 
 # WKWebView renders at 60fps even on a 120Hz ProMotion panel; unlocking it
 # means talking to WebKit's private feature flags directly (see high_refresh.rs)

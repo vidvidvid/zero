@@ -261,6 +261,36 @@ export async function restoreSession(): Promise<{ projects: Project[]; activeIdx
   return { projects: current.projects, activeIdx: current.activeIdx };
 }
 
+/**
+ * Every pane id the restored session still points at.
+ *
+ * The list the daemon is handed on boot, and the whole basis on which a shell
+ * is allowed to outlive the app: a session survives only while some layout
+ * still claims it. That makes an unclaimed session an unambiguous orphan
+ * rather than a judgement call, and it means "stuck somewhere" can only ever
+ * mean "belongs to a project I haven't opened lately" — never "left behind by
+ * something the UI did".
+ *
+ * Document panes are in here too. Their ids can never collide with a
+ * terminal's (see the note on SIDEBAR/EDITOR in layout.ts), so claiming them
+ * costs nothing and telling them apart would cost a second kind of walk.
+ */
+export function claimedPaneIds(): string[] {
+  const ids: string[] = [];
+  const walk = (n: LayoutNode | null | undefined) => {
+    if (!n) return;
+    if (n.type === "leaf") ids.push(n.id);
+    else n.children.forEach(walk);
+  };
+  for (const state of Object.values(current.byProject)) {
+    walk(state.layout);
+    // the pre-one-tree terminal region: still the live layout for a session
+    // written by an older zero and not yet migrated
+    walk(state.term);
+  }
+  return ids;
+}
+
 /** Read once, at mount. Workspaces are keyed by root, so this never goes stale. */
 export function projectSession(root: string): Partial<ProjectSession> {
   return current.byProject[root] ?? {};

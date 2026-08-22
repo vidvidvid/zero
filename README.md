@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Twenty-three thousand lines, an 18 MB app. It exists because Cursor was an 860 MB
+Twenty-three thousand lines, a 19 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -12,7 +12,7 @@ Never capitalised. It's `zero`, not Zero.
 
 ```
 24,919 lines of source   (21,026 code, 3,893 CSS)
-    18 MB app bundle            Cursor: 860 MB
+    19 MB app bundle            Cursor: 860 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
 ```
@@ -24,7 +24,7 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **18 MB** | 860 MB | 47× |
+| App bundle | **19 MB** | 860 MB | 45× |
 | Files in the bundle | **7** | 17,035 | |
 | Shipped JS | **1.4 MB** at startup, 2.7 MB in all | 256 MB in 12,021 files | 183× |
 | Bundled runtime | 0, system WebKit | 259 MB of Electron | |
@@ -34,11 +34,13 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
 | Memory, one project | **354 MB** | 687 MB | 1.9× |
 | Idle CPU | **1.10%** of a core | 2.66% | |
 
-The disk rows are the 0.13.0 build — the 189 KB compiled Swift helper included,
-and two of the seven files are the code signature a notarized app carries.
-Launch, memory and idle CPU are still 0.1.0's and say so rather than being
-adjusted on paper; the helper is spawned per recording, not at startup, so it
-isn't in the path either measures.
+The disk rows are the 0.20.0 build — the 171 KB compiled Swift helper
+included, and two of the seven files are the code signature a notarized app
+carries. Launch, memory and idle CPU are still 0.1.0's and say so rather than
+being adjusted on paper; the helper is spawned per recording, not at startup,
+so it isn't in the path either measures. 0.20.0 also moved the terminals into
+a daemon — one more process, measured on its own at 2.1 MB empty and 3.7 MB
+holding six shells, and not yet folded into the memory row above.
 
 Memory is `phys_footprint` — what Activity Monitor shows. Summed RSS would
 have said 256 MB against 2,057 MB, but it counts a shared framework page once

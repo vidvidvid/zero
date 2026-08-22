@@ -6,6 +6,7 @@ mod links;
 mod high_refresh;
 mod memos;
 mod pty;
+mod ptyd;
 mod recents;
 mod search;
 mod traffic_lights;
@@ -21,6 +22,29 @@ fn debug_log(msg: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `zero --ptyd <socket>` is not the app at all: it is the process that
+    // owns the shells, and it is this same binary because a second crate would
+    // have meant a second build, an `externalBin` entry, a CI step and another
+    // Mach-O to sign — all to ship code already sitting in this one. Handled
+    // here, before anything of Tauri's is touched, so the daemon has no
+    // NSApplication, no menu and no window.
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("--ptyd") => match args.next() {
+            Some(socket) => ptyd::server::run(&socket),
+            None => {
+                eprintln!("zero: --ptyd needs a socket path");
+                std::process::exit(2);
+            }
+        },
+        // The way out when the app is the thing that is broken. Deliberately
+        // reachable without starting a window, because "restart zero" stopped
+        // being a fix the moment the shells started outliving it.
+        Some("--sessions") => pty::cli(false),
+        Some("--kill-sessions") => pty::cli(true),
+        _ => {}
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_liquid_glass::init())
@@ -92,6 +116,13 @@ pub fn run() {
                         _ => {}
                     }
                 });
+            }
+
+            // the shells, in their own process. First, because the webview
+            // asks for one the moment it has laid a pane out.
+            match pty::start(_app.handle()) {
+                Ok(()) => println!("[pty] daemon up"),
+                Err(e) => println!("[pty] no daemon, terminals will not start: {e}"),
             }
 
             // the `zero` shell command comes with the app, so installing the
@@ -169,6 +200,7 @@ pub fn run() {
             search::search_project,
             search::replace_matches,
             pty::pty_kill_all,
+            pty::pty_reap,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

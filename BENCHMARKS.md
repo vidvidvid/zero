@@ -23,8 +23,8 @@ Method    3 launches each, median reported, apps quit between runs
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **18 MB** | 860 MB | 47× |
-| Installer | **7.9 MB** dmg | — | |
+| App bundle | **19 MB** | 860 MB | 45× |
+| Installer | **8.1 MB** dmg | — | |
 | Files in the bundle | **7** | 17,035 | |
 | Shipped JS | **1.4 MB** loaded, 2.7 MB in all | 256 MB across 12,021 files | 183× |
 | Electron/WebKit runtime | 0 (system WebKit) | 259 MB bundled | |
@@ -36,10 +36,14 @@ the binary and uses the WebKit that ships with macOS. Electron carries its own
 Chromium.
 
 The fifth arrived with voice memos in 0.2.0: `zero-voice`, a 175 KB Swift
-binary (189 KB today) that records and transcribes, spawned per request rather
+binary (171 KB today) that records and transcribes, spawned per request rather
 than held open. It was only a sixth of the megabyte the bundle grew — the
 icons didn't change, so the rest was the memo pipeline compiled into the main
-binary, which is 16.2 MB of the 18 today.
+binary, which is 16.6 MB of the 19 today.
+
+The bundle gained a megabyte in 0.20.0 and no files at all: the terminal
+daemon is the same binary re-executed, so `vt100` and the daemon's own code
+landed inside the 16.6 MB rather than beside it.
 
 Two of those five are the icon, and they're most of the 2 MB the bundle grew
 in August 2026: a 428 KB `.icns` for macOS 25 and earlier, and a 1.6 MB
@@ -136,10 +140,19 @@ Opening four real repos one after another, measuring after each:
 | 4 | 242 MB | 5 | 1,900 MB | 17 |
 | **4, steady state** | **243 MB** | **5** | **1,803 MB** | **17** |
 
+Measured before 0.20.0, which added the terminal daemon — one more process,
+and one more regardless of how many projects are open. Measured on its own it
+is 2.1 MB of `phys_footprint` empty and 3.7 MB holding six shells, so the
+readings above become 6 processes and about four megabytes more. The shape of
+the comparison is what the table is for, and that is unchanged; the memory
+column is due a re-run on an installed 0.20.0 build.
+
 **Cursor costs about 360 MB and three processes per extra project.** That's
 linear and it doesn't flatten out.
 
-**zero's process count never moves**, and its per-project cost is small enough
+**zero's process count never moves with projects** — six now rather than five,
+since the terminal daemon arrived, but six whether one project is open or
+four — and its per-project cost is small enough
 that it disappears into measurement noise — note that the 3-project reading is
 *higher* than the 4-project one. That isn't a mistake: nearly all of zero's
 memory is WebKit's GPU process, which grows and gets reclaimed on its own

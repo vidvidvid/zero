@@ -188,11 +188,68 @@ load-bearing:
   warning and signs anyway, and a signed-but-unnotarized dmg looks perfectly
   fine until someone downloads it.
 
+## The terminals outlive the app — there is a second process
+
+Shells are not children of zero. They belong to `zero-ptyd`, a daemon that is
+**this same binary re-executed** as `zero --ptyd <socket>` (intercepted in
+`run()` before Tauri is touched, so it has no window, no menu, no
+NSApplication). A separate crate would have meant a second build, an
+`externalBin` entry, a CI step and another Mach-O to sign — for code already
+sitting in this one.
+
+The promise is one sentence: **quitting zero takes its terminals with it,
+restarting zero does not.** Losing a client starts a clock (`GRACE_MS`, two
+minutes); an app that reconnects inside it is handed each shell exactly where
+it left off. That is why the window covers a `tauri dev` rebuild — the slowest
+restart anyone actually performs, and you will be doing it.
+
+**The socket name carries two things, and both matter.** It is keyed to the
+*executable path*, so `/Applications/zero.app` and `target/debug/zero` never
+share a daemon — the two-zeros hazard above, in a form that bites silently. And
+it carries `proto::VERSION`, because the failure to survive is an *older*
+daemon still holding shells across an update, and an old daemon cannot be asked
+what it speaks. Bumping that constant is how you say "old daemons must not be
+joined"; the cost is that sessions do not survive that one update.
+
+**Reattaching replays a screen, not bytes.** A `vt100::Parser` per session is
+fed everything the shell prints, and an attach sends `state_formatted()` —
+contents, attributes, cursor, keypad, bracketed paste, mouse mode. vt100 tracks
+the alternate screen but never emits it, so the replay prefixes `?1049h`
+itself; without that line a Claude session comes back as a *picture* of itself
+that corrupts the scrollback when it exits.
+
+**Two rules the daemon breaks nothing else by following, learned the hard
+way:**
+
+- **Never `eprintln!`, and never hold a lock across a log call.** The daemon
+  inherits stdio, and a parent that piped stderr can exit and leave that pipe
+  with no reader — on which `eprintln!` *panics*. A panic under the session map
+  poisons it, and the daemon then accepts connections and answers none of them,
+  shells all still running, every pane saying the daemon did not answer. It now
+  logs through `log()` (errors ignored) into a file of its own beside the
+  socket, and `lock()` recovers from poisoning rather than propagating it.
+- **`Out::send` queues; it does not write.** A blocking socket write under a
+  lock lets one slow client stall every other terminal.
+
+**The escape hatch is not optional.** Persistence removes restart-as-a-fix, so
+`zero --sessions` and `zero --kill-sessions` talk to the daemon directly,
+without starting a window — and find *every* daemon by scanning `TMPDIR`, not
+just the one their own path hashes to, since the build most likely to be wedged
+is the one being worked on. They report what is actually left rather than
+asserting success.
+
+**What is not built yet:** a cross-project sessions overlay and live-session
+dots on the Launcher — the visibility half. And scrollback above the visible
+screen is not preserved across a restart (`SCROLLBACK = 0`).
+
 ## Building and installing locally
 
-- **Never quit or relaunch the installed app.** There may be live Claude Code
-  sessions in its terminals. Install, say it's installed, and let Vid relaunch
-  it himself.
+- **Never quit or relaunch the installed app.** Still the rule, but the reason
+  has changed: from the version that added `zero-ptyd`, a relaunch no longer
+  costs the Claude sessions in its terminals — the daemon holds them and the
+  new instance reattaches. What it costs is Vid's place in whatever he was
+  doing, which was never ours to take. Install, say it's installed, and let him
+  relaunch it himself.
 - **Install atomically** — copy beside, then swap. A `rm -rf` followed by a
   `cp` leaves no app at all if the copy fails:
   ```sh

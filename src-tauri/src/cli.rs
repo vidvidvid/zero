@@ -5,6 +5,11 @@
 //! hands a directory over through a file the app watches, rather than through
 //! argv: `open -a` doesn't pass arguments, and launching the binary directly
 //! would start a second instance with its own set of shells.
+//!
+//! `--sessions` and `--kill-sessions` are the exception, and go straight to
+//! the binary. They speak to the terminal daemon and print — no window is
+//! wanted, and the whole reason they exist is the case where starting one
+//! isn't working.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -29,7 +34,16 @@ APP="/Applications/zero.app"
 
 if [ "$#" -gt 0 ]; then
   case "$1" in
-    -h|--help) printf 'usage: zero [directory]\n'; exit 0 ;;
+    -h|--help)
+      printf 'usage: zero [directory]\n'
+      printf '       zero --sessions        list terminals still running\n'
+      printf '       zero --kill-sessions   end them all\n'
+      exit 0 ;;
+    # Straight to the binary, not through `open`: these talk to the terminal
+    # daemon and print, and must work when the app is not running or will not
+    # start -- which is the case they exist for.
+    --sessions|--kill-sessions)
+      exec "$APP/Contents/MacOS/zero" "$1" ;;
   esac
   dir=$(cd -- "$1" 2>/dev/null && pwd) || {
     printf 'zero: not a directory: %s\n' "$1" >&2

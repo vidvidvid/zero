@@ -225,6 +225,8 @@ export const api = {
   /** creates the file with its seed if it isn't there yet */
   memoVocabularyPath: (root: string) => invoke<string>("memo_vocabulary_path", { root }),
   ptyKillAll: () => invoke<void>("pty_kill_all"),
+  /** end every session no restored layout claims — the boot sweep */
+  ptyReap: (keep: string[]) => invoke<void>("pty_reap", { keep }),
   ptySpawn: (id: string, cwd: string, cols: number, rows: number) =>
     invoke<void>("pty_spawn", { id, cwd, cols, rows }),
   ptyWrite: (id: string, data: string) => invoke<void>("pty_write", { id, data }),
