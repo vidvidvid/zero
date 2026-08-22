@@ -30,6 +30,23 @@ git push origin main --follow-tags
 That is the release, but not the end of it — the cask block below has to run
 too, or brew users stay on whatever the last bumped version was.
 
+**Write the release notes. Nothing else will.** GitHub's generated notes list
+*merged pull requests only*, so a release tagged from a direct push to `main`
+— which is how most work lands here — publishes a page saying nothing about
+what changed. Most of the releases before 0.20.0 read that way. After the
+workflow publishes:
+
+```sh
+gh release edit "v$V" --repo zero-editor/zero --notes-file notes.md
+```
+
+Keep the two lines the workflow wrote (the "Signed and notarized" line and the
+indented `sha256  <hash>`), and **do not use the word "sha256" anywhere else in
+the body** — the cask block below reads it with `awk '/sha256/{print $2}'`,
+which prints one line per match, so a second mention silently pins the tap to
+a mangled hash. Write for someone deciding whether to update: what changed for
+them, and what still doesn't work.
+
 `package.json` is the only copy of the version. `tauri.conf.json` names it as a
 path rather than repeating the number, and `Cargo.toml` sits at `0.0.0` because
 nothing reads it. The workflow checks the tag against `package.json` — and
