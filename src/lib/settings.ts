@@ -38,6 +38,13 @@ export interface Settings {
    *  no extension) → registry language name. lang.ts owns what the keys and
    *  values mean; this is only where they sleep. */
   langOverrides: Record<string, string>;
+  /** Show the machinery. Today that is one thing: a `claude call` button under
+   *  every turn of a memo thread, opening the exact `claude` command — every
+   *  argument, the whole of stdin — that produced it, as the file Rust keeps
+   *  beside the document. Off by default because it is a reading aid for
+   *  someone working on zero, not on their memo; the files are written either
+   *  way, so turning it on later shows the past too. */
+  developer: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -46,6 +53,7 @@ const DEFAULTS: Settings = {
   appearance: "system",
   termStyle: "panel",
   langOverrides: {},
+  developer: false,
 };
 
 // The stored blob survives across versions of zero, so anything unrecognised
@@ -70,6 +78,7 @@ function parse(raw: string | null): Settings {
       ? (blob.termStyle as TermStyle)
       : DEFAULTS.termStyle,
     langOverrides: sanitizeOverrides(blob.langOverrides),
+    developer: typeof blob.developer === "boolean" ? blob.developer : DEFAULTS.developer,
   };
 }
 

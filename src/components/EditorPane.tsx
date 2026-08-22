@@ -347,6 +347,7 @@ export function EditorPane({
                   id={v.id}
                   memos={memos}
                   visible={i === activeView}
+                  onOpenFile={onOpenFile}
                 />
               ) : v.kind === "new" ? (
                 <NewFileView

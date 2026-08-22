@@ -67,6 +67,16 @@ export const memoTakeAudio = (root: string, id: string, take: number) =>
 export const memoVersion = (root: string, id: string, take: number) =>
   `${root}/.zero/memos/${id}.${take}.md`;
 
+/**
+ * The `claude` call behind take k's document, as Rust left it: a shell script
+ * that runs the same call again — every argument and the whole of stdin,
+ * verbatim. Numbered exactly as the version it sits beside, and written on
+ * every outcome, so a take that failed has one too. A memo from before the
+ * record was kept simply has none, and the thread offers nothing for it.
+ */
+export const memoCall = (root: string, id: string, take: number) =>
+  `${root}/.zero/memos/${id}.${take}.claude.sh`;
+
 /** The title the pipeline gives a memo it found no words in. It's `ready` and
  *  it has a raw transcript, but no cleaned `.md` — nothing was worth an LLM
  *  call — so its thread is a turn of silence and nothing came back. */

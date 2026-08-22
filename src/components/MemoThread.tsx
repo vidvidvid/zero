@@ -3,6 +3,7 @@ import { api, type Memo } from "../lib/api";
 import {
   clock,
   failed,
+  memoCall,
   memoPaths,
   memoTakeAudio,
   memoTakeRaw,
@@ -16,6 +17,7 @@ import {
   type Memos,
 } from "../lib/memos";
 import { miniMarkdown } from "../lib/miniMarkdown";
+import { useSettings } from "../lib/settings";
 import { CopyGlyph, MemoControls, MicGlyph, PauseGlyph, PlayGlyph } from "./MemoPanel";
 
 /**
@@ -47,6 +49,9 @@ import { CopyGlyph, MemoControls, MicGlyph, PauseGlyph, PlayGlyph } from "./Memo
 interface Thread {
   raws: (string | null)[];
   docs: (string | null)[];
+  /** whether the call behind take k is on disk — only asked after in
+   *  developer mode, and all false outside it, since nothing else reads it */
+  calls: boolean[];
 }
 
 const readText = (path: string) => api.readFile(path).catch(() => null);
@@ -163,7 +168,8 @@ async function readThread(
   root: string,
   id: string,
   takes: number,
-  answered: number
+  answered: number,
+  developer: boolean
 ): Promise<Thread> {
   const ks = Array.from({ length: takes + 1 }, (_, i) => i + 1);
   const documentOf = (k: number) => {
@@ -172,11 +178,18 @@ async function readThread(
     if (k > answered) return null;
     return readText(k === answered ? memoPaths(root, id).md : memoVersion(root, id, k));
   };
-  const [raws, docs] = await Promise.all([
+  // The record is a few kilobytes, so a read is the existence check: there is
+  // no stat over the wire, and a button that opens nothing is worse than no
+  // button. Not asked after outside developer mode — those reads would be IPC
+  // spent on a file nobody is about to be shown.
+  const callOf = (k: number) =>
+    developer ? readText(memoCall(root, id, k)).then((t) => t !== null) : Promise.resolve(false);
+  const [raws, docs, calls] = await Promise.all([
     Promise.all(ks.map((k) => readText(memoTakeRaw(root, id, k)))),
     Promise.all(ks.map(documentOf)),
+    Promise.all(ks.map(callOf)),
   ]);
-  return { raws, docs };
+  return { raws, docs, calls };
 }
 
 export function MemoThread({
@@ -184,16 +197,23 @@ export function MemoThread({
   id,
   memos,
   visible,
+  onOpenFile,
 }: {
   root: string;
   id: string;
   memos: Memos;
   visible: boolean;
+  /** open a file as a tab — the one way out of the thread that isn't the
+   *  breadcrumb, used for the record of a call in developer mode */
+  onOpenFile: (abs: string) => void;
 }) {
   const memo = memos.memos.find((m) => m.id === id) ?? null;
   const takes = memo?.takes ?? 0;
   const answered = answeredTake(memo, takes);
   const present = memo !== null;
+  // developer mode: the thread also reads, for every take, whether the call
+  // behind it is on disk, and offers it under the turn
+  const developer = useSettings().developer;
 
   // null until the first read lands: an empty thread and a thread nobody has
   // read yet look identical on screen, and only one of them is worth saying
@@ -209,7 +229,7 @@ export function MemoThread({
     let gen = 0;
     const load = async () => {
       const g = ++gen;
-      const next = await readThread(root, id, takes, answered);
+      const next = await readThread(root, id, takes, answered, developer);
       if (!disposed && g === gen) setThread(next);
     };
     void load();
@@ -221,9 +241,10 @@ export function MemoThread({
       stop();
     };
     // `takes` adds a turn, `answered` moves the document from one to the next,
-    // and `present` is the memo leaving the list — a delete emits no update of
-    // its own, so this is what notices one
-  }, [root, id, takes, answered, present]);
+    // `present` is the memo leaving the list — a delete emits no update of its
+    // own, so this is what notices one — and `developer` is the one setting
+    // that changes what the thread reads
+  }, [root, id, takes, answered, present, developer]);
 
   // The document is also a file in the editor, and Claude Code edits files
   // while we watch. Same 2s poll as FileView, same guards — but the interval
@@ -544,6 +565,23 @@ export function MemoThread({
                   </div>
                 )}
                 {answer && <MemoDoc text={answer} />}
+                {/* developer mode: the call that produced this turn, as the
+                    file it is — every argument and the whole of stdin, runnable
+                    — opened like any other file, because it is one. Offered
+                    only when it is on disk: a memo from before the record was
+                    kept has no such file, and a button that opens nothing is
+                    a promise the thread can't keep. */}
+                {developer && answer && thread.calls[i] && (
+                  <div className="memo-turn-dev">
+                    <button
+                      className="memo-thread-act"
+                      title="open the exact claude call that produced this turn"
+                      onClick={() => onOpenFile(memoCall(root, id, k))}
+                    >
+                      claude call
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -571,6 +609,18 @@ export function MemoThread({
               >
                 retry
               </button>
+              {/* and, in developer mode, the call that failed — the one a
+                  developer most wants to read. The take in flight is the one
+                  after the last answered, so its record is at index `takes`. */}
+              {developer && thread?.calls[takes] && (
+                <button
+                  className="memo-thread-act"
+                  title="open the exact claude call that failed"
+                  onClick={() => onOpenFile(memoCall(root, id, takes + 1))}
+                >
+                  claude call
+                </button>
+              )}
             </div>
           ) : (
             work && (

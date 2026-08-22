@@ -361,6 +361,16 @@
   min-width: 0;
 }
 
+/* developer mode's one line under a turn: the call that produced it, as a
+   `memo-thread-act` word at the right edge, the way `retry` sits — faint until
+   hovered, because it is for the person working on zero, not on the memo, and
+   the document above it is the thing being read */
+.memo-turn-dev {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
 /* deleted, from here or from the panel or with rm. Quiet, because it is the
    normal end of a memo rather than a fault */
 .memo-thread-empty {
