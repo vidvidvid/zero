@@ -112,6 +112,31 @@ export function Settings({ onClose }: { onClose: () => void }) {
             );
           })}
         </div>
+        <div className="settings-group">
+          <div className="settings-label">developer</div>
+          {/* what `on` shows today is one button — `claude call`, under every
+              turn of a memo thread — and the word for the group is deliberately
+              wider than that: it is where the next piece of machinery worth
+              seeing goes too. settings.ts says what the flag is for. */}
+          {(
+            [
+              { id: false, label: "off" },
+              { id: true, label: "show claude calls" },
+            ] as const
+          ).map((c) => {
+            const on = settings.developer === c.id;
+            return (
+              <button
+                key={c.label}
+                className={`settings-choice ${on ? "on" : ""}`}
+                onClick={() => updateSettings({ developer: c.id })}
+              >
+                <span className="settings-dot" aria-hidden />
+                <span className="settings-choice-name">{c.label}</span>
+              </button>
+            );
+          })}
+        </div>
         {/* the other half of where a version belongs: the launcher is where
             you see it, this is where you go to look it up */}
         <div className="settings-version">zero {__APP_VERSION__}</div>

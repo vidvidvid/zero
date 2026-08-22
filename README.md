@@ -150,10 +150,14 @@ Clicking a memo opens it as its thread — what you said, what came back, take
 by take, oldest at the top, with the button that records the next take at the
 bottom of it. It is still files all the way down, all of them in
 `<project>/.zero/memos/`: the audio, the raw transcript of every take, the
-document, and a copy of the document as each take left it. The thread reads
-those files rather than standing in for them — ⌥-clicking the row still opens
-the transcript as an ordinary tab, and `edit` in the thread's header drops you
-into the document itself, where saving it is what it has always been.
+document, a copy of the document as each take left it, and the exact `claude`
+call that produced each one — a shell script that runs it again, every
+argument and the whole of stdin, verbatim. The thread reads those files rather
+than standing in for them — ⌥-clicking the row still opens the transcript as an
+ordinary tab, and `edit` in the thread's header drops you into the document
+itself, where saving it is what it has always been. `developer: show claude
+calls` in preferences puts a `claude call` button under every turn that opens
+its script, which is the whole of what zero sends.
 
 Speech recognition mangles precisely the words that carry the meaning: TRMNL
 comes back as "terminal", Anthropic as "entropic", zero as the digit. So each

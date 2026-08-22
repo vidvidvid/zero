@@ -686,12 +686,18 @@ fn snapshot(dir: &Path, id: &str, n: usize) {
 /// back under the plain stem of the memo it is a version of. That is what keeps
 /// it out of the way of everything that reads a number as a recording: a
 /// snapshot is drawn from a memo's files, and a memo with a snapshot for take 4
-/// has not thereby recorded four takes.
+/// has not thereby recorded four takes. The record of the call behind a take,
+/// `x.4.claude.sh`, is numbered the same way and comes back the same way, for
+/// the same reason.
 fn classify(name: &str) -> Option<(&str, &'static str)> {
     if let Some(stem) = name.strip_suffix(".raw.txt") {
         Some((stem, "raw"))
     } else if let Some(stem) = name.strip_suffix(".json") {
         Some((stem, "json"))
+    } else if let Some(stem) = name.strip_suffix(".claude.sh") {
+        // an unnumbered one is nobody's — there is no call behind a memo as a
+        // whole, only behind each of its takes
+        split_version(stem).map(|(base, _)| (base, "invocation"))
     } else if let Some(stem) = name.strip_suffix(".md") {
         match split_version(stem) {
             Some((base, _)) => Some((base, "version")),
@@ -712,10 +718,10 @@ fn classify(name: &str) -> Option<(&str, &'static str)> {
 /// only thing a sweep can be asked about.
 fn owning_memo(name: &str) -> Option<&str> {
     let (stem, kind) = classify(name)?;
-    // a version already came back under the memo's stem; everything else wears
-    // its own, which for a take is the numbered one
+    // a version, and the call that left it, already came back under the memo's
+    // stem; everything else wears its own, which for a take is the numbered one
     Some(match kind {
-        "version" => stem,
+        "version" | "invocation" => stem,
         _ => split_take(stem).map_or(stem, |(base, _)| base),
     })
 }
@@ -750,8 +756,10 @@ fn remove_take_files(dir: &Path, id: &str, n: usize) {
     // and the document that take left, on the one path where there could be
     // one. A take that reached a merge is never dropped, so this is nearly
     // always a name that isn't there — but a take number does come back after a
-    // drop, and the number that comes back must not inherit a document.
+    // drop, and the number that comes back must not inherit a document, nor
+    // the record of the call that made it.
     let _ = std::fs::remove_file(dir.join(version_name(id, n)));
+    let _ = std::fs::remove_file(dir.join(invocation_name(id, n)));
 }
 
 /// Take the last take back out — its entry and its files.
@@ -1044,6 +1052,8 @@ fn ensure_zero_md(app: &tauri::AppHandle, root: &str) -> Result<PathBuf, String>
 fn derive_seed(app: &tauri::AppHandle, root: &str, file: &Path, readme: &Path) {
     let Ok(body) = std::fs::read_to_string(readme) else { return };
     let slot: Arc<ChildSlot> = Arc::new(Mutex::new(None));
+    // the call's record is dropped here: it has no take to sit beside, and
+    // the thread is the only place one is offered
     let derived = run_claude(ClaudeRun {
         prompt: seed_prompt(&body),
         cwd: neutral_dir(app),
@@ -1051,7 +1061,7 @@ fn derive_seed(app: &tauri::AppHandle, root: &str, file: &Path, readme: &Path) {
         timeout: SEED_TIMEOUT,
         timed_out: "the README scan gave up after two minutes",
     });
-    let Ok(out) = derived else { return };
+    let Ok(out) = derived.text else { return };
     if append_terms(file, &glossary_lines(&out, MAX_SEED_TERMS)) > 0 {
         notice(app, root, "vocabulary seeded from the README — see ZERO.md");
     }
@@ -1277,6 +1287,10 @@ fn event_code(event: &serde_json::Value) -> String {
 struct Run {
     ok: bool,
     timed_out: bool,
+    /// the exit code, when the child exited rather than being killed — for the
+    /// record a call leaves behind, which should say `exit 1` where `ok` only
+    /// says no
+    code: Option<i32>,
     stderr: String,
 }
 
@@ -1373,6 +1387,7 @@ fn run_child(
     Ok(Run {
         ok: exit.as_ref().is_some_and(|s| s.success()),
         timed_out: exit.is_none(),
+        code: exit.as_ref().and_then(|s| s.code()),
         stderr,
     })
 }
@@ -1701,15 +1716,22 @@ fn cleanup_job(ctx: &JobCtx, root: &str, id: &str) {
         _ => cleanup_prompt(&vocabulary.body, &transcript),
     };
     let request = CleanupRequest { prompt, cwd: neutral_dir(ctx.app), slot: ctx.slot };
-    let cleaned = clean_transcript(request);
+    let answered = clean_transcript(request);
     if ctx.gone() {
         return;
     }
 
+    // The call itself, beside the document it is about — or would have been:
+    // it is kept before the answer is judged, because the call that came back
+    // with nothing is the one somebody will want to read. `unwrap_or(1)`: a
+    // memo with no takes was distilled from its own recording, which is take 1.
+    let n = last_take_no(&memo).unwrap_or(1);
+    keep_invocation(&dir, id, n, &answered.invocation);
+
     // the memo is everything before the vocabulary marker, and what follows it
     // is for ZERO.md and never for the document — the `.md` stays a pure paste
     // payload, which is the one thing the whole pipeline is for
-    let cleaned = cleaned.and_then(|out| {
+    let cleaned = answered.text.and_then(|out| {
         let (text, suggested) = split_suggestions(&out);
         let text = text.trim();
         if text.is_empty() {
@@ -1732,10 +1754,8 @@ fn cleanup_job(ctx: &JobCtx, root: &str, id: &str) {
                     // and a copy under the take that produced it. The `.md` is
                     // the document as it now stands; these are what it stood as
                     // at each step, which is the only reason the next merge
-                    // isn't the end of what this one said. `unwrap_or(1)`: a
-                    // memo with no takes was distilled from its own recording,
-                    // which is take 1.
-                    snapshot(&dir, id, last_take_no(&memo).unwrap_or(1));
+                    // isn't the end of what this one said.
+                    snapshot(&dir, id, n);
                     memo.title = title_from_md(&text);
                     memo.status = READY.to_string();
                     memo.error = None;
@@ -1808,7 +1828,7 @@ struct CleanupRequest<'a> {
 /// [`cleanup_job`]. A [`Prompt`] is already the shape such an engine would
 /// post — a system string and a user message — so the seam is the same two
 /// halves on either side of it.
-fn clean_transcript(req: CleanupRequest) -> Result<String, String> {
+fn clean_transcript(req: CleanupRequest) -> ClaudeAnswer {
     run_claude(ClaudeRun {
         prompt: req.prompt,
         cwd: req.cwd,
@@ -1850,14 +1870,54 @@ struct ClaudeRun<'a> {
 /// the way they always went, as one message on stdin. Decided per call and
 /// never remembered: the second node start-up is the whole cost, and nothing
 /// is left believing an upgrade hasn't happened.
-fn run_claude(req: ClaudeRun) -> Result<String, String> {
+fn run_claude(req: ClaudeRun) -> ClaudeAnswer {
     let ClaudeRun { prompt, cwd, slot, timeout, timed_out } = req;
-    let (mut out, mut run) =
-        spawn_claude(&cwd, slot, timeout, Some(prompt.system()), prompt.message.clone())?;
-    if !run.ok && !run.timed_out && lacks_system_prompt_flag(&run.stderr) {
-        (out, run) = spawn_claude(&cwd, slot, timeout, None, prompt.combined())?;
+    let started = Instant::now();
+    // the PATH and the words are made once and go two ways — to the process,
+    // and into the record of what the process got — so the record cannot
+    // describe a call other than the one that ran
+    let path = repaired_path();
+    let mut args = claude_args(Some(prompt.system()));
+    let mut stdin = prompt.message.clone();
+    let mut refused = None;
+    let mut spawned = spawn_claude(&cwd, &path, slot, timeout, &args, stdin.clone());
+    if let Ok((_, run)) = &spawned {
+        if !run.ok && !run.timed_out && lacks_system_prompt_flag(&run.stderr) {
+            refused = Some(first_lines(&run.stderr, 1));
+            args = claude_args(None);
+            stdin = prompt.combined();
+            spawned = spawn_claude(&cwd, &path, slot, timeout, &args, stdin.clone());
+        }
     }
+    let secs = started.elapsed().as_secs_f64();
 
+    let (text, outcome) = match spawned {
+        Err(e) => (Err(e.clone()), format!("never started: {e}")),
+        Ok((out, run)) => {
+            let outcome = if run.timed_out {
+                format!("killed by zero after {secs:.1} s, its timeout")
+            } else if let Some(code) = run.code {
+                format!("exit {code} after {secs:.1} s")
+            } else {
+                format!("killed after {secs:.1} s")
+            };
+            (answer_of(out, run, timed_out), outcome)
+        }
+    };
+    let invocation = Invocation {
+        instructions: prompt.instructions,
+        cwd,
+        path,
+        args,
+        stdin,
+        refused,
+        outcome,
+    };
+    ClaudeAnswer { text, invocation }
+}
+
+/// What one finished call amounts to: the text, or the reason there is none.
+fn answer_of(out: String, run: Run, timed_out: &'static str) -> Result<String, String> {
     if run.timed_out {
         return Err(timed_out.into());
     }
@@ -1877,6 +1937,64 @@ fn run_claude(req: ClaudeRun) -> Result<String, String> {
     Ok(out)
 }
 
+/// What came back from one `claude -p`, and what went in to get it.
+///
+/// The two travel together because the second is only ever wanted about the
+/// first: a developer reading a turn of a memo and asking what, exactly,
+/// produced it.
+struct ClaudeAnswer {
+    /// everything claude printed, or why there is nothing
+    text: Result<String, String>,
+    invocation: Invocation,
+}
+
+/// One `claude -p` call as the operating system saw it: where it ran, with
+/// what PATH, every argument, the whole of stdin, and how it ended. Kept for
+/// the developer and written beside the document it produced, as a shell
+/// script that runs the same call again — [`invocation_script`] is the shape.
+///
+/// Taken from the vector the process was given, never re-described from the
+/// prompt — see [`claude_args`] — which is what lets the file claim to be
+/// verbatim.
+struct Invocation {
+    instructions: Instructions,
+    cwd: PathBuf,
+    path: String,
+    /// the words after `claude`, exactly as `Command::args` got them
+    args: Vec<&'static str>,
+    stdin: String,
+    /// what an older claude said when it refused `--system-prompt`; the call
+    /// recorded is then the second one, which sent both halves as one message
+    refused: Option<String>,
+    /// how it ended, in the record's own words: an exit code and a duration,
+    /// or the kill, or the reason it never started
+    outcome: String,
+}
+
+/// The words after `claude`, for every call: print mode, plain text back, no
+/// tools, and the system prompt when there is one. One function, because
+/// [`Invocation`] keeps the vector this returns and the process gets the same
+/// vector — two lists would be two chances to record something other than
+/// what ran.
+fn claude_args(system: Option<&'static str>) -> Vec<&'static str> {
+    let mut args = vec![
+        "-p",
+        "--output-format",
+        "text",
+        // belt and braces: these are text-in, text-out tasks, and the cwd
+        // is ours, but neither of them has any business reading or writing
+        // anything at all
+        "--disallowedTools",
+        "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,NotebookEdit",
+    ];
+    if let Some(system) = system {
+        // its own argument, not `--system-prompt=…`: the text is readable in
+        // `ps` either way, and this way it is readable by a person
+        args.extend(["--system-prompt", system]);
+    }
+    args
+}
+
 /// Whether a failure is an older `claude` refusing `--system-prompt` — the one
 /// failure [`run_claude`] answers by trying again instead of reporting. Both
 /// halves of the test matter: commander says "unknown option" for any flag it
@@ -1886,36 +2004,22 @@ fn lacks_system_prompt_flag(stderr: &str) -> bool {
     stderr.contains("unknown option") && stderr.contains("--system-prompt")
 }
 
-/// One spawn of `claude -p` and the wait for it: the flags every call gets,
-/// the system prompt when there is one, `stdin` written from its own thread,
-/// and whatever came back. What to make of the answer — a retry, an error, a
-/// memo — is [`run_claude`]'s business, because it may ask twice.
+/// One spawn of `claude -p` and the wait for it: the words, the PATH, `stdin`
+/// written from its own thread, and whatever came back. What to make of the
+/// answer — a retry, an error, a memo — is [`run_claude`]'s business, because
+/// it may ask twice.
 fn spawn_claude(
     cwd: &Path,
+    path: &str,
     slot: &Arc<ChildSlot>,
     timeout: Duration,
-    system: Option<&'static str>,
+    args: &[&'static str],
     stdin: String,
 ) -> Result<(String, Run), String> {
-    let mut command = Command::new("claude");
-    command.args([
-        "-p",
-        "--output-format",
-        "text",
-        // belt and braces: these are text-in, text-out tasks, and the cwd
-        // is ours, but neither of them has any business reading or writing
-        // anything at all
-        "--disallowedTools",
-        "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,NotebookEdit",
-    ]);
-    if let Some(system) = system {
-        // its own argument, not `--system-prompt=…`: the text is readable in
-        // `ps` either way, and this way it is readable by a person
-        command.args(["--system-prompt", system]);
-    }
-    let mut child = command
+    let mut child = Command::new("claude")
+        .args(args)
         .current_dir(cwd)
-        .env("PATH", repaired_path())
+        .env("PATH", path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1946,6 +2050,102 @@ fn spawn_claude(
     Ok((out, run))
 }
 
+// ── the record of a call ─────────────────────────────────────────────────────
+
+/// `<id>.<n>.claude.sh` — the call behind take n, numbered as the document it
+/// left is, so the two sit together in a listing.
+fn invocation_name(id: &str, n: usize) -> String {
+    format!("{id}.{n}.claude.sh")
+}
+
+/// Write the call behind take `n` beside its document.
+///
+/// Same standing as a version: a display artifact for someone reading the
+/// thread, never consulted by the pipeline, so a failure here is logged and
+/// nothing more. Written on every outcome and not only success — the call that
+/// came back with nothing is the one a developer most wants to read — and
+/// written over on a retry, because the record is of the call that answered.
+fn keep_invocation(dir: &Path, id: &str, n: usize, inv: &Invocation) {
+    let what = format!("zero's {}, take {n} of {id}", inv.instructions.pass());
+    let script = invocation_script(inv, &iso(now_secs()), &what);
+    if let Err(e) = write_atomic(&dir.join(invocation_name(id, n)), &script) {
+        println!("[memos] could not keep the call behind {id} take {n}: {e}");
+    }
+}
+
+/// The call as a shell script: runnable as it is, and exact. Every word of
+/// argv is single-quoted — inside single quotes sh reads everything literally,
+/// newlines included, and only the quote itself has to be spelled, as `'\''` —
+/// stdin is a quoted heredoc, and the cwd and PATH are the ones the process
+/// had. Exact in both directions is the point: a developer who wants to know
+/// what zero sends can read it, and one who wants to try a change can edit it
+/// and run it.
+///
+/// `what` names the pass and the memo and `when` the time, for the header —
+/// the one part of the file that is description rather than record.
+fn invocation_script(inv: &Invocation, when: &str, what: &str) -> String {
+    let mut s = String::from("#!/bin/sh\n");
+    s.push_str(&format!(
+        "# {what}: the claude call, verbatim — every argument and the whole of stdin,\n\
+         # exactly as zero handed them over. Runs as it is; the answer comes back on stdout.\n\
+         # Ran {when}; {}.\n",
+        inv.outcome
+    ));
+    if let Some(said) = &inv.refused {
+        s.push_str(&format!(
+            "# This claude refused --system-prompt ({said}), so zero sent the two halves\n\
+             # of the prompt as one message — the call below is that second one.\n"
+        ));
+    }
+    s.push_str(&format!("cd {} || exit 1\n", sh_word(&inv.cwd.to_string_lossy())));
+    s.push_str(&format!("export PATH={}\n", sh_word(&inv.path)));
+    s.push_str("claude");
+    for arg in &inv.args {
+        s.push_str(" \\\n  ");
+        s.push_str(&sh_word(arg));
+    }
+    // A heredoc ends at a line end, so a message that doesn't end with one is
+    // recorded one newline longer than it was. Every message zero writes ends
+    // with one — the prompt tests say so — so this is a rule, not a case.
+    let tag = heredoc_tag(&inv.stdin);
+    s.push_str(&format!(" \\\n  <<'{tag}'\n"));
+    s.push_str(&inv.stdin);
+    if !inv.stdin.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str(&tag);
+    s.push('\n');
+    s
+}
+
+/// One word of a shell command: bare when it is plain enough that no shell
+/// would touch it, single-quoted otherwise. Single quotes are the whole of the
+/// escaping, because inside them sh reads everything literally except another
+/// single quote, which is spelled `'\''` — close, escaped quote, reopen.
+fn sh_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./=:".contains(&b));
+    if plain {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
+/// A delimiter the text does not contain as a line of its own. `ZERO_STDIN`,
+/// unless the memo is about this very file and quotes it — the same case
+/// [`split_suggestions`] makes for the vocabulary marker — in which event a
+/// number goes on the end until the line is nowhere in the text.
+fn heredoc_tag(body: &str) -> String {
+    let mut tag = "ZERO_STDIN".to_string();
+    let mut n = 1;
+    while body.lines().any(|line| line == tag) {
+        n += 1;
+        tag = format!("ZERO_STDIN_{n}");
+    }
+    tag
+}
+
 // ── the prompts ──────────────────────────────────────────────────────────────
 
 /// Which of the three jobs a [`Prompt`] is for — distilling a recording,
@@ -1974,6 +2174,16 @@ impl Instructions {
             Instructions::Cleanup => CLEANUP_SYSTEM,
             Instructions::Merge => MERGE_SYSTEM,
             Instructions::Seed => SEED_SYSTEM,
+        }
+    }
+
+    /// The pass by the name the rest of the feature calls it, for the header
+    /// of the record a call leaves behind.
+    fn pass(self) -> &'static str {
+        match self {
+            Instructions::Cleanup => "cleanup",
+            Instructions::Merge => "merge",
+            Instructions::Seed => "README seed",
         }
     }
 }
@@ -2348,8 +2558,9 @@ fn scan(dir: &Path) -> BTreeMap<String, Artifacts> {
             // exchange, and evidence of nothing. It is not the `.md` the level
             // rule asks after — a memo whose document was deleted by hand is
             // demoted with its snapshots sitting right there — and it is not a
-            // recording, so it can never be the reason a take exists.
-            "version" => {}
+            // recording, so it can never be the reason a take exists. The
+            // record of the call behind a take is the same kind of thing.
+            "version" | "invocation" => {}
             // m4a wins over caf: conversion succeeded and the caf is a leftover
             _ if len > 0 && (art.audio.is_none() || name.ends_with(".m4a")) => {
                 art.audio = Some(name.clone());
@@ -3512,6 +3723,72 @@ plain prose, which is fine";
         assert!(!lacks_system_prompt_flag("error: unknown option '--disallowedTools'\n"));
     }
 
+    /// The record of a call is the call: run the script and the same words and
+    /// the same stdin arrive, byte for byte — quotes, newlines, `$HOME` left
+    /// alone, a line that looks like the heredoc's own delimiter. A shim
+    /// `claude` on the script's PATH writes down what it was given.
+    #[test]
+    fn the_record_of_a_call_runs_the_same_call() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp("invocation");
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let shim = bin.join("claude");
+        std::fs::write(
+            &shim,
+            "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\0' \"$a\"; done > \"$ZERO_SHIM_OUT/argv\"\n\
+             cat > \"$ZERO_SHIM_OUT/stdin\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let stdin = "## Project vocabulary\n\n- TRMNL — misheard as: terminal\n\nZERO_STDIN\n\
+                     ## Transcript\n\nit's 'quoted', and $HOME stays `literal`\n";
+        let inv = Invocation {
+            instructions: Instructions::Cleanup,
+            cwd: dir.clone(),
+            // the shim first, then enough of a PATH for `cat`
+            path: format!("{}:/bin:/usr/bin", bin.to_string_lossy()),
+            args: claude_args(Some("it's a system prompt\n\nwith a blank line and a `tick`")),
+            stdin: stdin.to_string(),
+            refused: Some("error: unknown option '--system-prompt'".into()),
+            outcome: "exit 0 after 1.2 s".into(),
+        };
+        let script = invocation_script(&inv, "2026-08-22T04:12:33+02:00", "zero's cleanup, take 1 of x");
+
+        // the header says what it is; the body is the quoting rule
+        assert!(script.starts_with("#!/bin/sh\n# zero's cleanup, take 1 of x: the claude call, verbatim"));
+        assert!(script.contains("# Ran 2026-08-22T04:12:33+02:00; exit 0 after 1.2 s.\n"));
+        assert!(script.contains("# This claude refused --system-prompt (error: unknown option '--system-prompt')"));
+        assert!(
+            script.contains("\n  --system-prompt \\\n  'it'\\''s a system prompt\n\nwith a blank line and a `tick`' \\\n"),
+            "a quote is spelled, a newline is kept, a backtick is nothing special"
+        );
+        assert!(script.contains(" \\\n  <<'ZERO_STDIN_2'\n"), "the message quotes the usual delimiter, so another is picked");
+        assert!(script.ends_with("`literal`\nZERO_STDIN_2\n"));
+        assert_eq!(heredoc_tag("plain\n"), "ZERO_STDIN");
+        assert_eq!(sh_word("-p"), "-p");
+        assert_eq!(sh_word("--output-format"), "--output-format");
+        assert_eq!(sh_word("a,b"), "'a,b'");
+        assert_eq!(sh_word(""), "''");
+
+        // and it runs: the shim gets exactly the words and the stdin
+        let path = dir.join("x.1.claude.sh");
+        std::fs::write(&path, &script).unwrap();
+        let status = Command::new("/bin/sh").arg(&path).env("ZERO_SHIM_OUT", &dir).status().unwrap();
+        assert!(status.success(), "the script runs as it is");
+        let argv = std::fs::read(dir.join("argv")).unwrap();
+        let words: Vec<&str> = argv
+            .split(|b| *b == 0)
+            .filter(|w| !w.is_empty())
+            .map(|w| std::str::from_utf8(w).unwrap())
+            .collect();
+        assert_eq!(words, inv.args, "every argument, verbatim");
+        assert_eq!(std::fs::read_to_string(dir.join("stdin")).unwrap(), stdin, "and the whole of stdin");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// The seed asks for a glossary and nothing else — a preamble would be a
     /// line nobody wrote into their own vocabulary.
     #[test]
@@ -3808,6 +4085,12 @@ Here are the terms I corrected:
         assert_eq!(version_name("2026-08-13-1432-ab12", 4), "2026-08-13-1432-ab12.4.md");
         assert_eq!(classify("x.1.md"), Some(("x", "version")));
         assert_eq!(classify("x.4.md"), Some(("x", "version")));
+        // and the call behind a take, numbered and filed the same way; one
+        // without a number is no take's and so nobody's
+        assert_eq!(invocation_name("2026-08-13-1432-ab12", 2), "2026-08-13-1432-ab12.2.claude.sh");
+        assert_eq!(classify("x.1.claude.sh"), Some(("x", "invocation")));
+        assert_eq!(owning_memo("x.3.claude.sh"), Some("x"));
+        assert_eq!(classify("x.claude.sh"), None);
         assert_eq!(split_version("x.1"), Some(("x", 1)));
         assert_eq!(split_version("x.2"), Some(("x", 2)));
         assert_eq!(split_version("x"), None, "the memo's own document is not a version of it");
@@ -3842,12 +4125,13 @@ Here are the terms I corrected:
         let deleting = temp("takes-delete");
         for name in [
             "x.json", "x.m4a", "x.raw.txt", "x.md", "x.1.md", "x.2.caf", "x.2.raw.txt", "x.2.md",
-            "x.3.m4a",
+            "x.3.m4a", "x.1.claude.sh", "x.3.claude.sh",
         ] {
             write(&deleting, name, "bytes");
         }
         write(&deleting, "y.2.m4a", "someone else's follow-up");
         write(&deleting, "y.1.md", "someone else's first pass");
+        write(&deleting, "y.1.claude.sh", "someone else's call");
         remove_all(&deleting, "x");
         let mut left: Vec<String> = std::fs::read_dir(&deleting)
             .unwrap()
@@ -3855,12 +4139,19 @@ Here are the terms I corrected:
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         left.sort();
-        assert_eq!(left, ["y.1.md", "y.2.m4a"], "every numbered file went with it, and only its own");
+        assert_eq!(
+            left,
+            ["y.1.claude.sh", "y.1.md", "y.2.m4a"],
+            "every numbered file went with it, and only its own"
+        );
 
         // and abandoning one take leaves the memo — and its other takes, and
         // the documents they produced — alone
         let dropping = temp("takes-drop");
-        for name in ["x.m4a", "x.md", "x.1.md", "x.2.m4a", "x.2.raw.txt", "x.2.md", "x.3.caf", "x.3.md"] {
+        for name in [
+            "x.m4a", "x.md", "x.1.md", "x.2.m4a", "x.2.raw.txt", "x.2.md", "x.2.claude.sh", "x.3.caf",
+            "x.3.md", "x.3.claude.sh",
+        ] {
             write(&dropping, name, "bytes");
         }
         let mut memo = with_takes("x", RECORDING, 2);
@@ -3868,8 +4159,10 @@ Here are the terms I corrected:
         assert_eq!(memo.takes.len(), 1, "the last one, and no further");
         assert!(!dropping.join("x.3.caf").exists());
         assert!(!dropping.join("x.3.md").exists(), "a number that comes back inherits nothing");
+        assert!(!dropping.join("x.3.claude.sh").exists(), "not even the call that made it");
         assert!(dropping.join("x.2.m4a").exists() && dropping.join("x.md").exists(), "the outcome stands");
         assert!(dropping.join("x.1.md").exists() && dropping.join("x.2.md").exists(), "and so does its record");
+        assert!(dropping.join("x.2.claude.sh").exists());
 
         for dir in [deleting, dropping] {
             let _ = std::fs::remove_dir_all(dir);
