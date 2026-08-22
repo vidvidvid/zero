@@ -803,8 +803,12 @@ fn reap(mut child: Box<dyn Child + Send + Sync>) {
     });
 }
 
-/// Kill every session — called on frontend boot so a webview reload
-
+/// End one session, by id.
+///
+/// Storing `alive = false` before reaping is what stops the reader thread from
+/// reporting the death as a `pty-exit` — the shell did not exit, it was ended,
+/// and the caller already knows. `kill_all` is where that turns out to have a
+/// caller it does not hold for.
 fn kill(sessions: &Sessions, id: &str) {
     if let Some(session) = lock(&sessions.0).remove(id) {
         session.alive.store(false, Ordering::Relaxed);

@@ -250,10 +250,27 @@ way:**
 
 **The escape hatch is not optional.** Persistence removes restart-as-a-fix, so
 `zero --sessions` and `zero --kill-sessions` talk to the daemon directly,
-without starting a window — and find *every* daemon by scanning `TMPDIR`, not
-just the one their own path hashes to, since the build most likely to be wedged
-is the one being worked on. They report what is actually left rather than
+without starting a window. They report what is actually left rather than
 asserting success.
+
+**They find daemons in the process table, not the socket directory**, filtered
+to `TMPDIR` and to a `zero --ptyd <socket>` argv. Every narrowing of that list
+has cost something: keying it to the running binary's own path hid the `tauri
+dev` daemon, which is the build most likely to be wedged; filtering on
+`proto::VERSION` hid the orphan the version *exists* to create, an old daemon
+still holding shells after an update; and listing the directory hid one whose
+socket had been unlinked while it ran, holding two shells and named nowhere on
+disk. A daemon it cannot speak to — wrong protocol, or no socket left to
+connect to — is reported with the reason and ended by signal, since killing the
+daemon closes the pty masters and the kernel hangs the shells up. Whether they
+actually died is then checked, not assumed.
+
+**`--kill-sessions` is machine-wide, and that includes the terminal you are
+typing in.** There is no per-project or per-daemon form yet. Scoping `TMPDIR`
+used to sandbox it, which is how test scripts ran it safely; reading the
+process table ended that, and the way it announced itself was six live
+terminals in the installed app dying during a test run. To exercise a kill
+path, signal a fixture daemon by pid.
 
 **What is not built yet:** a cross-project sessions overlay and live-session
 dots on the Launcher — the visibility half. And scrollback above the visible

@@ -315,27 +315,270 @@ fn pump(app: tauri::AppHandle, client: Arc<Client>, mut r: UnixStream) {
 
 // ── the escape hatch ─────────────────────────────────────────────────────────
 
-/// Every daemon on this machine speaking our protocol version.
+/// Every daemon on this machine, whatever it speaks and however it was left.
 ///
 /// Not just this executable's. The socket name is keyed to the executable path
 /// so that an installed app and a `tauri dev` build never share a daemon — but
 /// the escape hatch has to reach *both*, and the shell shim always runs the
 /// installed binary. Keying the hatch the same way as the app made it blind to
 /// exactly the build most likely to have wedged: the one being worked on.
-fn all_sockets() -> Vec<std::path::PathBuf> {
-    let suffix = format!("-v{}.sock", proto::VERSION);
-    let mut found: Vec<std::path::PathBuf> = std::fs::read_dir(std::env::temp_dir())
+///
+/// The same mistake was in here twice. The name carries `proto::VERSION` too,
+/// and filtering on that hid the other orphan the version exists to create: an
+/// old daemon still holding shells across an update, which the new app will
+/// never join and therefore never end. That is the one case where "restart
+/// zero" cannot help by construction, and it was the one case the way out
+/// could not see. So the version comes back as a fact about each socket rather
+/// than as a filter on the list, and the caller decides what it can safely say
+/// to each one.
+///
+/// And a third time, in the same shape: looking only at sockets missed a
+/// daemon whose socket had been unlinked out from under it. It was running,
+/// holding two shells, and nothing named it anywhere on disk.
+fn all_daemons() -> Vec<Daemon> {
+    // Start from the process table, because that is the view nothing can
+    // unlink. A daemon whose socket file has been removed — by an app that
+    // gave up on it and started a fresh one, by a version bump, by anything at
+    // all — is still running, still holding shells, and is now unreachable by
+    // name. Listing the directory would say there is nothing there.
+    let mut found: Vec<Daemon> = running_daemons();
+
+    // Then the directory, for the opposite leftover: a socket file with no
+    // process behind it.
+    let stale: Vec<Daemon> = std::fs::read_dir(std::env::temp_dir())
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| {
+        .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            name.starts_with("zero-ptyd-") && name.ends_with(&suffix)
+            if !name.starts_with("zero-ptyd-") || !name.ends_with(".sock") {
+                return None;
+            }
+            // `zero-ptyd-<exe hash>-v<protocol>.sock`. `None` for a name that
+            // carries no version — a daemon older than the scheme, or not one
+            // of ours at all. Both are handled the same way, because neither
+            // can be spoken to.
+            let version = name
+                .rsplit_once("-v")
+                .and_then(|(_, tail)| tail.strip_suffix(".sock"))
+                .and_then(|digits| digits.parse::<u32>().ok());
+            Some(Daemon { sock: e.path(), version, pid: None })
         })
-        .map(|e| e.path())
+        .filter(|d| !found.iter().any(|seen| seen.sock == d.sock))
         .collect();
-    found.sort();
+    found.extend(stale);
+    found.sort_by(|a, b| a.sock.cmp(&b.sock));
     found
+}
+
+/// One daemon: where it listens, what it speaks, and whether it is still here.
+struct Daemon {
+    sock: std::path::PathBuf,
+    /// Parsed out of the socket name. `None` if the name carries no version.
+    version: Option<u32>,
+    /// `None` for a socket file with nothing behind it.
+    pid: Option<u32>,
+}
+
+impl Daemon {
+    /// Whether this one can be talked to, as opposed to only signalled. Both
+    /// halves matter: the wrong protocol version cannot be spoken, and a
+    /// socket that has been unlinked cannot be connected to no matter what it
+    /// speaks.
+    fn reachable(&self) -> bool {
+        self.version == Some(proto::VERSION) && self.sock.exists()
+    }
+}
+
+/// Every `zero --ptyd` process running, read out of the process table.
+///
+/// The argv is the daemon's own, so this finds versions of it that predate
+/// anything written here — which is the point, since those are the ones that
+/// go missing. Matched narrowly enough that someone's `grep --ptyd` is not
+/// mistaken for a daemon: the flag, and a last argument that is a socket named
+/// the way this program names them.
+///
+/// Confined to `TMPDIR`, which the directory scan got for free and this does
+/// not. That is not a detail: the process table is machine-wide, so without
+/// this line `--kill-sessions` reaches every daemon on the box no matter what
+/// environment it was run in — and the first thing it cost was six live
+/// terminals belonging to a copy of zero nobody was asking about. A daemon
+/// keeps its socket path in its argv even after the file is unlinked, so
+/// nothing this was widened to find is lost by checking it.
+fn running_daemons() -> Vec<Daemon> {
+    let Ok(out) = std::process::Command::new("/bin/ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse::<u32>().ok()?;
+            let argv: Vec<&str> = fields.collect();
+            if !argv.contains(&"--ptyd") {
+                return None;
+            }
+            let sock = std::path::PathBuf::from(argv.last()?);
+            if sock.parent() != Some(std::env::temp_dir().as_path()) {
+                return None;
+            }
+            let name = sock.file_name()?.to_string_lossy().into_owned();
+            if !name.starts_with("zero-ptyd-") || !name.ends_with(".sock") {
+                return None;
+            }
+            let version = name
+                .rsplit_once("-v")
+                .and_then(|(_, tail)| tail.strip_suffix(".sock"))
+                .and_then(|digits| digits.parse::<u32>().ok());
+            Some(Daemon { sock, version, pid: Some(pid) })
+        })
+        .collect()
+}
+
+/// Whether `pid` is a running process, as opposed to a zombie or a gap.
+fn alive(pid: u32) -> bool {
+    let Ok(out) = std::process::Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "state="])
+        .output()
+    else {
+        return false;
+    };
+    let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    !state.is_empty() && !state.starts_with('Z')
+}
+
+/// The shells a daemon is holding, as pids — read out of the process table
+/// because the daemon itself cannot be asked.
+fn children_of(pid: u32) -> Vec<u32> {
+    let Ok(out) = std::process::Command::new("/bin/ps")
+        .args(["-axo", "pid=,ppid=,state="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let child = fields.next()?.parse::<u32>().ok()?;
+            let parent = fields.next()?.parse::<u32>().ok()?;
+            let state = fields.next()?;
+            (parent == pid && !state.starts_with('Z')).then_some(child)
+        })
+        .collect()
+}
+
+fn signal(pid: u32, sig: &str) {
+    let _ = std::process::Command::new("/bin/kill")
+        .arg(format!("-{sig}"))
+        .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+/// Poll until `pid` is gone, for at most `limit`. Reports whether it went.
+fn wait_gone(pid: u32, limit: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        if !alive(pid) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// A daemon that can be signalled but not spoken to: an old protocol version,
+/// or a socket that no longer exists to connect to.
+///
+/// Speaking v2 frames at a v1 daemon would be worse than saying nothing — the
+/// tag numbers are a separate space per version, so `C_KILL_ALL` could arrive
+/// as anything at all. What *is* portable across every version of it is the
+/// process. Killing the daemon closes the pty masters it holds, and the shells
+/// on the other side take their hangup from the kernel rather than from a
+/// protocol either side has to agree on.
+///
+/// Returns (shells still held, shells left running with no daemon).
+fn signal_only(d: &Daemon, kill: bool) -> (usize, usize) {
+    let sock = d.sock.as_path();
+    let Some(pid) = d.pid else {
+        // A socket with nothing behind it: left by a daemon that was killed
+        // outright and so never got to clean up after itself. Possibly by this
+        // very function, on an earlier run.
+        if kill {
+            let _ = std::fs::remove_file(sock);
+            println!("  {} — stale socket, removed", sock.display());
+        } else {
+            println!("  {} — stale socket, no daemon", sock.display());
+        }
+        return (0, 0);
+    };
+
+    let why = if d.version != Some(proto::VERSION) {
+        match d.version {
+            Some(v) => format!("it speaks protocol v{v} and this build speaks v{}", proto::VERSION),
+            None => "it speaks a protocol with no version in its name".to_string(),
+        }
+    } else {
+        format!("its socket is gone ({}), so nothing can connect to it", sock.display())
+    };
+    let shells = children_of(pid);
+
+    if !kill {
+        println!(
+            "  daemon {pid} — {} shell(s), out of reach: {why}",
+            shells.len()
+        );
+        return (shells.len(), 0);
+    }
+
+    signal(pid, "TERM");
+    if !wait_gone(pid, std::time::Duration::from_secs(2)) {
+        signal(pid, "KILL");
+        wait_gone(pid, std::time::Duration::from_secs(2));
+    }
+    if alive(pid) {
+        println!(
+            "  daemon {pid} — would not die; its {} shell(s) are still running",
+            shells.len()
+        );
+        return (shells.len(), 0);
+    }
+    let _ = std::fs::remove_file(sock);
+
+    // Whether the shells went with it is a claim about other people's
+    // processes, so it is checked rather than assumed. They are reparented the
+    // instant the daemon dies, which is why each is looked up by the pid taken
+    // before the kill and not by asking who their parent is now.
+    let mut left = shells.clone();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        left.retain(|p| alive(*p));
+        if left.is_empty() || std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    match (shells.len(), left.len()) {
+        (0, _) => println!("  daemon {pid} ended, holding nothing"),
+        (n, 0) => println!("  daemon {pid} ended, and {n} shell(s) with it"),
+        (n, _) => {
+            let pids: Vec<String> = left.iter().map(|p| p.to_string()).collect();
+            println!(
+                "  daemon {pid} ended; {} of {n} shell(s) outlived it: {}",
+                left.len(),
+                pids.join(", ")
+            );
+        }
+    }
+    (0, left.len())
 }
 
 /// Ask one daemon what it is holding. `None` if it is there but not answering,
@@ -389,16 +632,28 @@ fn ask(sock: &std::path::Path, kill: bool) -> Option<Vec<serde_json::Value>> {
 ///
 /// Never returns: both are terminal commands in both senses.
 pub fn cli(kill: bool) -> ! {
-    let sockets = all_sockets();
-    if sockets.is_empty() {
+    let daemons = all_daemons();
+    if daemons.is_empty() {
         println!("no zero terminal daemon running");
         std::process::exit(0);
     }
 
     let mut total = 0usize;
     let mut wedged = 0usize;
-    for sock in &sockets {
-        match ask(sock, kill) {
+    let mut stranded = 0usize;
+    let mut foreign_seen = 0usize;
+    for d in &daemons {
+        // One this build cannot talk to is a different problem with a different
+        // answer, and it is the orphan this command most needs to reach — see
+        // `signal_only`.
+        if !d.reachable() {
+            foreign_seen += 1;
+            let (held, left) = signal_only(d, kill);
+            total += held;
+            stranded += left;
+            continue;
+        }
+        match ask(&d.sock, kill) {
             Some(sessions) => {
                 total += sessions.len();
                 for s in &sessions {
@@ -417,25 +672,36 @@ pub fn cli(kill: bool) -> ! {
             // saying "no sessions" about it would be a lie.
             None => {
                 wedged += 1;
-                println!("  {} — not answering", sock.display());
+                println!("  {} — not answering", d.sock.display());
             }
         }
     }
 
+    // Each of these is a separate fact and they can all be true at once, so
+    // they are printed rather than collapsed into whichever one came first.
     if kill {
-        match (total, wedged) {
-            (0, 0) => println!("every zero terminal session ended"),
-            (n, 0) => println!("{n} session(s) would not end — the daemon is still holding them"),
-            (_, w) => println!("{w} daemon(s) never answered; their shells may still be running"),
+        if total == 0 && wedged == 0 && stranded == 0 {
+            println!("every zero terminal session ended");
         }
-    } else if total == 0 && wedged == 0 {
-        println!("daemon running, no sessions");
+        if total > 0 {
+            println!("{total} session(s) would not end — a daemon is still holding them");
+        }
+        if wedged > 0 {
+            println!("{wedged} daemon(s) never answered; their shells may still be running");
+        }
+        if stranded > 0 {
+            println!("{stranded} shell(s) outlived their daemon and are still running");
+        }
     } else {
-        println!("\n{total} session(s) across {} daemon(s)", sockets.len());
+        if total > 0 {
+            println!("\n{total} session(s) across {} daemon(s)", daemons.len());
+        }
         if wedged > 0 {
             println!("{wedged} not answering — end them with: zero --kill-sessions");
-        } else {
+        } else if total > 0 || foreign_seen > 0 {
             println!("end them all with: zero --kill-sessions");
+        } else {
+            println!("daemon running, no sessions");
         }
     }
     std::process::exit(0)
