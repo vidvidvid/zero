@@ -923,9 +923,6 @@ fn read_vocabulary(root: &str) -> Vocabulary {
     parse_vocabulary(&std::fs::read_to_string(vocabulary_path(root)).unwrap_or_default())
 }
 
-/// A seed derived from a README is a starting point, not an index of the
-/// project.
-const MAX_SEED_TERMS: usize = 20;
 /// Suggestions per memo. Cleanup is a suggestion box, not a bulk importer: a
 /// file that grows faster than it's read is a file nobody prunes.
 const MAX_SUGGESTIONS: usize = 5;
@@ -1796,7 +1793,7 @@ fn neutral_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 struct CleanupRequest<'a> {
-    prompt: String,
+    prompt: Prompt,
     cwd: PathBuf,
     slot: &'a Arc<ChildSlot>,
 }
@@ -1808,7 +1805,9 @@ struct CleanupRequest<'a> {
 /// this binary. An `ApiEngine` that posts to the Messages API instead would
 /// replace this function and [`run_claude`] beneath it and nothing else;
 /// that's the entire reason it's a function and not five lines inside
-/// [`cleanup_job`].
+/// [`cleanup_job`]. A [`Prompt`] is already the shape such an engine would
+/// post — a system string and a user message — so the seam is the same two
+/// halves on either side of it.
 fn clean_transcript(req: CleanupRequest) -> Result<String, String> {
     run_claude(ClaudeRun {
         prompt: req.prompt,
@@ -1820,7 +1819,7 @@ fn clean_transcript(req: CleanupRequest) -> Result<String, String> {
 }
 
 struct ClaudeRun<'a> {
-    prompt: String,
+    prompt: Prompt,
     cwd: PathBuf,
     slot: &'a Arc<ChildSlot>,
     timeout: Duration,
@@ -1835,54 +1834,32 @@ struct ClaudeRun<'a> {
 /// the same repaired PATH, the same neutral cwd, and the same promise that no
 /// child of ours outlives its timeout.
 ///
-/// The prompt goes on stdin, never argv: it's a transcript of whatever
-/// somebody said, or a whole README, and argv is neither large enough nor
-/// private enough for either.
+/// The two halves of the prompt travel differently, and the difference is the
+/// point. The instructions go on argv, as `--system-prompt`: they are text
+/// fixed at compile time, and argv is what `ps` shows every other process on
+/// the machine, which is fine for words that are in this file anyway. The
+/// message goes on stdin, never argv: it's a transcript of whatever somebody
+/// said, or a whole README, and argv is neither large enough nor private
+/// enough for either. The flag *replaces* the CLI's own system prompt rather
+/// than adding to it, and for a text-in, text-out task that is the right way
+/// round — the same reason the cwd is [`neutral_dir`]: none of the agent's
+/// instructions to itself have any business near a memo.
+///
+/// A `claude` too old to know the flag refuses it before doing anything else
+/// — `error: unknown option`, exit 1, no model call — and then the halves go
+/// the way they always went, as one message on stdin. Decided per call and
+/// never remembered: the second node start-up is the whole cost, and nothing
+/// is left believing an upgrade hasn't happened.
 fn run_claude(req: ClaudeRun) -> Result<String, String> {
-    let mut child = Command::new("claude")
-        .args([
-            "-p",
-            "--output-format",
-            "text",
-            // belt and braces: these are text-in, text-out tasks, and the cwd
-            // is ours, but neither of them has any business reading or writing
-            // anything at all
-            "--disallowedTools",
-            "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,NotebookEdit",
-        ])
-        .current_dir(&req.cwd)
-        .env("PATH", repaired_path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "claude isn't installed — the raw transcript is already yours".to_string()
-            } else {
-                e.to_string()
-            }
-        })?;
-
-    // written from its own thread: a long transcript can fill the pipe before
-    // claude has read any of it, and then both sides sit waiting for the other
-    // (the same trap `ignored_names` in git.rs steps around)
-    if let Some(mut sink) = child.stdin.take() {
-        let prompt = req.prompt;
-        std::thread::spawn(move || {
-            let _ = sink.write_all(prompt.as_bytes());
-        });
+    let ClaudeRun { prompt, cwd, slot, timeout, timed_out } = req;
+    let (mut out, mut run) =
+        spawn_claude(&cwd, slot, timeout, Some(prompt.system()), prompt.message.clone())?;
+    if !run.ok && !run.timed_out && lacks_system_prompt_flag(&run.stderr) {
+        (out, run) = spawn_claude(&cwd, slot, timeout, None, prompt.combined())?;
     }
 
-    let mut out = String::new();
-    let run = run_child(req.slot, child, req.timeout, |line| {
-        out.push_str(line);
-        out.push('\n');
-        None
-    })?;
-
     if run.timed_out {
-        return Err(req.timed_out.into());
+        return Err(timed_out.into());
     }
     if !run.ok {
         // claude puts most of its refusals on stdout, not stderr — an expired
@@ -1900,24 +1877,167 @@ fn run_claude(req: ClaudeRun) -> Result<String, String> {
     Ok(out)
 }
 
+/// Whether a failure is an older `claude` refusing `--system-prompt` — the one
+/// failure [`run_claude`] answers by trying again instead of reporting. Both
+/// halves of the test matter: commander says "unknown option" for any flag it
+/// has never heard of, and naming ours is what keeps a killed child or an
+/// expired login from ever passing for one.
+fn lacks_system_prompt_flag(stderr: &str) -> bool {
+    stderr.contains("unknown option") && stderr.contains("--system-prompt")
+}
+
+/// One spawn of `claude -p` and the wait for it: the flags every call gets,
+/// the system prompt when there is one, `stdin` written from its own thread,
+/// and whatever came back. What to make of the answer — a retry, an error, a
+/// memo — is [`run_claude`]'s business, because it may ask twice.
+fn spawn_claude(
+    cwd: &Path,
+    slot: &Arc<ChildSlot>,
+    timeout: Duration,
+    system: Option<&'static str>,
+    stdin: String,
+) -> Result<(String, Run), String> {
+    let mut command = Command::new("claude");
+    command.args([
+        "-p",
+        "--output-format",
+        "text",
+        // belt and braces: these are text-in, text-out tasks, and the cwd
+        // is ours, but neither of them has any business reading or writing
+        // anything at all
+        "--disallowedTools",
+        "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,NotebookEdit",
+    ]);
+    if let Some(system) = system {
+        // its own argument, not `--system-prompt=…`: the text is readable in
+        // `ps` either way, and this way it is readable by a person
+        command.args(["--system-prompt", system]);
+    }
+    let mut child = command
+        .current_dir(cwd)
+        .env("PATH", repaired_path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "claude isn't installed — the raw transcript is already yours".to_string()
+            } else {
+                e.to_string()
+            }
+        })?;
+
+    // written from its own thread: a long transcript can fill the pipe before
+    // claude has read any of it, and then both sides sit waiting for the other
+    // (the same trap `ignored_names` in git.rs steps around)
+    if let Some(mut sink) = child.stdin.take() {
+        std::thread::spawn(move || {
+            let _ = sink.write_all(stdin.as_bytes());
+        });
+    }
+
+    let mut out = String::new();
+    let run = run_child(slot, child, timeout, |line| {
+        out.push_str(line);
+        out.push('\n');
+        None
+    })?;
+    Ok((out, run))
+}
+
+// ── the prompts ──────────────────────────────────────────────────────────────
+
+/// Which of the three jobs a [`Prompt`] is for — distilling a recording,
+/// merging a follow-up into the document it was recorded onto, reading a
+/// README for a vocabulary — and, through [`Instructions::text`], the system
+/// prompt for it. Three and not one because they are three jobs with three
+/// output contracts: a seed that answered in the cleanup's shape would put a
+/// title into someone's glossary.
+///
+/// An enum over three `const`s rather than a `&'static str` field, and that is
+/// the whole of the rule about what may travel on argv: anything on it is
+/// readable by every other process on the machine, so nothing the user said or
+/// wrote may ever be there. A `'static` str *field* would be a convention —
+/// `String::leak` mints one from anything — where a closed choice between
+/// texts fixed at compile time has no slot a runtime string can reach.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Instructions {
+    Cleanup,
+    Merge,
+    Seed,
+}
+
+impl Instructions {
+    fn text(self) -> &'static str {
+        match self {
+            Instructions::Cleanup => CLEANUP_SYSTEM,
+            Instructions::Merge => MERGE_SYSTEM,
+            Instructions::Seed => SEED_SYSTEM,
+        }
+    }
+}
+
+/// A prompt in the two halves `claude` takes them: the instructions, which
+/// are the system prompt and the same every time, and the message, which is
+/// the user's — the vocabulary, the transcript, the document, the README —
+/// and goes on stdin.
+struct Prompt {
+    instructions: Instructions,
+    message: String,
+}
+
+impl Prompt {
+    fn system(&self) -> &'static str {
+        self.instructions.text()
+    }
+
+    /// Both halves as the one message they used to be, for a `claude` too old
+    /// to take a system prompt. Derived from the halves rather than kept as a
+    /// second copy of the words: two copies is two things that can drift, and
+    /// the one that drifted would be the one nobody runs.
+    fn combined(&self) -> String {
+        format!("{}\n\n{}", self.system(), self.message)
+    }
+}
+
 /// What the vocabulary is and what to do with it. Shared by both prompts,
 /// because there is one answer to that and it should not drift into two.
-const VOCABULARY_RULE: &str = "The project vocabulary below lists the correct spellings of proper nouns the transcription likely mangled — \
+///
+/// A macro rather than a `const`, here and for the trailer below it: the
+/// system prompts are assembled by `concat!`, which takes literals and nothing
+/// else, and a macro that expands to a literal is how a literal gets a name.
+macro_rules! vocabulary_rule {
+    () => {
+        "The message's `## Project vocabulary` section lists the correct spellings of proper nouns the transcription likely mangled — \
 restore them based on meaning, not blind find-and-replace: \
-an entry's mishearing may also occur as the ordinary word it sounds like, and only context tells them apart.";
+an entry's mishearing may also occur as the ordinary word it sounds like, and only context tells them apart."
+    };
+}
 
 /// The trailer both prompts end with: the marker, the shape of a line behind
 /// it, and silence when there is nothing to say. Shared for a sharper reason
 /// than the rule above — [`split_suggestions`] parses exactly this contract,
 /// and a second copy of it is a second thing that can stop matching the parser.
-const VOCABULARY_TRAILER: &str = "Then, and only if there were any: after the memo, list the proper nouns you corrected — or are confident should have been \
+macro_rules! vocabulary_trailer {
+    () => {
+        "Then, and only if there were any: after the memo, list the proper nouns you corrected — or are confident should have been \
 corrected and could not be — that are not already in the project vocabulary. \
 Write a line containing exactly `---vocabulary---`, then one line per term in the vocabulary's own shape, \
 `- Term — misheard as: X`. \
 Ordinary dictionary words are never vocabulary and never go there. \
-When there are no such terms, output nothing at all after the memo: no marker, no empty section.";
+When there are no such terms, output nothing at all after the memo: no marker, no empty section."
+    };
+}
 
-/// A vocabulary section is always in the prompt, even when the file is empty,
+/// The same two as values, for the tests that hold every prompt to them; the
+/// prompts themselves take the literals.
+#[cfg(test)]
+const VOCABULARY_RULE: &str = vocabulary_rule!();
+#[cfg(test)]
+const VOCABULARY_TRAILER: &str = vocabulary_trailer!();
+
+/// A vocabulary section is always in the message, even when the file is empty,
 /// so the model is never left guessing whether one was meant to be there.
 fn vocabulary_or_none(vocabulary: &str) -> &str {
     if vocabulary.trim().is_empty() {
@@ -1927,15 +2047,15 @@ fn vocabulary_or_none(vocabulary: &str) -> &str {
     }
 }
 
-/// The prompt, assembled. Kept as one function so the exact words are in one
-/// place and a test can hold them to it.
-fn cleanup_prompt(vocabulary: &str, transcript: &str) -> String {
-    let vocabulary = vocabulary_or_none(vocabulary);
-    format!(
-        "Clean up this voice-memo transcript.\n\
+/// The cleanup instructions. Assembled at compile time so the exact words are
+/// in one place and a test can hold them to it — and so that nothing assembled
+/// at run time can be in them.
+const CLEANUP_SYSTEM: &str = concat!(
+    "Clean up the voice-memo transcript in the message's `## Transcript` section.\n\
 \n\
-The transcript was produced by speech-to-text and contains recognition errors. \
-{VOCABULARY_RULE}\n\
+The transcript was produced by speech-to-text and contains recognition errors. ",
+    vocabulary_rule!(),
+    "\n\
 \n\
 The speaker is thinking out loud: they reason with themselves, change their mind, and correct \
 themselves as they go — a later statement often supersedes an earlier one. \
@@ -1950,37 +2070,39 @@ If a span is too garbled to interpret, mark it [unclear].\n\
 \n\
 Output Markdown. The first line must be `# ` followed by a 3–6 word title naming what the memo is about. \
 Then the distilled memo. No preamble, no commentary, no code fences around the whole output.\n\
-\n\
-{VOCABULARY_TRAILER}\n\
-\n\
-## Project vocabulary\n\
-\n\
-{vocabulary}\n\
-\n\
-## Transcript\n\
-\n\
-{transcript}\n"
-    )
+\n",
+    vocabulary_trailer!()
+);
+
+/// The cleanup prompt: [`CLEANUP_SYSTEM`], and a message that is the
+/// vocabulary and the transcript under the two headings those instructions
+/// name. One function, so a test can hold the message's shape to it.
+fn cleanup_prompt(vocabulary: &str, transcript: &str) -> Prompt {
+    let vocabulary = vocabulary_or_none(vocabulary);
+    Prompt {
+        instructions: Instructions::Cleanup,
+        message: format!("## Project vocabulary\n\n{vocabulary}\n\n## Transcript\n\n{transcript}\n"),
+    }
 }
 
 /// The other half of the pipeline's second stage: the same pass, run on a memo
 /// that already has a document, with a follow-up recorded on top of it.
 ///
-/// Same rule as [`cleanup_prompt`] — the exact words live in one function and a
+/// Same rule as [`CLEANUP_SYSTEM`] — the exact words live in one place and a
 /// test holds them to it — and the same two contracts at the end, because the
 /// answer is parsed by exactly the same code. What differs is what the model is
 /// being asked for: not a distillation of one recording, but the document as it
 /// now stands, with the follow-up treated as instructions for revising it.
-fn merge_prompt(vocabulary: &str, document: &str, transcript: &str) -> String {
-    let vocabulary = vocabulary_or_none(vocabulary);
-    format!(
-        "Revise this document with the follow-up voice memo recorded on top of it.\n\
+const MERGE_SYSTEM: &str = concat!(
+    "Revise the current document with the follow-up voice memo recorded on top of it.\n\
 \n\
-The follow-up transcript was produced by speech-to-text and contains recognition errors. \
-{VOCABULARY_RULE}\n\
+The follow-up transcript was produced by speech-to-text and contains recognition errors. ",
+    vocabulary_rule!(),
+    "\n\
 \n\
-Below are the current document distilled from this memo so far, and the transcript of a follow-up recording \
-made on top of it. The follow-up is a spec for revising the document: work out, silently, what it adds, \
+The message's `## Current document` section is the document distilled from this memo so far, and \
+`## Follow-up transcript` is the transcript of a follow-up recording made on top of it. \
+The follow-up is a spec for revising the document: work out, silently, what it adds, \
 changes, answers, or withdraws. Where it conflicts with the document, the follow-up wins. \
 Statements in it resolve the document's open questions where they do; questions that remain stay open. \
 The follow-up is itself someone thinking out loud — they reason with themselves and correct themselves as they go — \
@@ -1995,21 +2117,21 @@ Keep the existing title unless the subject has genuinely moved.\n\
 \n\
 Output Markdown. The first line must be `# ` followed by the title, 3–6 words naming what the memo is about. \
 Then the revised document. No preamble, no commentary, no code fences around the whole output.\n\
-\n\
-{VOCABULARY_TRAILER}\n\
-\n\
-## Project vocabulary\n\
-\n\
-{vocabulary}\n\
-\n\
-## Current document\n\
-\n\
-{document}\n\
-\n\
-## Follow-up transcript\n\
-\n\
-{transcript}\n"
-    )
+\n",
+    vocabulary_trailer!()
+);
+
+/// The merge prompt: [`MERGE_SYSTEM`], and a message carrying the vocabulary,
+/// the document as the user left it, and the follow-up's transcript, each under
+/// the heading the instructions call it by.
+fn merge_prompt(vocabulary: &str, document: &str, transcript: &str) -> Prompt {
+    let vocabulary = vocabulary_or_none(vocabulary);
+    Prompt {
+        instructions: Instructions::Merge,
+        message: format!(
+            "## Project vocabulary\n\n{vocabulary}\n\n## Current document\n\n{document}\n\n## Follow-up transcript\n\n{transcript}\n"
+        ),
+    }
 }
 
 /// How much README the seed prompt carries. A file that hasn't named the
@@ -2020,27 +2142,40 @@ const MAX_README: usize = 24 * 1024;
 /// nothing waits on it, so the ceiling is only there to stop a wedged call
 /// from keeping a process alive for the afternoon.
 const SEED_TIMEOUT: Duration = Duration::from_secs(120);
+/// A seed derived from a README is a starting point, not an index of the
+/// project. A macro for the reason the rule and the trailer are: the seed
+/// instructions quote the number, and `concat!` will take it from a literal
+/// and from nothing else.
+macro_rules! max_seed_terms {
+    () => {
+        20
+    };
+}
+const MAX_SEED_TERMS: usize = max_seed_terms!();
 
-/// The other prompt. Same rule as [`cleanup_prompt`]: the exact words live in
-/// one function, and a test holds them to it.
-fn seed_prompt(readme: &str) -> String {
-    let readme = head(readme, MAX_README);
-    format!(
-        "From this README, list the proper nouns and project-specific terms that a speech transcriber would plausibly mangle.\n\
+/// The seed instructions. Same rule as [`CLEANUP_SYSTEM`]: the exact words
+/// live in one place, and a test holds them to it.
+const SEED_SYSTEM: &str = concat!(
+    "From the README in the message's `## README` section, list the proper nouns and project-specific terms \
+that a speech transcriber would plausibly mangle.\n\
 \n\
 Product, company, library and tool names; people's names; invented words; unusual spellings or capitalisation; \
 anything a dictation engine would hear as the ordinary word it sounds like. \
 Skip ordinary dictionary words — a term earns a line only because getting it wrong would be noticeable.\n\
 \n\
 Output one term per line, exactly: `- Term — one short hint about how it is likely to be misheard`. \
-At most {MAX_SEED_TERMS} lines, the most distinctive first. \
+At most ",
+    max_seed_terms!(),
+    " lines, the most distinctive first. \
 Output only those lines: no preamble, no heading, no commentary, no code fences. \
-If the README names nothing worth listing, output nothing at all.\n\
-\n\
-## README\n\
-\n\
-{readme}\n"
-    )
+If the README names nothing worth listing, output nothing at all."
+);
+
+/// The seed prompt: [`SEED_SYSTEM`], and a message that is the README — the
+/// first [`MAX_README`] bytes of it — under the one heading it names.
+fn seed_prompt(readme: &str) -> Prompt {
+    let readme = head(readme, MAX_README);
+    Prompt { instructions: Instructions::Seed, message: format!("## README\n\n{readme}\n") }
 }
 
 /// The first `max` bytes of `text`, cut where a character ends rather than
@@ -3246,26 +3381,48 @@ plain prose, which is fine";
 
     /// The prompt is the feature: it is the only thing that knows this project
     /// is called zero, and the only layer that can fix a mishearing which is
-    /// also a real word.
+    /// also a real word. It comes in two halves — the instructions, which never
+    /// change, and the message, which is all the user's — so each is held to
+    /// its own shape, and the seam between them to the blob it replaced.
     #[test]
     fn prompt_carries_the_vocabulary_and_the_transcript() {
         let prompt = cleanup_prompt("- TRMNL — misheard as: terminal", "so the terminal firmware");
+        let system = prompt.system();
 
-        assert!(prompt.starts_with("Clean up this voice-memo transcript.\n"));
-        assert!(prompt.contains("not blind find-and-replace"));
+        assert!(system.starts_with(
+            "Clean up the voice-memo transcript in the message's `## Transcript` section.\n"
+        ));
+        assert!(system.contains("not blind find-and-replace"));
         // the distillation contract: self-corrections resolve to where they landed
-        assert!(prompt.contains("keep only the final position"));
-        assert!(prompt.contains("mark it [unclear]"));
-        assert!(prompt.contains("3–6 word title"));
+        assert!(system.contains("keep only the final position"));
+        assert!(system.contains("mark it [unclear]"));
+        assert!(system.contains("3–6 word title"));
         // the trailing section: what cleanup noticed and the vocabulary lacks
-        assert!(prompt.contains("Write a line containing exactly `---vocabulary---`"));
-        assert!(prompt.contains("Ordinary dictionary words are never vocabulary"));
-        assert!(prompt.contains("no marker, no empty section"));
-        assert!(prompt.contains("## Project vocabulary\n\n- TRMNL — misheard as: terminal\n"));
-        assert!(prompt.contains("## Transcript\n\nso the terminal firmware\n"));
+        assert!(system.contains("Write a line containing exactly `---vocabulary---`"));
+        assert!(system.contains("Ordinary dictionary words are never vocabulary"));
+        assert!(system.contains("no marker, no empty section"));
+        // the instructions name the message's sections rather than pointing
+        // at them — "below" stopped meaning anything once the halves came apart
+        assert!(system.contains("`## Project vocabulary` section"));
+        assert!(system.contains("`## Transcript` section"));
+
+        // the message is the user's words under those headings, and only that
+        assert_eq!(
+            prompt.message,
+            "## Project vocabulary\n\n- TRMNL — misheard as: terminal\n\n## Transcript\n\nso the terminal firmware\n"
+        );
         // the vocabulary section always exists, even empty, so the model is
         // never left guessing whether one was meant to be there
-        assert!(cleanup_prompt("   ", "hello").contains("## Project vocabulary\n\n(none provided)\n"));
+        assert!(cleanup_prompt("   ", "hello").message.contains("## Project vocabulary\n\n(none provided)\n"));
+        // and none of it is in the half that travels on argv
+        assert!(!system.contains("TRMNL") && !system.contains("terminal firmware"));
+
+        // the fallback blob is the two halves and nothing else, in the order
+        // they were always in: the instructions, a blank line, the sections
+        let combined = prompt.combined();
+        assert!(combined.starts_with(system));
+        assert!(combined.ends_with(&prompt.message));
+        assert_eq!(combined, format!("{system}\n\n{}", prompt.message));
 
         assert_eq!(title_from_md("# Voice memos in zero\n\nbody").as_deref(), Some("Voice memos in zero"));
         assert_eq!(title_from_md("\n\n#  spaced  \n").as_deref(), Some("spaced"));
@@ -3283,26 +3440,34 @@ plain prose, which is fine";
             "# The panel\n\n- one row per memo\n\nOpen: where the button goes.",
             "actually put the button at the bottom",
         );
+        let system = prompt.system();
 
-        assert!(prompt.starts_with("Revise this document with the follow-up voice memo"));
+        assert!(system.starts_with("Revise the current document with the follow-up voice memo"));
         // the follow-up is a spec, and it outranks what it was recorded onto
-        assert!(prompt.contains("The follow-up is a spec for revising the document"));
-        assert!(prompt.contains("Where it conflicts with the document, the follow-up wins"));
-        assert!(prompt.contains("resolve the document's open questions"));
+        assert!(system.contains("The follow-up is a spec for revising the document"));
+        assert!(system.contains("Where it conflicts with the document, the follow-up wins"));
+        assert!(system.contains("resolve the document's open questions"));
         // and it is a ramble too, so it gets the ramble rule
-        assert!(prompt.contains("only its final positions count"));
+        assert!(system.contains("only its final positions count"));
         // the output is the whole thing, not the difference
-        assert!(prompt.contains("not a delta, not a changelog, not commentary on what changed"));
-        assert!(prompt.contains("currently in force"));
-        assert!(prompt.contains("Do not add content that is in neither the document nor the follow-up"));
-        assert!(prompt.contains("Keep the existing title unless the subject has genuinely moved"));
-        assert!(prompt.contains("mark it [unclear]"));
+        assert!(system.contains("not a delta, not a changelog, not commentary on what changed"));
+        assert!(system.contains("currently in force"));
+        assert!(system.contains("Do not add content that is in neither the document nor the follow-up"));
+        assert!(system.contains("Keep the existing title unless the subject has genuinely moved"));
+        assert!(system.contains("mark it [unclear]"));
+        // it says which section is which by name, since it can't point
+        assert!(system.contains("`## Current document` section is the document distilled from this memo so far"));
+        assert!(system.contains("`## Follow-up transcript` is the transcript of a follow-up recording"));
 
-        // both halves are in there, under headings that say which is which
-        assert!(prompt.contains("## Current document\n\n# The panel\n"));
-        assert!(prompt.contains("## Follow-up transcript\n\nactually put the button at the bottom\n"));
-        assert!(prompt.contains("## Project vocabulary\n\n- TRMNL — misheard as: terminal\n"));
-        assert!(merge_prompt("  ", "# A doc", "words").contains("## Project vocabulary\n\n(none provided)\n"));
+        // both halves are in the message, under headings that say which is which
+        assert_eq!(
+            prompt.message,
+            "## Project vocabulary\n\n- TRMNL — misheard as: terminal\n\n\
+             ## Current document\n\n# The panel\n\n- one row per memo\n\nOpen: where the button goes.\n\n\
+             ## Follow-up transcript\n\nactually put the button at the bottom\n"
+        );
+        assert!(merge_prompt("  ", "# A doc", "words").message.contains("## Project vocabulary\n\n(none provided)\n"));
+        assert_eq!(prompt.combined(), format!("{system}\n\n{}", prompt.message));
 
         // The two prompts answer in the same shape, because one parser reads
         // both answers: the `# ` line, then the memo, then the marker and the
@@ -3311,11 +3476,40 @@ plain prose, which is fine";
         // a glossary in someone's document.
         let cleanup = cleanup_prompt("- TRMNL — misheard as: terminal", "so the terminal firmware");
         for shared in [VOCABULARY_RULE, VOCABULARY_TRAILER] {
-            assert!(prompt.contains(shared));
-            assert!(cleanup.contains(shared));
+            assert!(system.contains(shared));
+            assert!(cleanup.system().contains(shared));
         }
-        assert!(prompt.contains("The first line must be `# `"));
-        assert!(prompt.contains("No preamble, no commentary, no code fences"));
+        assert!(system.contains("The first line must be `# `"));
+        assert!(system.contains("No preamble, no commentary, no code fences"));
+    }
+
+    /// One sentence of the instructions is not prose but a contract:
+    /// [`split_suggestions`] cuts the answer on the marker it names. So the
+    /// sentence is pinned to that marker, byte for byte, in both prompts whose
+    /// answers are parsed that way — and kept out of the one whose answer isn't.
+    #[test]
+    fn the_marker_contract_is_one_sentence_in_both_prompts() {
+        let contract = format!(
+            "Write a line containing exactly `{VOCABULARY_MARKER}`, then one line per term in the vocabulary's own shape, \
+             `- Term — misheard as: X`."
+        );
+        assert!(VOCABULARY_TRAILER.contains(&contract));
+        for parsed in [Instructions::Cleanup, Instructions::Merge] {
+            assert!(parsed.text().contains(&contract), "{parsed:?}");
+        }
+        assert!(!Instructions::Seed.text().contains(VOCABULARY_MARKER), "a glossary has no memo to come after");
+    }
+
+    /// An older `claude` refuses the flag before it does anything else, and
+    /// that refusal — and only that — is what sends the prompt the old way.
+    #[test]
+    fn an_old_cli_that_lacks_the_flag_is_recognised() {
+        // what commander prints, verbatim, for a flag it has never heard of
+        assert!(lacks_system_prompt_flag("error: unknown option '--system-prompt'\n"));
+        assert!(!lacks_system_prompt_flag(""));
+        assert!(!lacks_system_prompt_flag("Failed to authenticate. Please run /login."));
+        // some other flag going missing is a bug in this file, not an old CLI
+        assert!(!lacks_system_prompt_flag("error: unknown option '--disallowedTools'\n"));
     }
 
     /// The seed asks for a glossary and nothing else — a preamble would be a
@@ -3323,21 +3517,23 @@ plain prose, which is fine";
     #[test]
     fn seed_prompt_asks_the_readme_for_lines_and_nothing_else() {
         let prompt = seed_prompt("# zero\n\nA terminal by Anthropic, sort of.\n");
+        let system = prompt.system();
 
-        assert!(prompt.starts_with("From this README, list the proper nouns"));
-        assert!(prompt.contains("a speech transcriber would plausibly mangle"));
-        assert!(prompt.contains("Skip ordinary dictionary words"));
-        assert!(prompt.contains("`- Term — one short hint"));
-        assert!(prompt.contains("At most 20 lines"), "the cap the parser also applies");
-        assert!(prompt.contains("no preamble, no heading, no commentary, no code fences"));
-        assert!(prompt.contains("## README\n\n# zero\n\nA terminal by Anthropic, sort of.\n"));
+        assert!(system.starts_with("From the README in the message's `## README` section, list the proper nouns"));
+        assert!(system.contains("a speech transcriber would plausibly mangle"));
+        assert!(system.contains("Skip ordinary dictionary words"));
+        assert!(system.contains("`- Term — one short hint"));
+        assert!(system.contains(&format!("At most {MAX_SEED_TERMS} lines")), "the cap the parser also applies");
+        assert!(system.contains("no preamble, no heading, no commentary, no code fences"));
+        assert_eq!(prompt.message, "## README\n\n# zero\n\nA terminal by Anthropic, sort of.\n\n");
+        assert_eq!(prompt.combined(), format!("{system}\n\n{}", prompt.message));
 
         // a README past the cap is cut, and cut between characters rather than
         // through one — a truncated é is not a string
         assert_eq!(head("short enough", 64), "short enough");
         let huge = format!("x{}", "é".repeat(MAX_README));
         assert_eq!(head(&huge, MAX_README).len(), MAX_README - 1);
-        assert!(seed_prompt(&huge).len() < huge.len());
+        assert!(seed_prompt(&huge).message.len() < huge.len());
     }
 
     /// Cleanup answers with a memo and, sometimes, the words it had to fix.
